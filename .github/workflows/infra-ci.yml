@@ -1,0 +1,85 @@
+---
+name: infra-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  TOFU_VERSION: "1.12.6"
+  TFLINT_VERSION: "0.64.0"
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  # Single source of truth for: gitleaks, yamllint, actionlint, whitespace/eof,
+  # tofu fmt, vault-encryption check, ansible-lint (all via .pre-commit-config.yaml).
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans full history
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install pre-commit==4.6.2
+      - run: pre-commit run --all-files --show-diff-on-failure
+
+  tofu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+      - run: |
+          set -euo pipefail
+          cd terraform
+          tofu init -backend=false -input=false
+          tofu validate
+
+  tflint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install tflint (checksum-verified)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sfLO "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip"
+          curl -sfLO "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/checksums.txt"
+          grep "tflint_linux_amd64.zip$" checksums.txt | sha256sum -c -
+          unzip -o -j tflint_linux_amd64.zip tflint
+          install -m 0755 tflint /usr/local/bin/tflint
+      - run: tflint --recursive
+
+  ansible-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ansible-core==2.21.3 ansible-lint==26.8.0
+      - name: ansible-lint (production profile)
+        run: |
+          set -euo pipefail
+          if [ -d ansible/roles ] && [ -n "$(ls -A ansible/roles)" ]; then
+            ansible-lint
+          else
+            echo "No roles yet (phase 4+); skipping"
+          fi
+
+  molecule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Placeholder
+        run: echo "Per-role Molecule jobs (podman driver) are added from phase 4."
