@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# NON-SECRET values only - secrets come from the ansible vault at apply time
+# (mask tofu-plan / mask tofu-apply export TF_VAR_* into the process env).
+
+# --- GitHub policy module (phase 2) ---------------------------------------------
+github_owner = "YOUR_ORG_OR_USER" # TODO(you)
+# github_repos = ["veggie", ...]  # TODO(you): variable arrives with the module in phase 2
+
+# --- OVH Public Cloud scaffold (phase 3; gated, never applied) --------------------
+# enable_ovh      = false         # do NOT enable before the ADR 0002 migration plan
+# openstack_cloud = "ovh"         # entry in ~/.config/openstack/clouds.yaml
