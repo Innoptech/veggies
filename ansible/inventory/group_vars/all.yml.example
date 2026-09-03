@@ -1,0 +1,39 @@
+---
+# Copy this file to all.yml and fill in the placeholders. all.yml is gitignored.
+# NON-SECRET values only. Secrets live in secrets/*.yml (ansible-vault).
+# Legend: TODO(you)     = you must supply the value before the noted phase
+#         TODO(verify)  = uncertain upstream detail, verify against docs first
+
+# --- Identity / access ----------------------------------------------------------
+admin_user: fedora # OVH Fedora image default user, kept as the admin account
+admin_ssh_public_keys: [] # TODO(you): e.g. ["ssh-ed25519 AAAA... you@workstation"]
+
+# --- Tailscale (phase 4) ---------------------------------------------------------
+tailscale_tailnet: "REPLACE_ME.ts.net" # TODO(you): tailnet name
+tailscale_tag: "tag:agent-host" # TODO(you): ACL tag for this node
+tailscale_hostname: garden
+
+# --- GitHub runner (phase 5) -----------------------------------------------------
+github_owner: "YOUR_ORG_OR_USER" # TODO(you)
+github_repos: [] # TODO(you): e.g. ["veggie", "data-pipelines"]
+github_runner_labels: [self-hosted, linux, x64, garden]
+github_runner_count: 2 # sized for 6 vCPU / 12 GB
+github_runner_memory_max: 4G # per-runner cap (2 x 4G leaves host headroom)
+github_runner_cpu_quota: "250%" # per-runner cap (2 x 250% of 600% total)
+
+# --- Model routing / egress (phases 6-7) ------------------------------------------
+# Fireworks-only for now; add provider endpoints here when adding keys to
+# secrets/model.yml. Both lists feed the egress allowlist (ADR 0006/0011).
+egress_model_endpoints:
+  - api.fireworks.ai
+egress_allowlist_extra: [] # TODO(you): extra domains if ever needed
+
+# --- Backup / cleanup (phase 8) ----------------------------------------------------
+backup_retention_daily: 7
+backup_retention_weekly: 4
+backup_repo: "s3:https://s3.REPLACE_ME.cloud.ovh.net/REPLACE_ME" # TODO(you): bucket + endpoint
+cleanup_disk_alert_percent: 80
+cleanup_alert_webhook: "" # optional; empty = log only
+
+# --- opencode (phase 6) -------------------------------------------------------------
+opencode_config_repo: "" # optional external override; default: vendored agent-config/
