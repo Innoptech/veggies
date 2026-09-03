@@ -1,5 +1,9 @@
 ---
 extends: default
+# Raw terraform templates contain $${{ }} escapes and are not valid YAML until
+# rendered; the rendered output is what actionlint checks in project repos.
+ignore: |
+  terraform/**/templates/
 rules:
   line-length:
     max: 160

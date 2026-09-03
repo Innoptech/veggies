@@ -11,7 +11,7 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phase 1/9 (skeleton). See the phase map and the pending-values list below.
+Phase 2/9 (GitHub policy module). See the phase map and the pending-values list below.
 
 ## Architecture at a glance
 

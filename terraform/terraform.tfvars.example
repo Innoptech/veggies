@@ -3,8 +3,23 @@
 # (mask tofu-plan / mask tofu-apply export TF_VAR_* into the process env).
 
 # --- GitHub policy module (phase 2) ---------------------------------------------
-github_owner = "YOUR_ORG_OR_USER" # TODO(you)
-# github_repos = ["veggie", ...]  # TODO(you): variable arrives with the module in phase 2
+github_owner    = "YOUR_ORG_OR_USER" # TODO(you)
+github_repos    = ["REPLACE_ME"]     # TODO(you): e.g. ["veggie", "data-pipelines"]
+admin_login     = "YOUR_LOGIN"       # TODO(you): the human reviewer
+required_checks = ["pre-commit"]     # TODO(you): must match the repos' CI check names
+# The bot's identity lives in secrets/github.yml; the policy excludes it from
+# review counting via require_code_owner_reviews, not via a login variable.
+
+# actions_secrets is sensitive and comes from the vault - but if you need to
+# pass repo secrets manually, the shape is:
+# actions_secrets = { "veggie" = { "SOME_TOKEN" = "..." } }
+
+# Optional org runner group (organizations only):
+# runner_group_name = "garden-runners"
+
+# Opt-in: push the needs-team-review labeller to a side branch per repo
+# (merge the PR yourself - direct pushes would bypass this very policy):
+# manage_label_workflow = true
 
 # --- OVH Public Cloud scaffold (phase 3; gated, never applied) --------------------
 # enable_ovh      = false         # do NOT enable before the ADR 0002 migration plan

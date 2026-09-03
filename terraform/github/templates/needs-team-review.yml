@@ -1,0 +1,27 @@
+---
+# Managed by the infra repo (terraform/github/templates/). Do not edit in this
+# repository; change it there and re-run tofu. Applies the needs-team-review
+# label when a PR touches sensitive paths. A human removes the label after
+# reviewing those changes.
+name: needs-team-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+%{ for p in paths ~}
+      - "${p}"
+%{ endfor ~}
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply label
+        env:
+          GH_TOKEN: $${{ secrets.GITHUB_TOKEN }}
+          PR_URL: $${{ github.event.pull_request.html_url }}
+        run: gh pr edit "$PR_URL" --add-label needs-team-review
