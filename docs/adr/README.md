@@ -6,13 +6,13 @@ file. Never edit a decided ADR - write a new one that supersedes it.
 | ADR | Title | Status | Phase |
 |-----|-------|--------|-------|
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | accepted | 1 |
-| 0002 | OVH Public Cloud over VPS (target architecture) | proposed | 3 |
+| [0002](0002-public-cloud-over-vps.md) | OVH Public Cloud over VPS (target architecture) | accepted (deferred) | 3 |
 | 0003 | Tailscale-only network access | proposed | 4 |
 | 0004 | Secrets in git via ansible-vault (supersedes the brief's sops+age) | accepted | 1 |
 | 0005 | Ephemeral containerised GitHub runners | proposed | 5 |
 | 0006 | Egress allowlist: squid proxy + per-UID nftables | proposed | 7 |
 | [0007](0007-github-policy-as-code.md) | GitHub policy as code | accepted | 2 |
-| 0008 | Interim platform: manually-rented VPS, Fedora 44, local state | accepted | 1 |
+| [0008](0008-interim-platform-vps-fedora-local-state.md) | Interim platform: manually-rented VPS, Fedora 44, local state | accepted | 1 |
 | 0009 | Rootless Podman + Quadlet instead of Docker | accepted | 1 |
 | 0010 | CrowdSec + auditd instead of fail2ban | accepted | 4 |
 | 0011 | LiteLLM gateway as the model router; keys held only by the proxy | accepted | 6 |

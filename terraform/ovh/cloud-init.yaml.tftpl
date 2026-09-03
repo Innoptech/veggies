@@ -1,0 +1,19 @@
+#cloud-config
+# Minimal by design (ADR 0002): just enough for Ansible to take over.
+# Everything else is ansible/roles/base.
+users:
+  - name: ${admin_user}
+    groups: [wheel]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+package_update: true
+packages:
+  - python3 # ansible target requirement
+  - python3-libselinux # SELinux-aware ansible modules under Enforcing
+
+sshd_config:
+  PasswordAuthentication: false
+  PermitRootLogin: "no"

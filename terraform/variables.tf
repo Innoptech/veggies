@@ -60,11 +60,50 @@ variable "manage_label_workflow" {
   default     = false
 }
 
-# enable_ovh returns in phase 3 together with the ovh/ module that consumes it.
-# Declaring unused variables trips tflint's terraform_unused_declarations.
+variable "enable_ovh" {
+  type        = bool
+  description = "Gate for the scaffolded Public Cloud module (ADRs 0002, 0008). Keep false until the migration is planned."
+  default     = false
+}
 
 variable "openstack_cloud" {
   type        = string
-  description = "clouds.yaml entry name for the OpenStack provider (scaffold only, phase 3)."
+  description = "clouds.yaml entry name for the OpenStack provider (scaffold only)."
   default     = null
+}
+
+variable "ovh_region" {
+  type        = string
+  description = "OVH Public Cloud region for the scaffold (e.g. GRA11, SBG5, BHS5)."
+  default     = "" # TODO(you)
+}
+
+variable "ovh_flavor_name" {
+  type        = string
+  description = "Flavor matching 8 vCPU / 16 GB in the chosen region (scaffold only)."
+  default     = "" # TODO(you) + TODO(verify): against the region catalog
+}
+
+variable "ovh_image_name" {
+  type        = string
+  description = "Boot image name for the scaffold."
+  default     = "Fedora 44" # TODO(verify): exact catalog name in the chosen region
+}
+
+variable "ovh_ssh_public_key" {
+  type        = string
+  description = "Admin SSH public key for the scaffold's cloud-init."
+  default     = "" # TODO(you)
+}
+
+variable "ovh_admin_cidr" {
+  type        = string
+  description = "Temporary SSH source /32 for the bootstrap window (scaffold only)."
+  default     = "" # TODO(you)
+}
+
+variable "ovh_volume_size_gb" {
+  type        = number
+  description = "Data volume size for the scaffold."
+  default     = 200
 }

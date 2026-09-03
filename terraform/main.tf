@@ -15,11 +15,18 @@ module "github" {
   manage_label_workflow = var.manage_label_workflow
 }
 
-# Phase 3 scaffold - the module directory does not exist yet, so this call is
-# commented out deliberately. Phase 3 adds terraform/ovh/ and enables this.
-# module "ovh" {
-#   source = "./ovh"
-#   count  = var.enable_ovh ? 1 : 0
-#
-#   openstack_cloud = var.openstack_cloud
-# }
+# Scaffold only (ADRs 0002, 0008): enable_ovh stays false while garden is a
+# manually-rented VPS. Enabling is the reviewed migration plan, not an impulse.
+module "ovh" {
+  source = "./ovh"
+  count  = var.enable_ovh ? 1 : 0
+
+  # The openstack provider (var.openstack_cloud) is configured at this level
+  # and inherited by the module.
+  region         = var.ovh_region
+  flavor_name    = var.ovh_flavor_name
+  image_name     = var.ovh_image_name
+  ssh_public_key = var.ovh_ssh_public_key
+  admin_cidr     = var.ovh_admin_cidr
+  volume_size_gb = var.ovh_volume_size_gb
+}
