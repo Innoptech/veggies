@@ -1,0 +1,9 @@
+---
+profile: production
+exclude_paths:
+  - .venv/
+  - .cache/
+  - .pytest_cache/
+  - secrets/ # vault-encrypted files are not parseable YAML by design
+  - agent-config/superpowers/ # vendored upstream, not ours to lint
+  - "**/molecule/**/.molecule/"

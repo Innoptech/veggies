@@ -1,0 +1,40 @@
+# --- OpenTofu / Terraform -----------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# NOTE: .terraform.lock.hcl is intentionally NOT ignored - lock files are committed.
+
+# --- Ansible / vault safety nets ------------------------------------------------
+# Vault files are meant to be committed ENCRYPTED. These patterns catch mistakes:
+*.dec.yml
+*.dec.yaml
+vault-password
+.vault-password
+
+# Environment-specific, non-secret vars (copy from all.yml.example)
+ansible/inventory/group_vars/all.yml
+
+# --- Python ---------------------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Molecule / Ansible caches ----------------------------------------------------
+.cache/
+**/.molecule/
+ansible/*.retry
+
+# --- OS / editors -----------------------------------------------------------------
+.DS_Store
+*~

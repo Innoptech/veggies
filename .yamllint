@@ -1,0 +1,18 @@
+---
+extends: default
+rules:
+  line-length:
+    max: 160
+    level: warning
+  truthy:
+    allowed-values: ["true", "false"]
+  comments:
+    min-spaces-from-content: 1
+  # The four settings below are required by ansible-lint's yaml rule when a
+  # custom .yamllint exists (see docs.ansible.com/projects/lint/rules/yaml/).
+  comments-indentation: disable
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
