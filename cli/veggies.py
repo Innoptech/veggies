@@ -30,126 +30,33 @@ from pathlib import Path
 
 import yaml
 
-# --- Pins (drift-guarded against the Ansible roles by tests) ---------------------
-
-IMAGE_LITELLM = "ghcr.io/berriai/litellm:v1.99.1"  # roles/litellm/defaults
-IMAGE_SQUID = "localhost/squid:latest"  # roles/egress/files/squid.Containerfile
-# Derived image (official + git, deploy/images/opencode.Containerfile); the
-# official one has no git (verified 2026-09-04). Base pinned by tag+digest.
-IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
-
-OPENCODE_CONTAINER_PORT = 4096
-OPENCODE_PORT_BASE = 4096  # host ports allocated from here, first free
-LITELLM_PORT = 4000  # pod-internal only, never published
-SQUID_PORT = 3128  # pod-internal only, never published
-
-PROXY_URL = f"http://127.0.0.1:{SQUID_PORT}"
-LITELLM_BASE_URL = f"http://127.0.0.1:{LITELLM_PORT}/v1"
-
-MEMORY_LIMITS = {"opencode": "512Mi", "litellm": "768Mi", "squid": "128Mi"}
-
-# Mirrors roles/egress/defaults/main.yml (egress_allowlist_base) - drift test
-# enforces equality. In-pod traffic is loopback or the pasta gateway only.
-SQUID_ACL_SRC = ["127.0.0.0/8", "169.254.0.0/16"]
-SQUID_ALLOWLIST_BASE = [
-    "github.com",
-    "api.github.com",
-    ".githubusercontent.com",
-    "codeload.github.com",
-    "registry.npmjs.org",
-    "pypi.org",
-    "files.pythonhosted.org",
-    "archive.ubuntu.com",
-    "security.ubuntu.com",
-    "ghcr.io",
-    "registry-1.docker.io",
-    "auth.docker.io",
-    "production.cloudflare.docker.com",
-]
-SQUID_MODEL_ENDPOINTS = ["api.fireworks.ai"]  # group_vars egress_model_endpoints
-
-HARDENED = {
-    "readOnlyRootFilesystem": True,
-    "allowPrivilegeEscalation": False,
-    "capabilities": {"drop": ["ALL"]},
-}
-# Squid starts as root and setuids to the proxy user (verified 2026-09-04:
-# "initgroups: unable to set groups" crash with drop-ALL).
-HARDENED_SQUID = {
-    **HARDENED,
-    "capabilities": {"drop": ["ALL"], "add": ["SETUID", "SETGID"]},
-}
+# The stack definition (components, renderers, spec) lives in veggies_stack
+# (ADR 0016); names are re-exported here so tests and the shim keep one
+# import surface.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from veggies_stack import (  # noqa: E402
+    IMAGE_LITELLM,
+    IMAGE_OPENCODE,
+    IMAGE_SQUID,
+    REMOTE_STATE_ROOT,
+    REMOTE_USER,
+    SQUID_ALLOWLIST_BASE,
+    SQUID_MODEL_ENDPOINTS,
+    StackSpec,
+    allocate_port,
+    container_names,
+    render_allowlist,
+    render_opencode_json,
+    render_squid_conf,
+    render_yaml,
+    render_secret_docs,
+    sanitize_name,
+    state_dir,
+)
 
 VAULT_MODEL = "secrets/model.yml"
 VAULT_GITHUB = "secrets/github.yml"
 VAULT_PASSWORD_FILE = "~/.config/infra/vault-password"
-
-# Remote mode (ADR 0014): everything runs as this user over ssh+sudo.
-REMOTE_USER = "stacks"
-REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/veggies"
-
-
-# --- Spec and state ------------------------------------------------------------
-
-
-@dataclass
-class StackSpec:
-    name: str
-    repo: str  # absolute path (mount) or clone URL (clone)
-    mode: str = "mount"  # mount | clone
-    port: int = OPENCODE_PORT_BASE
-    host: str | None = None  # None = local; else ssh host alias (ADR 0014)
-    created: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
-    )
-
-    @property
-    def pod(self) -> str:
-        return f"veggies-{self.name}"
-
-    @property
-    def secret_litellm(self) -> str:
-        return f"{self.pod}-litellm"
-
-    @property
-    def secret_opencode(self) -> str:
-        return f"{self.pod}-opencode"
-
-    @property
-    def volume_opencode(self) -> str:
-        return f"{self.pod}-opencode"
-
-    @property
-    def is_remote(self) -> bool:
-        return self.host is not None
-
-    def state_root(self) -> str:
-        """Where this stack's files live on ITS host (rendered into YAML)."""
-        return REMOTE_STATE_ROOT if self.is_remote else str(state_dir())
-
-    def config_dir(self) -> str:
-        return f"{self.state_root()}/{self.name}/config"
-
-    def pod_yaml_path(self) -> str:
-        return f"{self.state_root()}/{self.name}/pod.yaml"
-
-
-def sanitize_name(raw: str) -> str:
-    """DNS-1123-ish stack name from a repo dir or URL basename."""
-    base = raw.rstrip("/").rsplit("/", 1)[-1]
-    base = re.sub(r"\.git$", "", base)
-    name = re.sub(r"[^a-z0-9-]+", "-", base.lower()).strip("-")
-    name = re.sub(r"-{2,}", "-", name)
-    if not name or not name[0].isalnum():
-        raise ValueError(f"cannot derive a stack name from {raw!r}; pass --name")
-    return name[:40]
-
-
-def state_dir() -> Path:
-    return Path(
-        os.environ.get("VEGGIES_STATE_DIR", "~/.local/state/veggies")
-    ).expanduser()
-
 
 class State:
     """~/.local/state/veggies/state.json (0600, atomic writes)."""
@@ -198,246 +105,6 @@ class State:
 
     def used_ports(self) -> set[int]:
         return {s["port"] for s in self.load()["stacks"].values()}
-
-
-def allocate_port(used: set[int]) -> int:
-    port = OPENCODE_PORT_BASE
-    while port in used:
-        port += 1
-    if port > OPENCODE_PORT_BASE + 100:
-        raise ValueError("no free stack ports (100 stacks is enough for anyone)")
-    return port
-
-
-# --- Renderers (pure) ----------------------------------------------------------
-
-
-def render_allowlist() -> str:
-    return "\n".join(SQUID_ALLOWLIST_BASE + SQUID_MODEL_ENDPOINTS) + "\n"
-
-
-def render_squid_conf() -> str:
-    src = " ".join(SQUID_ACL_SRC)
-    return f"""# Rendered by veggies (ADR 0013) - mirrors roles/egress/templates/squid.conf.j2.
-http_port {SQUID_PORT}
-
-acl allowed_src src {src}
-acl allowed_sites dstdomain "/stack-config/allowlist.txt"
-acl SSL_ports port 443
-acl CONNECT method CONNECT
-
-http_access deny CONNECT !SSL_ports
-http_access deny !allowed_src
-http_access allow allowed_sites
-http_access deny all
-
-# No caching: `cache deny all` suffices; Ubuntu's squid lacks the null store
-# module, and the PID file must not persist across in-pod restarts (emptyDir
-# is pod-scoped) or squid crash-loops on "already running". Both verified
-# 2026-09-04.
-cache deny all
-pid_filename none
-
-access_log stdio:/proc/self/fd/1
-logfile_rotate 0
-"""
-
-
-def render_opencode_json(infra_repo: Path) -> str:
-    """Stack variant of agent-config/opencode.json: in-pod litellm address and
-    the master key via env (secretKeyRef) instead of an auth.json file."""
-    src = json.loads((infra_repo / "agent-config/opencode.json").read_text())
-    provider = src["provider"]["litellm"]
-    provider["options"]["baseURL"] = LITELLM_BASE_URL
-    provider["options"]["apiKey"] = "{env:LITELLM_MASTER_KEY}"
-    return json.dumps(src, indent=2) + "\n"
-
-
-def _secret_env(name: str, secret: str, key: str) -> dict:
-    return {
-        "name": name,
-        "valueFrom": {"secretKeyRef": {"name": secret, "key": key}},
-    }
-
-
-def render_pod(spec: StackSpec, infra_repo: Path) -> list[dict]:
-    """The multi-document kube YAML (PVCs + Pod) for one stack. All hostPath
-    values are paths on the host the stack runs on (ADR 0014)."""
-    publish_ip = "0.0.0.0" if spec.host else "127.0.0.1"
-    stack_cfg = spec.config_dir()
-    repo_path = spec.repo  # clone mode: CLI clones first, repo is the clone path
-    # Local: live-mount the vendored config (edit + `veggies up` to apply).
-    # Remote: a rendered copy sits in the stack's config dir on that host.
-    litellm_cfg = (
-        spec.config_dir() if spec.is_remote
-        else str(infra_repo / "agent-config" / "litellm")
-    )
-
-    opencode = {
-        "name": "opencode",
-        "image": IMAGE_OPENCODE,
-        "args": ["serve", "--hostname", "0.0.0.0", "--port", str(OPENCODE_CONTAINER_PORT)],
-        "workingDir": "/workspace",
-        "env": [
-            _secret_env("OPENCODE_SERVER_PASSWORD", spec.secret_opencode, "password"),
-            _secret_env("LITELLM_MASTER_KEY", spec.secret_litellm, "master_key"),
-            {"name": "HTTP_PROXY", "value": PROXY_URL},
-            {"name": "HTTPS_PROXY", "value": PROXY_URL},
-            # busybox/toybox tools only honor the lowercase forms
-            {"name": "http_proxy", "value": PROXY_URL},
-            {"name": "https_proxy", "value": PROXY_URL},
-            {"name": "NO_PROXY", "value": "127.0.0.1,localhost"},
-            {"name": "no_proxy", "value": "127.0.0.1,localhost"},
-        ],
-        "ports": [
-            {
-                "containerPort": OPENCODE_CONTAINER_PORT,
-                "hostPort": spec.port,
-                "hostIP": publish_ip,
-            }
-        ],
-        "volumeMounts": [
-            {"name": "repo", "mountPath": "/workspace"},
-            # Directory mounts only - subPath file mounts bypass SELinux
-            # relabeling and read as EACCES (verified 2026-09-04).
-            {"name": "stack-config", "mountPath": "/root/.config/opencode",
-             "readOnly": True},
-            {"name": "opencode-home", "mountPath": "/root"},
-            {"name": "tmp", "mountPath": "/tmp"},
-        ],
-        "resources": {"limits": {"memory": MEMORY_LIMITS["opencode"]}},
-        "securityContext": HARDENED,
-        # kube play maps tcpSocket probes to `nc` inside the container, which
-        # these minimal images lack (verified 2026-09-04) - exec probes with
-        # tools each image actually ships: busybox nc here.
-        "livenessProbe": {
-            # 127.0.0.1, not "localhost": busybox nc tries only the first
-            # resolved address (::1) and the server binds IPv4-only.
-            "exec": {"command": ["sh", "-c", f"nc -z 127.0.0.1 {OPENCODE_CONTAINER_PORT} || exit 1"]},
-            "initialDelaySeconds": 10,
-            "periodSeconds": 30,
-        },
-    }
-
-    litellm = {
-        "name": "litellm",
-        "image": IMAGE_LITELLM,
-        "args": ["--config", "/agent-config/config.yaml", "--port", str(LITELLM_PORT), "--host", "0.0.0.0"],
-        "env": [
-            _secret_env("LITELLM_MASTER_KEY", spec.secret_litellm, "master_key"),
-            _secret_env("LITELLM_SALT_KEY", spec.secret_litellm, "salt_key"),
-            _secret_env("FIREWORKS_API_KEY", spec.secret_litellm, "fireworks_api_key"),
-        ],
-        "volumeMounts": [
-            {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
-            {"name": "tmp", "mountPath": "/tmp"},
-        ],
-        "resources": {"limits": {"memory": MEMORY_LIMITS["litellm"]}},
-        "securityContext": HARDENED,
-        "livenessProbe": {
-            "exec": {"command": ["sh", "-c",
-                                 f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {LITELLM_PORT}), 3)\" || exit 1"]},
-            "initialDelaySeconds": 15,
-            "periodSeconds": 30,
-        },
-    }
-
-    squid = {
-        "name": "squid",
-        "image": IMAGE_SQUID,
-        "args": ["-f", "/stack-config/squid.conf"],
-        "volumeMounts": [
-            {"name": "stack-config", "mountPath": "/stack-config", "readOnly": True},
-            {"name": "run", "mountPath": "/run"},
-            {"name": "tmp", "mountPath": "/tmp"},
-        ],
-        "resources": {"limits": {"memory": MEMORY_LIMITS["squid"]}},
-        "securityContext": HARDENED_SQUID,
-        "livenessProbe": {
-            "exec": {"command": ["bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{SQUID_PORT} || exit 1"]},
-            "initialDelaySeconds": 5,
-            "periodSeconds": 30,
-        },
-    }
-
-    pod = {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "name": spec.pod,
-            "labels": {"app": "veggies", "veggies.io/stack": spec.name},
-        },
-        "spec": {
-            "restartPolicy": "Always",
-            "containers": [opencode, litellm, squid],
-            "volumes": [
-                {"name": "repo", "hostPath": {"path": repo_path, "type": "Directory"}},
-                {
-                    "name": "stack-config",
-                    "hostPath": {"path": stack_cfg, "type": "Directory"},
-                },
-                {
-                    "name": "agent-config",
-                    "hostPath": {"path": litellm_cfg, "type": "Directory"},
-                },
-                {
-                    "name": "opencode-home",
-                    "persistentVolumeClaim": {"claimName": spec.volume_opencode},
-                },
-                {"name": "tmp", "emptyDir": {}},
-                {"name": "run", "emptyDir": {}},
-            ],
-        },
-    }
-
-    def pvc(name: str) -> dict:
-        return {
-            "apiVersion": "v1",
-            "kind": "PersistentVolumeClaim",
-            "metadata": {"name": name},
-            "spec": {
-                "accessModes": ["ReadWriteOnce"],
-                "resources": {"requests": {"storage": "1Gi"}},
-            },
-        }
-
-    return [pvc(spec.volume_opencode), pod]
-
-
-def render_yaml(spec: StackSpec, infra_repo: Path) -> str:
-    return yaml.safe_dump_all(render_pod(spec, infra_repo), sort_keys=True)
-
-
-def _b64(value: str) -> str:
-    return base64.b64encode(value.encode()).decode()
-
-
-def render_secret_docs(spec: StackSpec, values: dict[str, str]) -> list[dict]:
-    """K8s Secret docs for one stack. Only ever passed to kube play via stdin
-    at up-time - never written to disk (ADR 0013)."""
-    return [
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {"name": spec.secret_litellm},
-            "data": {
-                "master_key": _b64(values["master_key"]),
-                "salt_key": _b64(values["salt_key"]),
-                "fireworks_api_key": _b64(values["fireworks_api_key"]),
-            },
-        },
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {"name": spec.secret_opencode},
-            "data": {"password": _b64(values["password"])},
-        },
-    ]
-
-
-def container_names(spec: StackSpec) -> list[str]:
-    """kube play prefixes container names with the pod name."""
-    return [f"{spec.pod}-{c}" for c in ("opencode", "litellm", "squid")]
 
 
 # --- Vault access (isolated; phase 11 uses this from `up`) ---------------------

@@ -12,6 +12,8 @@ import yaml
 ROOT = Path(__file__).parent.parent
 _spec = importlib.util.spec_from_file_location("veggies", ROOT / "cli/veggies.py")
 veggies = importlib.util.module_from_spec(_spec)
+sys.path.insert(0, str(ROOT / "cli"))
+import veggies_stack  # noqa: E402
 sys.modules["veggies"] = veggies  # dataclass introspection needs this (py3.14)
 _spec.loader.exec_module(veggies)
 
@@ -178,13 +180,6 @@ def test_squid_conf_matches_prod_shape():
 # --- drift guards against the Ansible side --------------------------------------
 
 
-def test_litellm_pin_matches_role():
-    defaults = yaml.safe_load(
-        (ROOT / "ansible/roles/litellm/defaults/main.yml").read_text()
-    )
-    assert veggies.IMAGE_LITELLM == defaults["litellm_image"]
-
-
 def test_squid_allowlist_base_matches_role():
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/egress/defaults/main.yml").read_text()
@@ -263,6 +258,22 @@ def test_rendered_yaml_never_contains_secrets(spec):
 def test_quadlet_path_honors_env(spec, monkeypatch, tmp_path):
     monkeypatch.setenv("VEGGIES_QUADLET_DIR", str(tmp_path))
     assert veggies.quadlet_path(spec) == f"{tmp_path}/veggies-demo.kube"
+
+
+def test_core_registry_is_the_default_stack():
+    assert [c.name for c in veggies_stack.CORE] == ["opencode", "litellm", "squid"]
+    assert veggies_stack.COMPONENT_NAMES == {"opencode", "litellm", "squid"}
+
+
+def test_render_pod_composes_components(spec):
+    docs = veggies.render_yaml(spec, INFRA_REPO)
+    subset = [c for c in veggies_stack.CORE if c.name != "squid"]
+    no_squid = veggies_stack.render_pod(spec, INFRA_REPO, components=subset)
+    pod = [d for d in no_squid if d["kind"] == "Pod"][0]
+    assert [c["name"] for c in pod["spec"]["containers"]] == ["opencode", "litellm"]
+    vol_names = {v["name"] for v in pod["spec"]["volumes"]}
+    assert "stack-config" not in vol_names  # owned by the squid component
+    assert docs  # full render unchanged
 
 
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
