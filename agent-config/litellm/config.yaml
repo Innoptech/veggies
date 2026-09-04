@@ -1,0 +1,31 @@
+# LiteLLM gateway config (ADR 0011). All model traffic flows through here;
+# the Fireworks key exists only in this container's env (from secrets/model.yml).
+model_list:
+  - model_name: kimi-k3
+    litellm_params:
+      # TODO(verify): exact model id in the Fireworks catalog at first converge.
+      model: fireworks_ai/accounts/fireworks/models/kimi-k3
+      api_key: os.environ/FIREWORKS_API_KEY
+  - model_name: deepseek-v4
+    litellm_params:
+      model: fireworks_ai/accounts/fireworks/models/deepseek-v4 # TODO(verify)
+      api_key: os.environ/FIREWORKS_API_KEY
+  - model_name: glm-5
+    litellm_params:
+      model: fireworks_ai/accounts/fireworks/models/glm-5 # TODO(verify)
+      api_key: os.environ/FIREWORKS_API_KEY
+
+router_settings:
+  num_retries: 2
+  timeout: 300
+  # If the primary model errors, fall back instead of failing the session.
+  fallbacks:
+    - kimi-k3: [deepseek-v4]
+    - deepseek-v4: [glm-5]
+    - glm-5: [kimi-k3]
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

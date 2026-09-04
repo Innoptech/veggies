@@ -1,0 +1,36 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    admin_user: fedora
+    opencode_build_image: false # no 100+ MB build in tests
+    opencode_start: false
+    opencode_sync_config: false # playbook-relative agent-config path is a site.yml thing
+  pre_tasks:
+    - name: Create the users the base role would provide
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        shell: "{{ item.shell }}"
+        home: "/home/{{ item.name }}"
+        create_home: true
+      loop:
+        - { name: gh-runner, shell: /usr/sbin/nologin }
+        - { name: egress-proxy, shell: /usr/sbin/nologin }
+        - { name: fedora, shell: /bin/bash }
+
+    - name: Check the linger markers
+      ansible.builtin.stat:
+        path: "/var/lib/systemd/linger/{{ item }}"
+      register: opencode_molecule_linger
+      loop: [gh-runner, egress-proxy, fedora]
+
+    - name: Enable linger (the base role does this; keeps user managers up)
+      ansible.builtin.command:
+        cmd: /usr/bin/loginctl enable-linger {{ item.item }}
+      when: not item.stat.exists
+      changed_when: true
+      loop: "{{ opencode_molecule_linger.results }}"
+  roles:
+    - role: podman
+    - role: opencode

@@ -6,5 +6,5 @@ exclude_paths:
   - .pytest_cache/
   - secrets/ # vault-encrypted files are not parseable YAML by design
   - ansible/collections/ # galaxy install target - vendored collections, not ours
-  - agent-config/superpowers/ # vendored upstream, not ours to lint
+  - agent-config/ # opencode/litellm config, not ansible content
   - "**/molecule/**/.molecule/"

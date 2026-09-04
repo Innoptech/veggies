@@ -11,7 +11,7 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phase 5/9 (podman + ephemeral runner quadlets). See the phase map and the pending-values list below.
+Phase 6/9 (opencode + litellm gateway + agent-config baseline). See the phase map and the pending-values list below.
 
 ## Architecture at a glance
 

@@ -1,0 +1,41 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Quadlet installed
+      ansible.builtin.slurp:
+        src: /home/egress-proxy/.config/containers/systemd/litellm.container
+      register: litellm_quadlet_content
+
+    - name: Quadlet content is as designed
+      ansible.builtin.assert:
+        that:
+          - "'ghcr.io/berriai/litellm:v1.99.1' in (litellm_quadlet_content.content | b64decode)"
+          - "'PublishPort=127.0.0.1:4000:4000' in (litellm_quadlet_content.content | b64decode)"
+          - "'NoNewPrivileges=true' in (litellm_quadlet_content.content | b64decode)"
+
+    - name: Config dir exists with tight permissions
+      ansible.builtin.stat:
+        path: /home/egress-proxy/.config/litellm
+      register: litellm_config_dir
+      failed_when: >
+        not litellm_config_dir.stat.exists
+        or litellm_config_dir.stat.mode != "0700"
+
+    - name: Quadlet generator accepts the unit
+      ansible.builtin.command:
+        cmd: /usr/lib/systemd/system-generators/podman-system-generator --user --dryrun
+      register: litellm_dryrun
+      changed_when: false
+      become: true
+      become_user: egress-proxy
+      environment:
+        XDG_RUNTIME_DIR: /run/user/1000 # first service uid in the test image
+      failed_when: false
+
+    - name: Generator produced the litellm service
+      ansible.builtin.assert:
+        that: "'litellm.service' in (litellm_dryrun.stdout + litellm_dryrun.stderr)"
+        fail_msg: "quadlet generator did not emit litellm.service"

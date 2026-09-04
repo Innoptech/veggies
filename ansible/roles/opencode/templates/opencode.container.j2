@@ -1,0 +1,25 @@
+# Managed by Ansible (infra repo, opencode role). ADR 0012.
+# Root-in-userns == the admin user on the host; mounts carry :Z for SELinux.
+[Unit]
+Description=opencode serve (persistent agent server, localhost-only)
+
+[Container]
+Image={{ opencode_image }}
+ContainerName=opencode
+PublishPort=127.0.0.1:{{ opencode_port }}:{{ opencode_port }}
+Environment=SUPERPOWERS_DISABLE_TELEMETRY=1
+Volume=%h/.config/opencode:/root/.config/opencode:Z
+Volume=%h/.local/share/opencode:/root/.local/share/opencode:Z
+Volume=%h/src:/src:Z
+WorkingDir=/src
+# TODO(verify): `opencode serve` flag names at first real converge.
+Exec=opencode serve --hostname 127.0.0.1 --port {{ opencode_port }}
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

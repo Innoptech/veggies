@@ -1,0 +1,10 @@
+---
+litellm_user: egress-proxy # the unrestricted-egress user (ADR 0006/0011)
+litellm_image: ghcr.io/berriai/litellm:v1.99.1 # tag verified on ghcr 2026-09-03
+litellm_port: 4000 # published on 127.0.0.1 only
+
+# Test/container gates:
+litellm_pull_image: true # false in molecule (large image)
+litellm_start: true # false in molecule
+litellm_sync_config: true # false in molecule (playbook-relative agent-config path)
+litellm_install_env: true # false in molecule (no vault values in tests)

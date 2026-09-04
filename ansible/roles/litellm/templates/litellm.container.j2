@@ -1,0 +1,22 @@
+# Managed by Ansible (infra repo, litellm role). ADR 0011.
+[Unit]
+Description=LiteLLM model gateway (holds the only copy of provider keys)
+
+[Container]
+Image={{ litellm_image }}
+ContainerName=litellm
+PublishPort=127.0.0.1:{{ litellm_port }}:4000
+EnvironmentFile=%h/.config/litellm/litellm.env
+Volume=%h/.config/litellm/config.yaml:/app/config.yaml:Z
+# TODO(verify): the image entrypoint already runs `litellm`; confirm these
+# flags override cleanly at first real converge.
+Exec=--config /app/config.yaml --port 4000 --host 0.0.0.0
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

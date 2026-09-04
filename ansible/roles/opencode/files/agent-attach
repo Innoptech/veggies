@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Attach to the persistent opencode tmux session inside the opencode quadlet.
+# Run as the admin user (fedora) - the container lives in her rootless store.
+# TODO(verify): `opencode attach` subcommand/flags at first real converge.
+exec podman exec -ti systemd-opencode \
+  tmux new-session -A -s agent -- opencode attach http://127.0.0.1:4096

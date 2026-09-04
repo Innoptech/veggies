@@ -1,0 +1,91 @@
+---
+- name: Resolve the opencode user's uid
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ opencode_user }}"
+
+- name: Ensure the user's systemd manager is running
+  ansible.builtin.systemd:
+    name: "user@{{ ansible_facts.getent_passwd[opencode_user][2] }}"
+    state: started
+
+- name: Ensure opencode directories exist
+  ansible.builtin.file:
+    path: "/home/{{ opencode_user }}/{{ item }}"
+    state: directory
+    owner: "{{ opencode_user }}"
+    group: "{{ opencode_user }}"
+    mode: "0750"
+  loop:
+    - .config/opencode
+    - .local/share/opencode
+    - src
+  loop_control:
+    label: "{{ item }}"
+
+- name: Sync the vendored agent-config into the global opencode config
+  ansible.builtin.copy:
+    src: "{{ opencode_config_src }}/"
+    dest: "/home/{{ opencode_user }}/.config/opencode/"
+    owner: "{{ opencode_user }}"
+    group: "{{ opencode_user }}"
+    mode: preserve
+  when: opencode_sync_config
+  # Config changes are PRs to this repo; a converge applies them.
+
+- name: Install auth.json (litellm virtual key, from the vault)
+  ansible.builtin.template:
+    src: auth.json.j2
+    dest: "/home/{{ opencode_user }}/.local/share/opencode/auth.json"
+    owner: "{{ opencode_user }}"
+    group: "{{ opencode_user }}"
+    mode: "0600"
+  no_log: true
+  when: litellm_opencode_virtual_key is defined
+
+- name: Build the opencode image as the user
+  containers.podman.podman_image:
+    name: "{{ opencode_image }}"
+    build:
+      file: opencode.Containerfile
+      path: "{{ role_path }}/files"
+      args:
+        OPENCODE_VERSION: "{{ opencode_version }}"
+    state: build
+  become: true
+  become_user: "{{ opencode_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[opencode_user][2] }}"
+  when: opencode_build_image
+
+- name: Install the quadlet
+  ansible.builtin.template:
+    src: opencode.container.j2
+    dest: "/home/{{ opencode_user }}/.config/containers/systemd/opencode.container"
+    owner: "{{ opencode_user }}"
+    group: "{{ opencode_user }}"
+    mode: "0640"
+  register: opencode_quadlet
+  notify: Daemon-reload the opencode user manager
+
+- name: Start opencode serve
+  ansible.builtin.systemd:
+    name: opencode.service
+    scope: user
+    state: started
+  become: true
+  become_user: "{{ opencode_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[opencode_user][2] }}"
+  when: opencode_start
+
+- name: Install the helper scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - agent-attach
+    - agent-status

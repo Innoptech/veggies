@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# garden at a glance: opencode server, runner units, disk.
+set -euo pipefail
+
+echo "== opencode (127.0.0.1:4096)"
+if curl -sf --max-time 3 http://127.0.0.1:4096/session >/tmp/agent-status-sessions.json 2>/dev/null; then
+  jq -r '.[] | "  \(.id)\t\(.title)"' /tmp/agent-status-sessions.json
+else
+  echo "  (server not reachable)"
+fi
+# TODO(verify): session list endpoint + field names.
+
+echo
+echo "== runner units (gh-runner user)"
+systemctl --machine=gh-runner@ --user list-units 'gh-runner@*' --no-pager 2>/dev/null || echo "  (user manager not running?)"
+
+echo
+echo "== litellm"
+systemctl --machine=egress-proxy@ --user is-active litellm.service 2>/dev/null || echo "unknown"
+
+echo
+echo "== disk"
+df -h / /srv

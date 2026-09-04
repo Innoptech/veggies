@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "litellm/kimi-k3",
+  "small_model": "litellm/glm-5",
+  "share": "disabled",
+  "plugin": ["superpowers@git+https://github.com/obra/superpowers.git#v5.0.3"],
+  "provider": {
+    "litellm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "garden-litellm",
+      "options": {
+        "baseURL": "http://127.0.0.1:4000/v1"
+      },
+      "models": {
+        "kimi-k3": { "name": "Kimi K3 (via Fireworks)" },
+        "deepseek-v4": { "name": "DeepSeek V4 (via Fireworks)" },
+        "glm-5": { "name": "GLM 5 (via Fireworks)" }
+      }
+    }
+  },
+  "permission": {
+    "skill": { "*": "allow" }
+  }
+}

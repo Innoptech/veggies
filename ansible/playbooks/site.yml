@@ -15,6 +15,7 @@
     - role: tailscale
     - role: podman
     - role: github_runner
-    # phase 6: opencode (incl. litellm)
+    - role: litellm
+    - role: opencode
     # phase 7: egress
     # phase 8: backup
