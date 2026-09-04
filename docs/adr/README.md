@@ -20,3 +20,10 @@ file. Never edit a decided ADR - write a new one that supersedes it.
 | [0013](0013-repo-scoped-agent-stacks.md) | Repo-scoped agent stacks via the `garden` CLI | accepted | 10 |
 | [0014](0014-remote-stacks-over-ssh.md) | Remote stacks over ssh; CLI owns stacks, Ansible owns the host | accepted | 13 |
 | [0015](0015-rename-garden-to-veggies.md) | Project identity renamed: garden -> veggies | accepted | R1 |
+| [0016](0016-substrate-vs-stack-boundary.md) | Ansible is the substrate; the CLI is the stack | accepted | A1 |
+| [0017](0017-agent-orchestrator-and-workflows.md) | Agent orchestrator and workflows | proposed | A1 |
+| [0018](0018-mcp-server-components.md) | MCP server components | proposed | A1 |
+| [0019](0019-agent-rosters-and-skills.md) | Agent rosters and skills library | proposed | A1 |
+| [0020](0020-cloud-substrate-module.md) | Cloud substrate module (GCP / other) | proposed | A1 |
+| [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed | A1 |
+| [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | proposed | A1 |
