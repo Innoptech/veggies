@@ -23,6 +23,7 @@ mask veggies-install          # once: puts `veggies` in ~/.local/bin
 cd ~/code/some-repo
 veggies up                    # prompts, builds, starts, attaches
 veggies ls                    # all stacks, live status, persistence
+veggies status <name>         # container health + model/agents/sessions via the API
 veggies attach <name>         # back into a running stack
 veggies logs <name> [-f]      # pod logs (or a single container)
 veggies down <name>           # stop (keeps volumes/secrets/state)

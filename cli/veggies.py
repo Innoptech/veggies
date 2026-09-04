@@ -591,6 +591,99 @@ def cmd_ls(args: argparse.Namespace) -> int:
     return 0
 
 
+API_TIMEOUT = 90  # cold bootstrap (~20s: plugin cache warm-up) must fit
+
+
+def probe_api(host: str | None, port: int, password: str, path: str) -> object | None:
+    """GET an opencode API path with the stack's basic auth. Returns parsed
+    JSON, or None on any failure (stack down, bootstrap in progress, etc.).
+    Remote: curl on the target host over ssh (the port binds 127.0.0.1 there).
+    Endpoints verified against opencode 1.18.27 (2026-09-04)."""
+    url = f"http://127.0.0.1:{port}{path}"
+    if host:
+        r = run(["ssh", host, "curl", "-s", "-m", str(API_TIMEOUT),
+                 "-u", f"opencode:{password}", url], check=False, capture=True)
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        try:
+            return json.loads(r.stdout)
+        except json.JSONDecodeError:
+            return None
+    import urllib.request
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", "Basic " + _basic_auth(password))
+    try:
+        with urllib.request.urlopen(req, timeout=API_TIMEOUT) as resp:
+            return json.loads(resp.read())
+    except Exception:  # connection refused, timeout, 401/5xx, bad json
+        return None
+
+
+def _basic_auth(password: str) -> str:
+    import base64 as b64mod
+    return b64mod.b64encode(f"opencode:{password}".encode()).decode()
+
+
+def format_status(name: str, record: dict, containers: list[tuple[str, str, str]],
+                  api: dict[str, object] | None) -> str:
+    """Pure formatter for `veggies status` (tested without IO)."""
+    lines = [f"stack: {name} ({record['mode']}, port {record['port']}, "
+             f"host {record['host'] or 'local'})",
+             f"repo:  {record['repo']}"]
+    lines.append("containers:")
+    for cname, status, health in containers:
+        lines.append(f"  {cname:<28} {status:<10} {health}")
+    if api is None:
+        lines.append("api:     unreachable (down, or cold bootstrap in progress - retry)")
+    else:
+        sessions = api.get("sessions")
+        agents = api.get("agents")
+        busy = api.get("busy")
+        lines.append(f"api:     ok  (model {api.get('model')}, "
+                     f"{len(agents) if isinstance(agents, list) else '?'} agents, "
+                     f"{len(sessions) if isinstance(sessions, list) else '?'} sessions"
+                     f"{', BUSY' if busy else ''})")
+    return "\n".join(lines)
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack: {args.name} (see `veggies ls`)")
+    spec = StackSpec(name=args.name, repo=record["repo"], host=record["host"])
+    names = container_names(spec)
+    containers: list[tuple[str, str, str]] = []
+    r = host_podman(record["host"], "inspect", "--format",
+                    "{{.Name}} {{.State.Status}} "
+                    "{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}",
+                    *names, capture=True, check=False)
+    if r.returncode == 0:
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) == 3:
+                containers.append((parts[0], parts[1], parts[2]))
+    if not containers:
+        containers = [(n, "down", "-") for n in names]
+
+    api: dict[str, object] | None = None
+    password = record.get("password", "")
+    if password and any(c[1] == "running" for c in containers):
+        cfg = probe_api(record["host"], record["port"], password,
+                        "/config?directory=/workspace")
+        if cfg is not None:
+            sessions = probe_api(record["host"], record["port"], password,
+                                 "/session?directory=/workspace")
+            agents = probe_api(record["host"], record["port"], password,
+                               "/agent?directory=/workspace")
+            sess_status = probe_api(record["host"], record["port"], password,
+                                    "/session/status?directory=/workspace")
+            busy = bool(sess_status) if isinstance(sess_status, dict) else False
+            api = {"model": cfg.get("model", "?") if isinstance(cfg, dict) else "?",
+                   "sessions": sessions, "agents": agents, "busy": busy}
+    print(format_status(args.name, record, containers, api))
+    return 0
+
+
 LEGACY_STATE_DIR = Path("~/.local/state/garden")
 
 
@@ -628,6 +721,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_ls = sub.add_parser("ls", help="list stacks")
     p_ls.set_defaults(func=cmd_ls)
+
+    p_status = sub.add_parser("status", help="stack health + agent/session view (ADR 0016)")
+    p_status.add_argument("name")
+    p_status.set_defaults(func=cmd_status)
 
     p_up = sub.add_parser("up", help="bring a stack up (default repo: cwd)")
     p_up.add_argument("--repo", default=os.environ.get("VEGGIES_REPO", "."))

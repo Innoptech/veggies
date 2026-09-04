@@ -317,6 +317,48 @@ def test_spec_components_flow_into_render(spec):
             veggies.StackSpec(name="x", repo="/r", components=["bogus"]), INFRA_REPO)
 
 
+def test_format_status_api_up():
+    record = {"repo": "/r/demo", "mode": "mount", "port": 4096, "host": None}
+    out = veggies.format_status(
+        "demo", record,
+        [("veggies-demo-opencode", "running", "healthy"),
+         ("veggies-demo-litellm", "running", "healthy")],
+        {"model": "litellm/kimi-k3", "sessions": [1, 2], "agents": ["a"] * 11,
+         "busy": False})
+    assert "model litellm/kimi-k3" in out
+    assert "11 agents" in out and "2 sessions" in out and "BUSY" not in out
+    assert "veggies-demo-litellm" in out
+
+
+def test_format_status_api_down_and_busy():
+    record = {"repo": "/r/demo", "mode": "clone", "port": 4097, "host": "veggies"}
+    down = veggies.format_status("demo", record, [("veggies-demo-opencode", "exited", "-")], None)
+    assert "unreachable" in down
+    busy = veggies.format_status("demo", record, [],
+                                 {"model": "m", "sessions": [], "agents": [], "busy": True})
+    assert "BUSY" in busy
+
+
+def test_probe_api_remote_uses_ssh_curl(monkeypatch):
+    calls = []
+    class R:
+        returncode = 0
+        stdout = '{"healthy": true}'
+    monkeypatch.setattr(veggies, "run", lambda cmd, **kw: (calls.append(cmd), R())[1])
+    out = veggies.probe_api("veggies", 4096, "pw", "/global/health")
+    assert out == {"healthy": True}
+    assert calls[0][:2] == ["ssh", "veggies"] and "curl" in calls[0]
+    assert "opencode:pw" in calls[0]
+
+
+def test_probe_api_failure_returns_none(monkeypatch):
+    class R:
+        returncode = 1
+        stdout = ""
+    monkeypatch.setattr(veggies, "run", lambda cmd, **kw: R())
+    assert veggies.probe_api("veggies", 4096, "pw", "/config") is None
+
+
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
     old = tmp_path / "garden"
     new = tmp_path / "veggies"
