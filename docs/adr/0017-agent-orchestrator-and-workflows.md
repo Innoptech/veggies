@@ -22,40 +22,47 @@ orchestrator is no longer an architectural open question, it is a component
 slot. The registry already reserves `orchestrator` with zero implementations;
 this ADR defines what the first implementation must do.
 
-## Verified substrate (opencode server API, docs checked 2026-09-04)
+## Verified substrate (opencode v1.18.27, live-tested on veggies-smoke 2026-09-04)
 
-The opencode server API (our harness, `opencode serve`, basic auth) already
-exposes every primitive an orchestrator needs:
+Every primitive below was exercised against a real stack with a real model,
+not just read from docs:
 
-- `POST /session` with `parentID` — programmatic child sessions
-  (dedicated agents).
-- `POST /session/:id/fork` with `messageID?` — fork a session at a specific
-  message. This is the "parallel forks" primitive: N agents branch off the
-  same context and diverge.
-- `POST /session/:id/prompt_async` (204, non-blocking) with per-call `agent`
-  and `model` — dispatch work to a named roster agent on a chosen model
-  alias, in parallel across sessions.
-- `GET /event` (SSE stream), `GET /session/status`,
-  `GET /session/:id/children` — the orchestrator's event loop and
-  bookkeeping.
-- `POST /session/:id/permissions/:permissionID` — approval gates are
-  API-drivable; escalation does not require a TUI.
-- `GET /session/:id/diff` — a review step sees what an agent actually
-  changed, not what it claims.
-
-Native tier (no orchestrator needed): primary agents already fan out to
-subagents via the Task tool in parallel child sessions; `permission.task`
-glob-gates which subagents an agent may invoke; rosters are markdown files
-we already ship into every stack (ADR 0012/0019).
-
-Still TODO(verify) before implementation:
-
-- concurrency semantics: how many sessions may run in parallel on one
-  `opencode serve` instance, and whether per-session state is isolated.
-- the SSE event taxonomy (what marks a session step finished/failed).
-- `opencode run` headless CLI flags (candidate for the CI one-shot path).
-- `ask` permissions in a headless server: do they queue until answered via
-  the API (assumed yes), or auto-deny?
+- **Sessions**: `POST /session` (optionally `parentID`), `DELETE` cleans up.
+- **Fork**: `POST /session/:id/fork` at a `messageID` — the "parallel forks"
+  primitive. Forks run independently with independent `/diff`s. Caveat
+  (verified): forks get `parentID: null` and do NOT appear in
+  `/session/:id/children` — that endpoint tracks only Task-tool subagents
+  (verified: subagent sessions get a real `parentID` and are listed). The
+  orchestrator must persist fork IDs itself (they are the fork call's
+  return values).
+- **Dispatch**: `POST /session/:id/prompt_async` with per-call `agent` +
+  `model`. Caveat (verified): an unknown `agent` name returns success and
+  silently does nothing — the orchestrator must validate roster names
+  against `GET /agent` before dispatch and treat mismatch as a load error.
+- **Concurrency (verified)**: 3 async sessions were simultaneously
+  `{"type": "busy"}` on one server and all completed. Higher ceilings
+  unmeasured; the orchestrator takes a configurable max-parallel knob
+  regardless.
+- **SSE taxonomy (verified)**: `session.created/updated/status/idle/diff`,
+  `message.updated`, `message.part.updated/delta`, `permission.asked/
+  replied`, `server.connected/heartbeat`. `session.idle` marks completion;
+  `/session/status` lists only non-idle sessions (absence = idle).
+- **Headless permissions (verified, both paths)**: an agent with
+  `permission: {edit: ask}` attempting a write pauses with a
+  `permission.asked` SSE event (`id`, `sessionID`, `tool`, `patterns`,
+  `always`); `POST /session/:id/permissions/:permissionID` with
+  `{response: "once"}` resumes and the file lands; `"reject"` blocks it.
+  Escalation v1 is exactly this plus a status probe.
+- **`opencode run` (verified flags)**: `--agent`, `--model`,
+  `--session/--continue/--fork`, `--attach <server-url>` with
+  `--username/--password`, `--format json` (raw event stream), `--dir`.
+  Headless one-shots against a stack need no local server.
+- **Config is bootstrap-time (verified)**: `PATCH /config` is a
+  non-persistent echo (a runtime-added agent never registered; a patched
+  permission did not stick). Roster/config changes ship via agent-config +
+  container restart; agent *removal* additionally needs the stale file
+  deleted from the opencode-home volume (`cp -r` doesn't prune) — noted in
+  the runbook.
 
 ## Engine survey (settled: rejected alternatives)
 
@@ -100,24 +107,56 @@ config belongs with the repo). veggies.yml stays pure stack wiring
 ```yaml
 # workflows/feature.yaml
 name: feature
-notify_webhook: https://...        # optional, escalation v1
+notify_webhook: https://...          # optional, escalation v1
 steps:
   - id: plan
-    agent: plan                    # roster name (ADR 0019)
-    model: kimi-k3                 # optional; default = stack model
-    prompt: "Plan the change: {task}"
-    required: true                 # the planner may not skip this
+    kind: agent                      # agent | shell
+    agent: plan                      # roster name (ADR 0019)
+    model: kimi-k3                   # optional; default = stack model
+    prompt: "Plan the change: {{ task }}"
+    timeout: 30m                     # optional, this is the default
+    required: true                   # the planner may not skip this
   - id: implement
+    kind: agent
     agent: build
     needs: [plan]
-    prompt: "Implement: {plan.output}"
-    parallel: 3                    # optional: N forked sessions, best-of/merge
-  - id: review
-    agent: review
+    parallel: 3                      # fork the session N ways
+    combine: best-of                 # best-of (reviewer picks a diff) | shard
+    prompt: "Implement: {{ steps.plan.output }}"
+  - id: check
+    kind: shell                      # non-agent gate; exit code = pass/fail
+    run: "pytest -q"
     needs: [implement]
-    gate: approval                 # pauses for a human (see escalation)
-    prompt: "Review the diff: {implement.diff}"
+  - id: review
+    kind: agent
+    agent: review
+    needs: [check]
+    gate: approval                   # pauses for a human (see escalation)
+    prompt: "Review the diff: {{ steps.implement.diff }}"
 ```
+
+Schema v0 rules (decided 2026-09-04):
+
+- `kind: agent | shell`. Shell steps run via `POST /session/:id/shell`
+  (harness-managed, audited alongside agent work); their exit code is the
+  gate. A failing shell step fails the run unless the planner declared a
+  recovery step.
+- `parallel` + `combine`: `best-of` = N forked sessions attempt the same
+  task, a downstream agent step picks the winning diff (costs N× tokens,
+  for hard problems); `shard` = the planner splits the task into N
+  non-overlapping subtasks, results concatenate. Absent = single session.
+- Prompts are **Jinja2** (same engine as Ansible) rendered strict-undefined:
+  an unknown placeholder fails at load, never mid-run. Documented names:
+  `task`, `steps.<id>.output`, `steps.<id>.diff`. Logic in prompts is
+  possible but discouraged in schema docs — branching belongs to the
+  planner, not templates.
+- `timeout` per step (default 30m): a hung agent fails the step, never
+  hangs the pipeline. **No `retries` in v0** — retries hide model
+  flakiness; add them when evidence says they're needed.
+- Validation fails fast: unknown keys, unknown roster agents (checked
+  against `GET /agent` — the API itself won't complain), and
+  `needs`-cycles are load errors. Unlike veggies.yml, nothing warns;
+  pipelines run unattended.
 
 ### Adaptive execution: one pipeline def, the planner chooses the run
 
@@ -134,12 +173,13 @@ separate code path.
 
 ### Escalation v1
 
-An opencode `ask` permission or a `gate: approval` step pauses the pipeline;
-the orchestrator's status probe reports `awaiting-approval` (with step id
-and reason); if the workflow declares `notify_webhook`, it POSTs once per
-escalation. The human either attaches (`veggies attach <stack>`) and answers
-interactively, or answers the permission via the API. No louder channels in
-v1.
+An opencode `ask` permission (verified flow: `permission.asked` SSE ->
+answer `once`/`reject` via the API) or a `gate: approval` step pauses the
+pipeline; the orchestrator's status probe reports `awaiting-approval`
+(with step id and reason); if the workflow declares `notify_webhook`, it
+POSTs once per escalation. The human either attaches
+(`veggies attach <stack>`) and answers interactively, or answers the
+permission via the API. No louder channels in v1.
 
 ### State and queue
 
@@ -156,6 +196,11 @@ veggies run pr-<n> workflows/ci.yaml --task "<pr context>"   # planner decides
 # teardown by TTL, or explicit `veggies down pr-<n>` in an always-step
 ```
 
+For genuinely one-shot jobs the planner's collapse rule applies (same
+pipeline def, one step); mechanically that's one `opencode run --attach
+http://127.0.0.1:<port> --agent <roster> --format json` inside the
+ephemeral pod (flags verified 2026-09-04) — no separate CI code path.
+
 Secrets flow over the existing vault-stdin path; the runner never sees
 plaintext. This keeps the ADR 0016 consequence: no host-global litellm
 returns; `LITELLM_API_BASE` stays deleted. `veggies run` and `--ttl` are new
@@ -166,6 +211,9 @@ CLI surface introduced by this ADR (implementation phase).
 - `cli/components/orchestrator.py` becomes the fourth component; the registry
   line flips from `{}` to `{"orchestrator": <impl>}` and veggies.yml gains a
   working `orchestrator:` key.
+- The orchestrator carries two verified-API obligations: validate roster
+  names against `GET /agent` at load (silent no-op otherwise), and persist
+  fork IDs itself (forks don't appear in `/children`).
 - `veggies status` needs no changes: the orchestrator publishes its queue
   state through probes() like every other component.
 - New CLI verbs (`run`, `--ttl`) and the workflow schema get their own tests;

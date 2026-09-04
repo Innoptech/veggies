@@ -145,6 +145,11 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 - Agent: new file in `agent-config/agents/<name>.md` (frontmatter:
   description, mode, model, permission). PR, merge; stacks pick it up at
   next `veggies up` (recreate running stacks to apply).
+- Removing/renaming an agent or skill: the wrapper copies but never prunes,
+  so the stale file survives on the opencode-home volume (verified
+  2026-09-04). After `veggies up`, also
+  `podman exec veggies-<name>-opencode rm /root/.config/opencode/agents/<old>.md`
+  (same under `skills/`) or `veggies down <name> --purge` for a clean slate.
 - Skill: `agent-config/skills/<name>/SKILL.md` with `name` + `description`
   frontmatter (see opencode skills docs). Same flow.
 - Superpowers bump: change the pinned tag in `agent-config/opencode.json`
