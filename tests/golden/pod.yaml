@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: garden-demo-opencode
+  name: veggies-demo-opencode
 spec:
   accessModes:
   - ReadWriteOnce
@@ -13,9 +13,9 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    app: garden
-    garden.io/stack: demo
-  name: garden-demo
+    app: veggies
+    veggies.io/stack: demo
+  name: veggies-demo
 spec:
   containers:
   - args:
@@ -29,12 +29,12 @@ spec:
       valueFrom:
         secretKeyRef:
           key: password
-          name: garden-demo-opencode
+          name: veggies-demo-opencode
     - name: LITELLM_MASTER_KEY
       valueFrom:
         secretKeyRef:
           key: master_key
-          name: garden-demo-litellm
+          name: veggies-demo-litellm
     - name: HTTP_PROXY
       value: http://127.0.0.1:3128
     - name: HTTPS_PROXY
@@ -47,7 +47,7 @@ spec:
       value: 127.0.0.1,localhost
     - name: no_proxy
       value: 127.0.0.1,localhost
-    image: localhost/garden-opencode:1.18.27
+    image: localhost/veggies-opencode:1.18.27
     livenessProbe:
       exec:
         command:
@@ -93,17 +93,17 @@ spec:
       valueFrom:
         secretKeyRef:
           key: master_key
-          name: garden-demo-litellm
+          name: veggies-demo-litellm
     - name: LITELLM_SALT_KEY
       valueFrom:
         secretKeyRef:
           key: salt_key
-          name: garden-demo-litellm
+          name: veggies-demo-litellm
     - name: FIREWORKS_API_KEY
       valueFrom:
         secretKeyRef:
           key: fireworks_api_key
-          name: garden-demo-litellm
+          name: veggies-demo-litellm
     image: ghcr.io/berriai/litellm:v1.99.1
     livenessProbe:
       exec:
@@ -161,11 +161,11 @@ spec:
   restartPolicy: Always
   volumes:
   - hostPath:
-      path: /tmp/garden-test-state/demo-repo
+      path: /tmp/veggies-test-state/demo-repo
       type: Directory
     name: repo
   - hostPath:
-      path: /tmp/garden-test-state/demo/config
+      path: /tmp/veggies-test-state/demo/config
       type: Directory
     name: stack-config
   - hostPath:
@@ -174,7 +174,7 @@ spec:
     name: agent-config
   - name: opencode-home
     persistentVolumeClaim:
-      claimName: garden-demo-opencode
+      claimName: veggies-demo-opencode
   - emptyDir: {}
     name: tmp
   - emptyDir: {}

@@ -1,4 +1,4 @@
-"""Tests for cli/garden.py - pure renderers, state, and drift guards."""
+"""Tests for cli/veggies.py - pure renderers, state, and drift guards."""
 
 import importlib.util
 import json
@@ -10,21 +10,21 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).parent.parent
-_spec = importlib.util.spec_from_file_location("garden", ROOT / "cli/garden.py")
-garden = importlib.util.module_from_spec(_spec)
-sys.modules["garden"] = garden  # dataclass introspection needs this (py3.14)
-_spec.loader.exec_module(garden)
+_spec = importlib.util.spec_from_file_location("veggies", ROOT / "cli/veggies.py")
+veggies = importlib.util.module_from_spec(_spec)
+sys.modules["veggies"] = veggies  # dataclass introspection needs this (py3.14)
+_spec.loader.exec_module(veggies)
 
 INFRA_REPO = ROOT
-FIXED_STATE = Path("/tmp/garden-test-state")
+FIXED_STATE = Path("/tmp/veggies-test-state")
 
 
 @pytest.fixture()
 def spec(monkeypatch, tmp_path):
-    monkeypatch.setenv("GARDEN_STATE_DIR", str(FIXED_STATE))
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(FIXED_STATE))
     repo = tmp_path / "demo-repo"
     repo.mkdir()
-    return garden.StackSpec(name="demo", repo=str(repo), mode="mount", port=4096)
+    return veggies.StackSpec(name="demo", repo=str(repo), mode="mount", port=4096)
 
 
 # --- names and ports -----------------------------------------------------------
@@ -40,29 +40,29 @@ def spec(monkeypatch, tmp_path):
     ],
 )
 def test_sanitize_name(raw, expected):
-    assert garden.sanitize_name(raw) == expected
+    assert veggies.sanitize_name(raw) == expected
 
 
 def test_sanitize_name_rejects_garbage():
     with pytest.raises(ValueError):
-        garden.sanitize_name("!!!")
+        veggies.sanitize_name("!!!")
 
 
 def test_allocate_port_first_free():
-    assert garden.allocate_port(set()) == 4096
-    assert garden.allocate_port({4096, 4097}) == 4098
+    assert veggies.allocate_port(set()) == 4096
+    assert veggies.allocate_port({4096, 4097}) == 4098
 
 
 # --- state ---------------------------------------------------------------------
 
 
 def test_state_roundtrip_and_permissions(tmp_path):
-    state = garden.State(root=tmp_path)
-    state.add(garden.StackSpec(name="a", repo="/x", port=4096))
-    state.add(garden.StackSpec(name="b", repo="/y", port=4097, host="garden"))
+    state = veggies.State(root=tmp_path)
+    state.add(veggies.StackSpec(name="a", repo="/x", port=4096))
+    state.add(veggies.StackSpec(name="b", repo="/y", port=4097, host="veggies"))
     data = state.load()
     assert set(data["stacks"]) == {"a", "b"}
-    assert data["stacks"]["b"]["host"] == "garden"
+    assert data["stacks"]["b"]["host"] == "veggies"
     assert stat.S_IMODE(state.file.stat().st_mode) == 0o600
     assert state.used_ports() == {4096, 4097}
     assert state.remove("a") is True
@@ -73,7 +73,7 @@ def test_state_roundtrip_and_permissions(tmp_path):
 
 
 def _docs(spec):
-    return list(yaml.safe_load_all(garden.render_yaml(spec, INFRA_REPO)))
+    return list(yaml.safe_load_all(veggies.render_yaml(spec, INFRA_REPO)))
 
 
 def _pod(spec):
@@ -83,7 +83,7 @@ def _pod(spec):
 def test_render_has_pvc_and_one_pod(spec):
     docs = _docs(spec)
     assert [d["kind"] for d in docs] == ["PersistentVolumeClaim", "Pod"]
-    assert docs[0]["metadata"]["name"] == "garden-demo-opencode"
+    assert docs[0]["metadata"]["name"] == "veggies-demo-opencode"
     # litellm is deliberately DB-less (ADR 0011: in-memory only); the proxy
     # dropped sqlite support, so no litellm-data volume exists.
     names = [v["name"] for v in docs[1]["spec"]["volumes"]]
@@ -94,9 +94,9 @@ def test_render_containers_and_pins(spec):
     containers = _pod(spec)["spec"]["containers"]
     by_name = {c["name"]: c for c in containers}
     assert set(by_name) == {"opencode", "litellm", "squid"}
-    assert by_name["litellm"]["image"] == garden.IMAGE_LITELLM
-    assert by_name["squid"]["image"] == garden.IMAGE_SQUID
-    assert by_name["opencode"]["image"] == garden.IMAGE_OPENCODE
+    assert by_name["litellm"]["image"] == veggies.IMAGE_LITELLM
+    assert by_name["squid"]["image"] == veggies.IMAGE_SQUID
+    assert by_name["opencode"]["image"] == veggies.IMAGE_OPENCODE
 
 
 def test_only_opencode_publishes_a_port(spec):
@@ -112,7 +112,7 @@ def test_only_opencode_publishes_a_port(spec):
 
 
 def test_remote_host_publishes_on_all_interfaces(spec):
-    spec.host = "garden"
+    spec.host = "veggies"
     (port,) = _pod(spec)["spec"]["containers"][0]["ports"]
     assert port["hostIP"] == "0.0.0.0"
 
@@ -141,8 +141,8 @@ def test_no_subpath_mounts(spec):
 def test_secrets_are_namespaced_per_stack(spec):
     containers = _pod(spec)["spec"]["containers"]
     env = {e["name"]: e for c in containers for e in c.get("env", []) if "valueFrom" in e}
-    assert env["FIREWORKS_API_KEY"]["valueFrom"]["secretKeyRef"]["name"] == "garden-demo-litellm"
-    assert env["OPENCODE_SERVER_PASSWORD"]["valueFrom"]["secretKeyRef"]["name"] == "garden-demo-opencode"
+    assert env["FIREWORKS_API_KEY"]["valueFrom"]["secretKeyRef"]["name"] == "veggies-demo-litellm"
+    assert env["OPENCODE_SERVER_PASSWORD"]["valueFrom"]["secretKeyRef"]["name"] == "veggies-demo-opencode"
 
 
 def test_repo_is_the_only_code_mount(spec):
@@ -156,7 +156,7 @@ def test_repo_is_the_only_code_mount(spec):
 
 
 def test_opencode_json_stack_variant(spec):
-    rendered = json.loads(garden.render_opencode_json(INFRA_REPO))
+    rendered = json.loads(veggies.render_opencode_json(INFRA_REPO))
     litellm = rendered["provider"]["litellm"]
     assert litellm["options"]["baseURL"] == "http://127.0.0.1:4000/v1"
     assert litellm["options"]["apiKey"] == "{env:LITELLM_MASTER_KEY}"
@@ -167,10 +167,10 @@ def test_opencode_json_stack_variant(spec):
 
 
 def test_squid_conf_matches_prod_shape():
-    conf = garden.render_squid_conf()
+    conf = veggies.render_squid_conf()
     assert "http_access deny all" in conf
     assert "dstdomain" in conf
-    allowlist = garden.render_allowlist().splitlines()
+    allowlist = veggies.render_allowlist().splitlines()
     assert "api.fireworks.ai" in allowlist
     assert allowlist[-1] == "api.fireworks.ai"  # model endpoints appended last
 
@@ -182,19 +182,19 @@ def test_litellm_pin_matches_role():
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/litellm/defaults/main.yml").read_text()
     )
-    assert garden.IMAGE_LITELLM == defaults["litellm_image"]
+    assert veggies.IMAGE_LITELLM == defaults["litellm_image"]
 
 
 def test_squid_allowlist_base_matches_role():
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/egress/defaults/main.yml").read_text()
     )
-    assert garden.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
+    assert veggies.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
 
 
 def test_model_endpoints_match_group_vars_example():
     text = (ROOT / "ansible/inventory/group_vars/all.yml.example").read_text()
-    assert yaml.safe_load(text)["egress_model_endpoints"] == garden.SQUID_MODEL_ENDPOINTS
+    assert yaml.safe_load(text)["egress_model_endpoints"] == veggies.SQUID_MODEL_ENDPOINTS
 
 
 def test_squid_containerfile_reused():
@@ -205,12 +205,12 @@ def test_squid_containerfile_reused():
 
 
 def test_render_secret_docs_base64(spec):
-    docs = garden.render_secret_docs(spec, {
+    docs = veggies.render_secret_docs(spec, {
         "master_key": "mk", "salt_key": "sk",
         "fireworks_api_key": "fw", "password": "pw",
     })
     assert {d["metadata"]["name"] for d in docs} == {
-        "garden-demo-litellm", "garden-demo-opencode"
+        "veggies-demo-litellm", "veggies-demo-opencode"
     }
     litellm = docs[0]["data"]
     assert litellm["master_key"] == "bWs="  # base64("mk")
@@ -219,23 +219,23 @@ def test_render_secret_docs_base64(spec):
 
 
 def test_container_names_prefixed(spec):
-    assert garden.container_names(spec) == [
-        "garden-demo-opencode", "garden-demo-litellm", "garden-demo-squid"
+    assert veggies.container_names(spec) == [
+        "veggies-demo-opencode", "veggies-demo-litellm", "veggies-demo-squid"
     ]
 
 
 def test_safe_rmtree_refuses_outside_paths(tmp_path):
     with pytest.raises(ValueError):
-        garden.safe_rmtree(None, str(tmp_path), "/etc/someone-elses-repo")
+        veggies.safe_rmtree(None, str(tmp_path), "/etc/someone-elses-repo")
     inside = tmp_path / "stack/config"
     inside.mkdir(parents=True)
-    garden.safe_rmtree(None, str(tmp_path), str(inside))
+    veggies.safe_rmtree(None, str(tmp_path), str(inside))
     assert not inside.exists()
 
 
 def test_state_records_password(tmp_path):
-    state = garden.State(root=tmp_path)
-    state.add(garden.StackSpec(name="a", repo="/x"), password="s3cret")
+    state = veggies.State(root=tmp_path)
+    state.add(veggies.StackSpec(name="a", repo="/x"), password="s3cret")
     assert state.get("a")["password"] == "s3cret"
 
 
@@ -249,7 +249,7 @@ def test_opencode_containerfile_pin_format():
 
 def test_quadlet_references_pod_yaml_only(spec, tmp_path):
     pod_yaml = tmp_path / "pod.yaml"
-    text = garden.render_quadlet(spec, pod_yaml)
+    text = veggies.render_quadlet(spec, pod_yaml)
     assert f"Yaml={pod_yaml}" in text
     assert "WantedBy=default.target" in text
     assert "Secret" not in text
@@ -257,21 +257,34 @@ def test_quadlet_references_pod_yaml_only(spec, tmp_path):
 
 def test_rendered_yaml_never_contains_secrets(spec):
     """The on-disk pod.yaml (quadlet input) must never carry Secret docs."""
-    assert "kind: Secret" not in garden.render_yaml(spec, INFRA_REPO)
+    assert "kind: Secret" not in veggies.render_yaml(spec, INFRA_REPO)
 
 
 def test_quadlet_path_honors_env(spec, monkeypatch, tmp_path):
-    monkeypatch.setenv("GARDEN_QUADLET_DIR", str(tmp_path))
-    assert garden.quadlet_path(spec) == f"{tmp_path}/garden-demo.kube"
+    monkeypatch.setenv("VEGGIES_QUADLET_DIR", str(tmp_path))
+    assert veggies.quadlet_path(spec) == f"{tmp_path}/veggies-demo.kube"
+
+
+def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
+    old = tmp_path / "garden"
+    new = tmp_path / "veggies"
+    monkeypatch.setattr(veggies, "LEGACY_STATE_DIR", old)
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(new))
+    old.mkdir()
+    veggies.legacy_hint()
+    assert "renamed" in capsys.readouterr().err
+    new.mkdir()
+    veggies.legacy_hint()
+    assert capsys.readouterr().err == ""
 
 
 # --- remote mode (ADR 0014) ------------------------------------------------------
 
 
 def test_remote_spec_paths(spec):
-    spec.host = "garden"
-    assert spec.config_dir() == "/home/stacks/.local/state/garden/demo/config"
-    assert spec.pod_yaml_path() == "/home/stacks/.local/state/garden/demo/pod.yaml"
+    spec.host = "veggies"
+    assert spec.config_dir() == "/home/stacks/.local/state/veggies/demo/config"
+    assert spec.pod_yaml_path() == "/home/stacks/.local/state/veggies/demo/pod.yaml"
     pod = _pod(spec)
     volumes = {v["name"]: v for v in pod["spec"]["volumes"]}
     # remote stacks mount the shipped config copy, not an infra checkout
@@ -280,8 +293,8 @@ def test_remote_spec_paths(spec):
 
 
 def test_remote_render_has_no_local_paths(spec):
-    spec.host = "garden"
-    text = garden.render_yaml(spec, INFRA_REPO)
+    spec.host = "veggies"
+    text = veggies.render_yaml(spec, INFRA_REPO)
     assert str(INFRA_REPO) not in text
     assert "/home/stacks/" in text
 
@@ -297,33 +310,33 @@ def test_host_run_wraps_ssh_sudo(monkeypatch):
         calls.append(cmd)
         return R()
 
-    monkeypatch.setattr(garden, "run", fake_run)
-    garden.host_run(None, ["true"])
-    garden.host_run("garden", ["podman", "pod", "ps"])
+    monkeypatch.setattr(veggies, "run", fake_run)
+    veggies.host_run(None, ["true"])
+    veggies.host_run("veggies", ["podman", "pod", "ps"])
     assert calls[0] == ["true"]
-    assert calls[1][:5] == ["ssh", "garden", "sudo", "-n", "-iu"]
+    assert calls[1][:5] == ["ssh", "veggies", "sudo", "-n", "-iu"]
     assert "stacks" in calls[1]
 
 
 def test_stack_url_local_and_remote():
-    assert garden.stack_url({"host": None, "port": 4096}) == "http://127.0.0.1:4096"
-    assert garden.stack_url({"host": "garden", "port": 4097}) == "http://garden:4097"
+    assert veggies.stack_url({"host": None, "port": 4096}) == "http://127.0.0.1:4096"
+    assert veggies.stack_url({"host": "veggies", "port": 4097}) == "http://veggies:4097"
 
 
 def test_watchdog_units_are_minimal_and_scoped():
-    assert 'label=app=garden' in garden.WATCHDOG_SERVICE
-    assert 'status=exited' in garden.WATCHDOG_SERVICE
-    assert "OnUnitActiveSec" in garden.WATCHDOG_TIMER
-    assert "WantedBy=timers.target" in garden.WATCHDOG_TIMER
+    assert 'label=app=veggies' in veggies.WATCHDOG_SERVICE
+    assert 'status=exited' in veggies.WATCHDOG_SERVICE
+    assert "OnUnitActiveSec" in veggies.WATCHDOG_TIMER
+    assert "WantedBy=timers.target" in veggies.WATCHDOG_TIMER
 
 
 # --- golden file ----------------------------------------------------------------
 
 
 def test_render_matches_golden(monkeypatch):
-    monkeypatch.setenv("GARDEN_STATE_DIR", str(FIXED_STATE))
-    fixed = garden.StackSpec(
-        name="demo", repo="/tmp/garden-test-state/demo-repo", mode="mount", port=4096
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(FIXED_STATE))
+    fixed = veggies.StackSpec(
+        name="demo", repo="/tmp/veggies-test-state/demo-repo", mode="mount", port=4096
     )
     golden = (ROOT / "tests/golden/pod.yaml").read_text()
-    assert garden.render_yaml(fixed, INFRA_REPO) == golden
+    assert veggies.render_yaml(fixed, INFRA_REPO) == golden
