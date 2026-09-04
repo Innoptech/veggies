@@ -16,6 +16,7 @@ from capabilities import (
     PodContext,
     SecretSpec,
     BuildSpec,
+    ServiceRef,
     StackSpec,
     StatusProbe,
     secret_env,
@@ -25,6 +26,15 @@ from capabilities import (
 # official one has no git (verified 2026-09-04). Base pinned by tag+digest.
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096
+
+
+def _service_ref(spec: StackSpec) -> ServiceRef:
+    return ServiceRef(
+        capability="harness",
+        base_url=f"http://127.0.0.1:{_OPENCODE_CONTAINER_PORT}",
+        secret=spec.secret_opencode,
+        secret_key="password",
+    )
 
 
 def render_opencode_json(infra_repo: Path, router_base_url: str,
@@ -133,14 +143,14 @@ def _config_files(ctx: PodContext) -> dict[str, str]:
 def _probes(spec: StackSpec) -> list[StatusProbe]:
     d = "?directory=/workspace"
     return [
-        StatusProbe("model", f"/config{d}",
-                    lambda j: str(j.get("model", "?")) if isinstance(j, dict) else "?"),
-        StatusProbe("agents", f"/agent{d}",
-                    lambda j: str(len(j)) if isinstance(j, list) else "?"),
-        StatusProbe("sessions", f"/session{d}",
-                    lambda j: str(len(j)) if isinstance(j, list) else "?"),
-        StatusProbe("activity", f"/session/status{d}",
-                    lambda j: "busy" if j else "idle"),
+        StatusProbe("model", http_path=f"/config{d}",
+                    extract=lambda j: str(j.get("model", "?")) if isinstance(j, dict) else "?"),
+        StatusProbe("agents", http_path=f"/agent{d}",
+                    extract=lambda j: str(len(j)) if isinstance(j, list) else "?"),
+        StatusProbe("sessions", http_path=f"/session{d}",
+                    extract=lambda j: str(len(j)) if isinstance(j, list) else "?"),
+        StatusProbe("activity", http_path=f"/session/status{d}",
+                    extract=lambda j: "busy" if j else "idle"),
     ]
 
 
@@ -155,6 +165,7 @@ COMPONENT = Component(
     requires=("model-router", "egress"),
     render=_render,
     volumes=_volumes,
+    service_ref=_service_ref,
     secrets=_secrets,
     config_files=_config_files,
     probes=_probes,

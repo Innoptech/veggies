@@ -395,16 +395,18 @@ def test_component_build_descriptors(spec):
         veggies_stack.IMAGE_LITELLM, veggies_stack.IMAGE_SQUID]
 
 
-def test_orchestrator_key_reserved_error():
-    with pytest.raises(ValueError, match="reserved"):
+def test_orchestrator_key_resolves_builtin():
+    cfg, _ = veggies_stack.parse_repo_config("orchestrator: builtin\n")
+    assert cfg["selections"] == {"orchestrator": "builtin"}
+    with pytest.raises(ValueError, match="unknown orchestrator implementation"):
         veggies_stack.parse_repo_config("orchestrator: maestro\n")
 
 
 def test_registry_capability_keys(spec):
-    # v1 capability keys resolve; reserved orchestrator refuses politely
+    # v1 capability keys resolve
     comps = veggies_stack.resolve_components(selections={"harness": "opencode"})
     assert [c.name for c in comps] == ["opencode", "litellm", "squid"]
-    with pytest.raises(ValueError, match="reserved"):
+    with pytest.raises(ValueError, match="unknown orchestrator implementation"):
         veggies_stack.resolve_components(selections={"orchestrator": "x"})
     with pytest.raises(ValueError, match="unknown harness implementation"):
         veggies_stack.resolve_components(selections={"harness": "claude-code"})

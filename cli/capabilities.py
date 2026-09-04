@@ -140,15 +140,23 @@ class ServiceRef:
     capability: str
     base_url: str
     secret: str | None = None  # podman secret holding its credentials
+    secret_key: str | None = None  # key inside that secret holding the credential
     env: dict[str, str] = field(default_factory=dict)  # env vars consumers should set
 
 
 @dataclass(frozen=True)
 class StatusProbe:
-    """One line of `veggies status` output from an HTTP probe of a component."""
+    """One line of `veggies status` output from a component. kind=http hits
+    the harness endpoint (harness auth); kind=exec runs exec_argv inside the
+    probe-owning component's container and parses stdout as JSON."""
     label: str
-    path: str
     extract: Callable[[object], str]  # parsed JSON -> display value
+    http_path: str | None = None
+    exec_argv: tuple[str, ...] | None = None
+
+    @property
+    def kind(self) -> str:
+        return "exec" if self.exec_argv else "http"
 
 
 @dataclass(frozen=True)

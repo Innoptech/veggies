@@ -34,7 +34,7 @@ from capabilities import (  # noqa: E402  (re-exported for cli/veggies.py)
     secret_env,
     state_dir,
 )
-from components import litellm, opencode, squid  # noqa: E402
+from components import litellm, opencode, orchestrator, squid  # noqa: E402
 
 # Re-exported for tests and cli/veggies.py (single import surface).
 IMAGE_LITELLM = litellm.IMAGE_LITELLM
@@ -53,7 +53,7 @@ REGISTRY: dict[str, dict[str, Component]] = {
     "harness": {"opencode": opencode.COMPONENT},
     "model-router": {"litellm": litellm.COMPONENT},
     "egress": {"squid": squid.COMPONENT},
-    "orchestrator": {},  # reserved name, zero implementations until ADR 0017
+    "orchestrator": {"builtin": orchestrator.COMPONENT},  # opt-in (ADR 0017)
 }
 # Iteration order of DEFAULT_SELECTION pins the container order (golden-stable).
 DEFAULT_SELECTION = {"harness": "opencode", "model-router": "litellm", "egress": "squid"}
@@ -149,7 +149,7 @@ def load_repo_config(repo: Path) -> tuple[dict, list[str]]:
 # --- Pod assembly --------------------------------------------------------------------
 
 # Golden-stable volume ordering (tests/golden/pod.yaml is byte-compared).
-VOLUME_ORDER = ["repo", "stack-config", "agent-config", "opencode-home", "tmp", "run"]
+VOLUME_ORDER = ["repo", "stack-config", "agent-config", "opencode-home", "stack-state", "tmp", "run"]
 
 
 def build_context(

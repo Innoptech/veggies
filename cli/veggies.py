@@ -663,18 +663,137 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     api_results: list[str] | None = None
     password = record.get("password", "")
-    harness = harness_of(spec)
-    if password and harness is not None and any(c[1] == "running" for c in containers):
+    components = resolve_components(spec.components, spec.selections)
+    if password and any(c[1] == "running" for c in containers):
         results = []
-        for probe in harness.probes(spec):
-            j = probe_api(record["host"], record["port"], password, probe.path)
-            if j is None:
-                results = None  # one failed probe = api unreachable, as a whole
+        for comp in components:
+            for probe in comp.probes(spec):
+                if probe.kind == "http":  # http probes are served by the harness
+                    j = probe_api(record["host"], record["port"], password,
+                                  probe.http_path)
+                    if j is None:
+                        results = None  # one failed probe = api unreachable
+                        break
+                else:  # exec probes run inside the probe-owning container
+                    r = host_podman(record["host"], "exec", f"{spec.pod}-{comp.name}",
+                                    *probe.exec_argv, capture=True, check=False)
+                    out = r.stdout.strip()
+                    try:
+                        j = json.loads(out)
+                    except (json.JSONDecodeError, ValueError):
+                        j = out  # plain-text line is fine for extract
+                    if r.returncode != 0:
+                        j = None
+                if j is None:
+                    results.append(f"{probe.label} unreachable")
+                else:
+                    results.append(f"{probe.label} {probe.extract(j)}")
+            if results is None:
                 break
-            results.append(f"{probe.label} {probe.extract(j)}")
         api_results = results
     print(format_status(args.name, record, containers, api_results))
     return 0
+
+
+# --- veggies run / runs / approve (ADR 0017) ------------------------------------
+
+def orchestrator_component(spec: StackSpec) -> Component | None:
+    return next((c for c in resolve_components(spec.components, spec.selections)
+                 if c.provides == "orchestrator"), None)
+
+
+def orch_exec(record: dict, spec: StackSpec, *client_args: str,
+              input_text: str | None = None) -> subprocess.CompletedProcess:
+    """Talk to the orchestrator via podman exec + the in-pod client:
+    uniform local/remote, no published port, no new secrets (ADR 0017)."""
+    return host_podman(record["host"], "exec", "-i", f"{spec.pod}-orchestrator",
+                       "python3", "/stack-config/orchestrator-client.py",
+                       *client_args, input_text=input_text, capture=True, check=False)
+
+
+def require_orchestrator(args) -> tuple[dict, StackSpec, Component]:
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack: {args.name} (see `veggies ls`)")
+    spec = spec_from_record(args.name, record)
+    orch = orchestrator_component(spec)
+    if orch is None:
+        raise ValueError(
+            f"stack {args.name!r} has no orchestrator; add `orchestrator: builtin` "
+            "to its veggies.yml and `veggies up` again (ADR 0017)")
+    return record, spec, orch
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    record, spec, _ = require_orchestrator(args)
+    if args.file:
+        wf_yaml = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
+        task = args.task or ""
+    else:
+        task = args.task if args.task is not None else sys.stdin.read()
+        if not task.strip():
+            raise ValueError("empty task (pass --task, pipe stdin, or use --file)")
+        print("==> drafting workflow (model call, can take a minute)...", file=sys.stderr)
+        r = orch_exec(record, spec, "draft", "--task-file", "-", input_text=task)
+        if r.returncode != 0:
+            print(r.stdout + r.stderr, file=sys.stderr)
+            raise ValueError("draft failed")
+        wf_yaml = r.stdout
+        print("==> drafted workflow:\n" + wf_yaml)
+        if not args.yes:
+            if input("Run it? [Y/n] ").strip().lower() not in ("", "y", "yes"):
+                print("aborted")
+                return 1
+    r = orch_exec(record, spec, "run", "--task", task, input_text=wf_yaml)
+    try:
+        out = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        out = {}
+    if r.returncode != 0 or "run_id" not in out:
+        print(r.stdout + r.stderr, file=sys.stderr)
+        raise ValueError("run failed to start")
+    print(f"run {out['run_id']} started - watch: veggies runs {args.name}")
+    return 0
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    record, spec, _ = require_orchestrator(args)
+    r = orch_exec(record, spec, "status")
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print(r.stdout + r.stderr, file=sys.stderr)
+        return 1
+    runs = data.get("runs", [])
+    if not runs:
+        print("no runs yet")
+        return 0
+    for run in runs:
+        print(f"{run['id']}  {run['name']:<20} {run['status']:<18} {run['created']}")
+        if run["task"]:
+            print(f"  task: {run['task']}")
+        for sid, sd in run["detail"].get("steps", {}).items():
+            line = f"  {sid:<16} {sd['status']}"
+            if sd.get("why"):
+                line += f"  ({sd['why']})"
+            if sd.get("error"):
+                line += f"  ERROR: {sd['error']}"
+            print(line)
+        if run["detail"].get("awaiting"):
+            a = run["detail"]["awaiting"]
+            print(f"  AWAITING {a['kind']} at step {a.get('step')} - "
+                  f"veggies approve {args.name} {run['id']}")
+        if run["detail"].get("error"):
+            print(f"  error: {run['detail']['error']}")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    record, spec, _ = require_orchestrator(args)
+    r = orch_exec(record, spec, "approve", args.run_id)
+    print(r.stdout.strip())
+    return r.returncode
+
 
 
 LEGACY_STATE_DIR = Path("~/.local/state/garden")
@@ -747,10 +866,29 @@ def main(argv: list[str] | None = None) -> int:
     p_attach.add_argument("name")
     p_attach.set_defaults(func=cmd_attach)
 
+    p_run = sub.add_parser("run", help="run a workflow: drafted on the fly from a task, "
+                                       "or verbatim from a file (ADR 0017)")
+    p_run.add_argument("name")
+    p_run.add_argument("--task", default=None, help="spec text; the drafter writes the workflow")
+    p_run.add_argument("--file", default=None,
+                       help="workflow YAML file ('-' = stdin); runs verbatim")
+    p_run.add_argument("-y", "--yes", action="store_true",
+                       help="skip the draft confirmation")
+    p_run.set_defaults(func=cmd_run)
+
+    p_runs = sub.add_parser("runs", help="workflow runs: status, steps, rationales")
+    p_runs.add_argument("name")
+    p_runs.set_defaults(func=cmd_runs)
+
+    p_approve = sub.add_parser("approve", help="release a run parked at an approval gate")
+    p_approve.add_argument("name")
+    p_approve.add_argument("run_id")
+    p_approve.set_defaults(func=cmd_approve)
+
     p_logs = sub.add_parser("logs", help="pod logs (or one container)")
     p_logs.add_argument("name")
     p_logs.add_argument("container", nargs="?",
-                        choices=["opencode", "litellm", "squid"])
+                        choices=["opencode", "litellm", "squid", "orchestrator"])
     p_logs.add_argument("-f", "--follow", action="store_true")
     p_logs.set_defaults(func=cmd_logs)
 
