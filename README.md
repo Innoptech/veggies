@@ -11,7 +11,7 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phase 6/9 (opencode + litellm gateway + agent-config baseline). See the phase map and the pending-values list below.
+Phase 7/9 (egress allowlist + threat model). See the phase map and the pending-values list below.
 
 ## Architecture at a glance
 
@@ -120,7 +120,7 @@ Committed as `TODO(you)` markers in the example files:
 
 - ADRs: [docs/adr/README.md](docs/adr/README.md)
 - Runbook (stubs until each phase): [docs/runbook.md](docs/runbook.md)
-- Threat model: phase 7
+- Threat model: [docs/threat-model.md](docs/threat-model.md)
 
 ## Conventions
 

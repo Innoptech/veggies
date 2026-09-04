@@ -10,7 +10,7 @@ file. Never edit a decided ADR - write a new one that supersedes it.
 | [0003](0003-tailscale-only-access.md) | Tailscale-only network access | accepted | 4 |
 | 0004 | Secrets in git via ansible-vault (supersedes the brief's sops+age) | accepted | 1 |
 | [0005](0005-ephemeral-containerised-runners.md) | Ephemeral containerised GitHub runners | accepted | 5 |
-| 0006 | Egress allowlist: squid proxy + per-UID nftables | proposed | 7 |
+| [0006](0006-egress-allowlist.md) | Egress allowlist: squid proxy + per-UID nftables | accepted | 7 |
 | [0007](0007-github-policy-as-code.md) | GitHub policy as code | accepted | 2 |
 | [0008](0008-interim-platform-vps-fedora-local-state.md) | Interim platform: manually-rented VPS, Fedora 44, local state | accepted | 1 |
 | 0009 | Rootless Podman + Quadlet instead of Docker | accepted | 1 |

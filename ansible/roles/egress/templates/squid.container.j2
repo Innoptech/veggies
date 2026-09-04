@@ -1,0 +1,23 @@
+# Managed by Ansible (infra repo, egress role). ADR 0006.
+# Published on all interfaces ON PURPOSE: rootless containers cannot reach a
+# host-loopback-only service (measured 2026-09-03, pasta). Public reachability
+# is denied by firewalld's default-deny; squid ACLs restrict sources further.
+[Unit]
+Description=Filtering forward proxy for agent egress (allowlist)
+
+[Container]
+Image={{ egress_squid_image }}
+ContainerName=squid
+PublishPort={{ egress_squid_port }}:{{ egress_squid_port }}
+Volume=%h/.config/squid:/etc/squid:Z
+ReadOnly=true
+Tmpfs=/var/spool/squid
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

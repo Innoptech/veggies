@@ -1,0 +1,29 @@
+---
+- name: Reload the egress nftables rules
+  ansible.builtin.service:
+    name: egress-nftables
+    state: reloaded
+
+- name: Daemon-reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Daemon-reload the egress-proxy user manager
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ egress_proxy_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+
+- name: Restart the squid proxy
+  ansible.builtin.systemd:
+    name: squid.service
+    scope: user
+    state: restarted
+  become: true
+  become_user: "{{ egress_proxy_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+  when: egress_start_proxy

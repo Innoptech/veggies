@@ -14,6 +14,13 @@ Volume={{ github_runner_work_root }}/%i:/home/runner/_work:Z
 # `docker:` steps / `container:` jobs as siblings (docker API compatible).
 Volume=%t/podman/podman.sock:/var/run/docker.sock:z
 Environment=DOCKER_HOST=unix:///var/run/docker.sock
+# All HTTP(S) out through the filtering proxy (ADR 0006). The UID nftables
+# rules deny everything else, logged.
+Environment=HTTPS_PROXY=http://host.containers.internal:3128
+Environment=HTTP_PROXY=http://host.containers.internal:3128
+Environment=NO_PROXY=host.containers.internal,127.0.0.1,localhost
+# Optional extra runtime env (litellm virtual key etc.), from the vault:
+EnvironmentFile=-%h/.config/gh-runner/runtime.env
 NoNewPrivileges=true
 
 [Service]

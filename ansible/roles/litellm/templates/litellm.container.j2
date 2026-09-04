@@ -5,7 +5,10 @@ Description=LiteLLM model gateway (holds the only copy of provider keys)
 [Container]
 Image={{ litellm_image }}
 ContainerName=litellm
-PublishPort=127.0.0.1:{{ litellm_port }}:4000
+# 0.0.0.0 on purpose: rootless containers cannot reach host-loopback-only
+# services (measured, pasta). Auth is the master/virtual keys; firewalld's
+# default-deny blocks public access; the tailnet is the only other path.
+PublishPort={{ litellm_port }}:4000
 EnvironmentFile=%h/.config/litellm/litellm.env
 Volume=%h/.config/litellm/config.yaml:/app/config.yaml:Z
 # TODO(verify): the image entrypoint already runs `litellm`; confirm these

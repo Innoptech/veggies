@@ -1,0 +1,43 @@
+---
+egress_runner_user: gh-runner
+egress_proxy_user: egress-proxy
+
+egress_squid_port: 3128
+egress_litellm_port: 4000
+# The gateway address rootless containers use to reach host-published services
+# (verified 2026-09-03: host.containers.internal resolves here under pasta).
+egress_host_gateway: 169.254.1.2
+
+egress_squid_image: localhost/squid:latest
+
+# Domain allowlist. egress_model_endpoints + egress_allowlist_extra come from
+# group_vars and are merged in.
+egress_allowlist_base:
+  - github.com
+  - api.github.com
+  - .githubusercontent.com # leading dot = subdomains (squid dstdomain syntax)
+  - codeload.github.com
+  - registry.npmjs.org
+  - pypi.org
+  - files.pythonhosted.org
+  - archive.ubuntu.com
+  - security.ubuntu.com
+  - ghcr.io
+  - registry-1.docker.io # docker hub pulls
+  - auth.docker.io # docker hub auth
+  - production.cloudflare.docker.com # docker hub CDN
+
+# Source ACL for the proxy: loopback, link-local (container gateway), tailnet,
+# and RFC1918. The domain allowlist above is the real boundary; this limits
+# who may even attempt to use the proxy.
+egress_squid_acl_src:
+  - 127.0.0.0/8
+  - 169.254.0.0/16
+  - 100.64.0.0/10 # tailnet CGNAT
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+# Test/container gates:
+egress_build_image: true # false in molecule
+egress_start_proxy: true # false in molecule (nft rules ARE tested there)

@@ -1,0 +1,21 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (infra repo, egress role). ADR 0006.
+# A dedicated table - firewalld owns its own tables and never touches this one.
+table inet infra-egress
+flush table inet infra-egress
+
+table inet infra-egress {
+  chain output {
+    type filter hook output priority 0; policy accept;
+
+    # Return traffic for allowed connections (all users).
+    ct state { established, related } accept
+
+    # The runner user may reach exactly two local services:
+    # the filtering proxy and the model gateway.
+    meta skuid {{ egress_runner_uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }} } tcp dport { {{ egress_squid_port }}, {{ egress_litellm_port }} } counter accept
+
+    # Everything else from the runner user: logged and dropped.
+    meta skuid {{ egress_runner_uid }} log prefix "infra-egress-deny: " counter drop
+  }
+}

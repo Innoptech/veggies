@@ -1,0 +1,22 @@
+# Managed by Ansible (infra repo, egress role). Filtering forward proxy with
+# a domain allowlist; denials are logged to stdout -> journald.
+http_port {{ egress_squid_port }}
+
+acl allowed_src src{% for net in egress_squid_acl_src %} {{ net }}{% endfor %}
+
+acl allowed_sites dstdomain "/etc/squid/allowlist.txt"
+acl SSL_ports port 443
+acl CONNECT method CONNECT
+
+# TLS only ever to 443, only to allowlisted domains, only from known sources.
+http_access deny CONNECT !SSL_ports
+http_access deny !allowed_src
+http_access allow allowed_sites
+http_access deny all
+
+# No caching - this is an egress filter, freshness matters.
+cache deny all
+cache_dir null /var/spool/squid-null
+
+access_log stdio:/proc/self/fd/1
+logfile_rotate 0

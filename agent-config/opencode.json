@@ -9,7 +9,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "garden-litellm",
       "options": {
-        "baseURL": "http://127.0.0.1:4000/v1"
+        "baseURL": "http://host.containers.internal:4000/v1"
       },
       "models": {
         "kimi-k3": { "name": "Kimi K3 (via Fireworks)" },

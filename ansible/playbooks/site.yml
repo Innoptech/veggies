@@ -14,8 +14,8 @@
     - role: crowdsec
     - role: tailscale
     - role: podman
-    - role: github_runner
+    - role: egress # before anything that must build/pull as a restricted user
     - role: litellm
+    - role: github_runner
     - role: opencode
-    # phase 7: egress
     # phase 8: backup

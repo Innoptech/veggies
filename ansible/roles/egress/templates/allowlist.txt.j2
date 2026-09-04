@@ -1,0 +1,4 @@
+# Managed by Ansible (infra repo, egress role). One dstdomain per line.
+{% for d in egress_allowlist_base + egress_model_endpoints + egress_allowlist_extra %}
+{{ d }}
+{% endfor %}

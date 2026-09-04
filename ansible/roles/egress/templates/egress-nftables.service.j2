@@ -1,0 +1,16 @@
+# Managed by Ansible (infra repo, egress role).
+[Unit]
+Description=infra-egress nftables rules (per-UID egress policy)
+After=network-pre.target firewalld.service
+Before=network.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables/infra-egress.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables/infra-egress.nft
+ExecStop=/usr/sbin/nft delete table inet infra-egress
+
+[Install]
+WantedBy=multi-user.target

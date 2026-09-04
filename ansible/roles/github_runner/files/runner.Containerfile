@@ -4,6 +4,11 @@ FROM docker.io/library/ubuntu:24.04
 
 ARG RUNNER_VERSION
 ARG RUNNER_SHA256
+# Build-time proxy args: on garden the gh-runner user may only egress via the
+# filtering proxy (ADR 0006), so RUN steps get these from the build task.
+ARG HTTPS_PROXY=""
+ARG HTTP_PROXY=""
+ARG NO_PROXY=""
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

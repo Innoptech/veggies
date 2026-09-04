@@ -7,7 +7,9 @@ github_runner_memory_max: 4G
 github_runner_cpu_quota: "250%"
 github_runner_labels: [self-hosted, linux, x64, garden]
 github_runner_work_root: /srv/gh-runner
-github_runner_image: localhost/gh-runner:latest
+github_runner_image: "localhost/gh-runner:{{ github_runner_version }}"
+# Builds/pulls by the gh-runner user go through the filtering proxy (ADR 0006).
+github_runner_build_proxy: "http://127.0.0.1:3128"
 
 # actions/runner release - verified 2026-09-03 (release notes SHA-256).
 github_runner_version: "2.337.0"

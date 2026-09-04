@@ -1,0 +1,97 @@
+---
+- name: Read the account database (runner and proxy uids)
+  ansible.builtin.getent:
+    database: passwd
+
+- name: Record the runner uid for the nft template
+  ansible.builtin.set_fact:
+    egress_runner_uid: "{{ ansible_facts.getent_passwd[egress_runner_user][2] }}"
+
+- name: Install the nftables ruleset
+  ansible.builtin.template:
+    src: infra-egress.nft.j2
+    dest: /etc/nftables/infra-egress.nft
+    owner: root
+    group: root
+    mode: "0640"
+  register: egress_nft_ruleset
+  notify: Reload the egress nftables rules
+
+- name: Install the loader unit
+  ansible.builtin.template:
+    src: egress-nftables.service.j2
+    dest: /etc/systemd/system/egress-nftables.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Daemon-reload systemd
+
+- name: Enable and load the egress rules
+  ansible.builtin.service:
+    name: egress-nftables
+    enabled: true
+    state: started
+
+- name: Ensure the squid config directory exists
+  ansible.builtin.file:
+    path: "/home/{{ egress_proxy_user }}/.config/squid"
+    state: directory
+    owner: "{{ egress_proxy_user }}"
+    group: "{{ egress_proxy_user }}"
+    mode: "0750"
+
+- name: Install squid.conf
+  ansible.builtin.template:
+    src: squid.conf.j2
+    dest: "/home/{{ egress_proxy_user }}/.config/squid/squid.conf"
+    owner: "{{ egress_proxy_user }}"
+    group: "{{ egress_proxy_user }}"
+    mode: "0640"
+  notify: Restart the squid proxy
+
+- name: Install the domain allowlist
+  ansible.builtin.template:
+    src: allowlist.txt.j2
+    dest: "/home/{{ egress_proxy_user }}/.config/squid/allowlist.txt"
+    owner: "{{ egress_proxy_user }}"
+    group: "{{ egress_proxy_user }}"
+    mode: "0640"
+  notify: Restart the squid proxy
+
+- name: Install the squid quadlet
+  ansible.builtin.template:
+    src: squid.container.j2
+    dest: "/home/{{ egress_proxy_user }}/.config/containers/systemd/squid.container"
+    owner: "{{ egress_proxy_user }}"
+    group: "{{ egress_proxy_user }}"
+    mode: "0640"
+  notify: Daemon-reload the egress-proxy user manager
+
+- name: Build the squid image as the proxy user
+  containers.podman.podman_image:
+    name: "{{ egress_squid_image }}"
+    build:
+      file: squid.Containerfile
+      path: "{{ role_path }}/files"
+    state: build
+  become: true
+  become_user: "{{ egress_proxy_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+  when: egress_build_image
+
+- name: Ensure the proxy user's systemd manager is running
+  ansible.builtin.systemd:
+    name: "user@{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+    state: started
+
+- name: Start the squid proxy
+  ansible.builtin.systemd:
+    name: squid.service
+    scope: user
+    state: started
+  become: true
+  become_user: "{{ egress_proxy_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+  when: egress_start_proxy

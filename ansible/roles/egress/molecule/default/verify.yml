@@ -1,0 +1,54 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Nftables ruleset file installed
+      ansible.builtin.stat:
+        path: /etc/nftables/infra-egress.nft
+      register: egress_nft_file
+      failed_when: not egress_nft_file.stat.exists
+
+    - name: Loader unit enabled
+      ansible.builtin.service_facts:
+
+    - name: Assert loader unit state
+      ansible.builtin.assert:
+        that: ansible_facts.services["egress-nftables.service"].status == "enabled"
+
+    - name: Table is loaded in the kernel
+      ansible.builtin.command:
+        cmd: nft list table inet infra-egress
+      register: egress_nft_table
+      changed_when: false
+
+    - name: Rules carry the UID pin and the deny log
+      ansible.builtin.assert:
+        that:
+          - "'skuid' in egress_nft_table.stdout"
+          - "'infra-egress-deny' in egress_nft_table.stdout"
+          - "'dport' in egress_nft_table.stdout"
+
+    - name: Allowlist contains github and the model endpoint
+      ansible.builtin.slurp:
+        src: /home/egress-proxy/.config/squid/allowlist.txt
+      register: egress_allowlist_content
+
+    - name: Assert allowlist
+      ansible.builtin.assert:
+        that:
+          - "'api.github.com' in (egress_allowlist_content.content | b64decode)"
+          - "'api.fireworks.ai' in (egress_allowlist_content.content | b64decode)"
+
+    - name: Squid config installed
+      ansible.builtin.stat:
+        path: /home/egress-proxy/.config/squid/squid.conf
+      register: egress_squid_conf
+      failed_when: not egress_squid_conf.stat.exists
+
+    - name: Quadlet installed
+      ansible.builtin.stat:
+        path: /home/egress-proxy/.config/containers/systemd/squid.container
+      register: egress_squid_quadlet
+      failed_when: not egress_squid_quadlet.stat.exists

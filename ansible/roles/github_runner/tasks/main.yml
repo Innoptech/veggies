@@ -76,6 +76,18 @@
   no_log: true # contains the admin token
   when: github_runner_register
 
+- name: Install the runner runtime env (scoped litellm key, from the vault)
+  ansible.builtin.template:
+    src: runtime.env.j2
+    dest: "/home/{{ github_runner_user }}/.config/gh-runner/runtime.env"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - github_runner_register
+    - litellm_runner_virtual_key is defined
+
 - name: Install the quadlet template
   ansible.builtin.template:
     src: gh-runner@.container.j2
@@ -129,11 +141,17 @@
       args:
         RUNNER_VERSION: "{{ github_runner_version }}"
         RUNNER_SHA256: "{{ github_runner_sha256 }}"
+        HTTPS_PROXY: "{{ github_runner_build_proxy }}"
+        HTTP_PROXY: "{{ github_runner_build_proxy }}"
     state: build
   become: true
   become_user: "{{ github_runner_user }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ github_runner_uid }}"
+    # Pulls of the base image also go through the proxy (host-side, as
+    # gh-runner, direct egress is denied by the egress role).
+    HTTPS_PROXY: "{{ github_runner_build_proxy }}"
+    HTTP_PROXY: "{{ github_runner_build_proxy }}"
   when: github_runner_build_image
 
 - name: Start runner units
