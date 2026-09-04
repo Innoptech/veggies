@@ -244,6 +244,34 @@ def test_opencode_containerfile_pin_format():
     assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
 
 
+# --- persistence (phase 12) -----------------------------------------------------
+
+
+def test_quadlet_references_pod_yaml_only(spec, tmp_path):
+    pod_yaml = tmp_path / "pod.yaml"
+    text = garden.render_quadlet(spec, pod_yaml)
+    assert f"Yaml={pod_yaml}" in text
+    assert "WantedBy=default.target" in text
+    assert "Secret" not in text
+
+
+def test_rendered_yaml_never_contains_secrets(spec):
+    """The on-disk pod.yaml (quadlet input) must never carry Secret docs."""
+    assert "kind: Secret" not in garden.render_yaml(spec, INFRA_REPO)
+
+
+def test_quadlet_path_honors_env(spec, monkeypatch, tmp_path):
+    monkeypatch.setenv("GARDEN_QUADLET_DIR", str(tmp_path))
+    assert garden.quadlet_path(spec) == tmp_path / "garden-demo.kube"
+
+
+def test_watchdog_units_are_minimal_and_scoped():
+    assert 'label=app=garden' in garden.WATCHDOG_SERVICE
+    assert 'status=exited' in garden.WATCHDOG_SERVICE
+    assert "OnUnitActiveSec" in garden.WATCHDOG_TIMER
+    assert "WantedBy=timers.target" in garden.WATCHDOG_TIMER
+
+
 # --- golden file ----------------------------------------------------------------
 
 
