@@ -1,0 +1,203 @@
+"""Tests for cli/garden.py - pure renderers, state, and drift guards."""
+
+import importlib.util
+import json
+import stat
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).parent.parent
+_spec = importlib.util.spec_from_file_location("garden", ROOT / "cli/garden.py")
+garden = importlib.util.module_from_spec(_spec)
+sys.modules["garden"] = garden  # dataclass introspection needs this (py3.14)
+_spec.loader.exec_module(garden)
+
+INFRA_REPO = ROOT
+FIXED_STATE = Path("/tmp/garden-test-state")
+
+
+@pytest.fixture()
+def spec(monkeypatch, tmp_path):
+    monkeypatch.setenv("GARDEN_STATE_DIR", str(FIXED_STATE))
+    repo = tmp_path / "demo-repo"
+    repo.mkdir()
+    return garden.StackSpec(name="demo", repo=str(repo), mode="mount", port=4096)
+
+
+# --- names and ports -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("/home/u/code/my-repo", "my-repo"),
+        ("git@github.com:org/My_Repo.git", "my-repo"),
+        ("https://github.com/org/foo.git/", "foo"),
+        ("a__b  c", "a-b-c"),
+    ],
+)
+def test_sanitize_name(raw, expected):
+    assert garden.sanitize_name(raw) == expected
+
+
+def test_sanitize_name_rejects_garbage():
+    with pytest.raises(ValueError):
+        garden.sanitize_name("!!!")
+
+
+def test_allocate_port_first_free():
+    assert garden.allocate_port(set()) == 4096
+    assert garden.allocate_port({4096, 4097}) == 4098
+
+
+# --- state ---------------------------------------------------------------------
+
+
+def test_state_roundtrip_and_permissions(tmp_path):
+    state = garden.State(root=tmp_path)
+    state.add(garden.StackSpec(name="a", repo="/x", port=4096))
+    state.add(garden.StackSpec(name="b", repo="/y", port=4097, host="garden"))
+    data = state.load()
+    assert set(data["stacks"]) == {"a", "b"}
+    assert data["stacks"]["b"]["host"] == "garden"
+    assert stat.S_IMODE(state.file.stat().st_mode) == 0o600
+    assert state.used_ports() == {4096, 4097}
+    assert state.remove("a") is True
+    assert state.remove("a") is False
+
+
+# --- pod rendering -------------------------------------------------------------
+
+
+def _docs(spec):
+    return list(yaml.safe_load_all(garden.render_yaml(spec, INFRA_REPO)))
+
+
+def _pod(spec):
+    return next(d for d in _docs(spec) if d["kind"] == "Pod")
+
+
+def test_render_has_pvcs_and_one_pod(spec):
+    docs = _docs(spec)
+    assert [d["kind"] for d in docs] == [
+        "PersistentVolumeClaim",
+        "PersistentVolumeClaim",
+        "Pod",
+    ]
+    assert docs[0]["metadata"]["name"] == "garden-demo-opencode"
+    assert docs[1]["metadata"]["name"] == "garden-demo-litellm"
+
+
+def test_render_containers_and_pins(spec):
+    containers = _pod(spec)["spec"]["containers"]
+    by_name = {c["name"]: c for c in containers}
+    assert set(by_name) == {"opencode", "litellm", "squid"}
+    assert by_name["litellm"]["image"] == garden.IMAGE_LITELLM
+    assert by_name["squid"]["image"] == garden.IMAGE_SQUID
+    assert by_name["opencode"]["image"] == garden.IMAGE_OPENCODE
+
+
+def test_only_opencode_publishes_a_port(spec):
+    pod = _pod(spec)
+    for container in pod["spec"]["containers"]:
+        if container["name"] == "opencode":
+            (port,) = container["ports"]
+            assert port["containerPort"] == 4096
+            assert port["hostPort"] == spec.port
+            assert port["hostIP"] == "127.0.0.1"
+        else:
+            assert "ports" not in container
+
+
+def test_remote_host_publishes_on_all_interfaces(spec):
+    spec.host = "garden"
+    (port,) = _pod(spec)["spec"]["containers"][0]["ports"]
+    assert port["hostIP"] == "0.0.0.0"
+
+
+def test_all_containers_hardened(spec):
+    for container in _pod(spec)["spec"]["containers"]:
+        sc = container["securityContext"]
+        assert sc["readOnlyRootFilesystem"] is True
+        assert sc["allowPrivilegeEscalation"] is False
+        assert sc["capabilities"]["drop"] == ["ALL"]
+        assert container["resources"]["limits"]["memory"].endswith("Mi")
+        assert "livenessProbe" in container
+
+
+def test_secrets_are_namespaced_per_stack(spec):
+    containers = _pod(spec)["spec"]["containers"]
+    env = {e["name"]: e for c in containers for e in c.get("env", []) if "valueFrom" in e}
+    assert env["FIREWORKS_API_KEY"]["valueFrom"]["secretKeyRef"]["name"] == "garden-demo-litellm"
+    assert env["OPENCODE_SERVER_PASSWORD"]["valueFrom"]["secretKeyRef"]["name"] == "garden-demo-opencode"
+
+
+def test_repo_is_the_only_code_mount(spec):
+    pod = _pod(spec)
+    volumes = {v["name"]: v for v in pod["spec"]["volumes"]}
+    assert volumes["repo"]["hostPath"]["path"] == spec.repo
+    opencode = next(c for c in pod["spec"]["containers"] if c["name"] == "opencode")
+    mounts = {m["name"]: m["mountPath"] for m in opencode["volumeMounts"]}
+    assert mounts["repo"] == "/workspace"
+    assert opencode["workingDir"] == "/workspace"
+
+
+def test_opencode_json_stack_variant(spec):
+    rendered = json.loads(garden.render_opencode_json(INFRA_REPO))
+    litellm = rendered["provider"]["litellm"]
+    assert litellm["options"]["baseURL"] == "http://127.0.0.1:4000/v1"
+    assert litellm["options"]["apiKey"] == "{env:LITELLM_MASTER_KEY}"
+    # everything else identical to the vendored config
+    source = json.loads((INFRA_REPO / "agent-config/opencode.json").read_text())
+    source["provider"]["litellm"]["options"] = litellm["options"]
+    assert rendered == source
+
+
+def test_squid_conf_matches_prod_shape():
+    conf = garden.render_squid_conf()
+    assert "http_access deny all" in conf
+    assert "dstdomain" in conf
+    allowlist = garden.render_allowlist().splitlines()
+    assert "api.fireworks.ai" in allowlist
+    assert allowlist[-1] == "api.fireworks.ai"  # model endpoints appended last
+
+
+# --- drift guards against the Ansible side --------------------------------------
+
+
+def test_litellm_pin_matches_role():
+    defaults = yaml.safe_load(
+        (ROOT / "ansible/roles/litellm/defaults/main.yml").read_text()
+    )
+    assert garden.IMAGE_LITELLM == defaults["litellm_image"]
+
+
+def test_squid_allowlist_base_matches_role():
+    defaults = yaml.safe_load(
+        (ROOT / "ansible/roles/egress/defaults/main.yml").read_text()
+    )
+    assert garden.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
+
+
+def test_model_endpoints_match_group_vars_example():
+    text = (ROOT / "ansible/inventory/group_vars/all.yml.example").read_text()
+    assert yaml.safe_load(text)["egress_model_endpoints"] == garden.SQUID_MODEL_ENDPOINTS
+
+
+def test_squid_containerfile_reused():
+    assert (ROOT / "ansible/roles/egress/files/squid.Containerfile").exists()
+
+
+# --- golden file ----------------------------------------------------------------
+
+
+def test_render_matches_golden(monkeypatch):
+    monkeypatch.setenv("GARDEN_STATE_DIR", str(FIXED_STATE))
+    fixed = garden.StackSpec(
+        name="demo", repo="/tmp/garden-test-state/demo-repo", mode="mount", port=4096
+    )
+    golden = (ROOT / "tests/golden/pod.yaml").read_text()
+    assert garden.render_yaml(fixed, INFRA_REPO) == golden

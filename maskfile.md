@@ -222,3 +222,17 @@ export PATH="$PWD/.venv/bin:$PATH"
 [ -f ansible/playbooks/bootstrap.yml ] || { echo "ansible/playbooks/bootstrap.yml arrives in phase 4"; exit 1; }
 ansible-playbook ansible/playbooks/bootstrap.yml --limit garden
 ```
+
+## garden-install
+
+> Install the `garden` CLI (ADR 0013) into ~/.local/bin (wrapper around the
+> repo venv). This shim - not mask - is the interface, because mask parses
+> subcommand flags as its own.
+
+```bash
+set -euo pipefail
+mkdir -p ~/.local/bin
+printf '#!/bin/sh\nexec %s/.venv/bin/python %s/cli/garden.py "$@"\n' "$PWD" "$PWD" > ~/.local/bin/garden
+chmod +x ~/.local/bin/garden
+echo "installed: ~/.local/bin/garden"
+```

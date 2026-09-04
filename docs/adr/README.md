@@ -17,3 +17,4 @@ file. Never edit a decided ADR - write a new one that supersedes it.
 | [0010](0010-crowdsec-auditd-no-fail2ban.md) | CrowdSec + auditd instead of fail2ban | accepted | 4 |
 | [0011](0011-litellm-gateway-model-routing.md) | LiteLLM gateway as the model router; keys held only by the proxy | accepted | 6 |
 | [0012](0012-agent-config-baseline-superpowers.md) | Vendored agent-config baseline; Superpowers as a pinned opencode plugin | accepted | 6 |
+| [0013](0013-repo-scoped-agent-stacks.md) | Repo-scoped agent stacks via the `garden` CLI | accepted | 10 |

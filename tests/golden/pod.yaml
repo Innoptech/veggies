@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: garden-demo-opencode
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: garden-demo-litellm
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: garden
+    garden.io/stack: demo
+  name: garden-demo
+spec:
+  containers:
+  - args:
+    - serve
+    - --hostname
+    - 0.0.0.0
+    - --port
+    - '4096'
+    env:
+    - name: OPENCODE_SERVER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: garden-demo-opencode
+    - name: LITELLM_MASTER_KEY
+      valueFrom:
+        secretKeyRef:
+          key: master_key
+          name: garden-demo-litellm
+    - name: HTTP_PROXY
+      value: http://127.0.0.1:3128
+    - name: HTTPS_PROXY
+      value: http://127.0.0.1:3128
+    - name: NO_PROXY
+      value: 127.0.0.1,localhost
+    image: ghcr.io/anomalyco/opencode:v1.18.27
+    livenessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      tcpSocket:
+        port: 4096
+    name: opencode
+    ports:
+    - containerPort: 4096
+      hostIP: 127.0.0.1
+      hostPort: 4096
+    resources:
+      limits:
+        memory: 512Mi
+    securityContext: &id001
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      readOnlyRootFilesystem: true
+    volumeMounts:
+    - mountPath: /workspace
+      name: repo
+    - mountPath: /config
+      name: stack-config
+      readOnly: true
+    - mountPath: /root
+      name: opencode-home
+    - mountPath: /tmp
+      name: tmp
+    workingDir: /workspace
+  - args:
+    - --config
+    - /app/config.yaml
+    - --port
+    - '4000'
+    - --host
+    - 0.0.0.0
+    env:
+    - name: LITELLM_MASTER_KEY
+      valueFrom:
+        secretKeyRef:
+          key: master_key
+          name: garden-demo-litellm
+    - name: LITELLM_SALT_KEY
+      valueFrom:
+        secretKeyRef:
+          key: salt_key
+          name: garden-demo-litellm
+    - name: FIREWORKS_API_KEY
+      valueFrom:
+        secretKeyRef:
+          key: fireworks_api_key
+          name: garden-demo-litellm
+    - name: DATABASE_URL
+      value: sqlite:////data/litellm.db
+    image: ghcr.io/berriai/litellm:v1.99.1
+    livenessProbe:
+      httpGet:
+        path: /health/liveliness
+        port: 4000
+      initialDelaySeconds: 15
+      periodSeconds: 30
+    name: litellm
+    resources:
+      limits:
+        memory: 768Mi
+    securityContext: *id001
+    volumeMounts:
+    - mountPath: /app/config.yaml
+      name: litellm-config
+      readOnly: true
+      subPath: config.yaml
+    - mountPath: /data
+      name: litellm-data
+    - mountPath: /tmp
+      name: tmp
+  - image: localhost/squid:latest
+    livenessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 30
+      tcpSocket:
+        port: 3128
+    name: squid
+    resources:
+      limits:
+        memory: 128Mi
+    securityContext: *id001
+    volumeMounts:
+    - mountPath: /etc/squid/squid.conf
+      name: stack-config
+      readOnly: true
+      subPath: squid.conf
+    - mountPath: /etc/squid/allowlist.txt
+      name: stack-config
+      readOnly: true
+      subPath: allowlist.txt
+    - mountPath: /run
+      name: run
+    - mountPath: /tmp
+      name: tmp
+  restartPolicy: Always
+  volumes:
+  - hostPath:
+      path: /tmp/garden-test-state/demo-repo
+      type: Directory
+    name: repo
+  - hostPath:
+      path: /tmp/garden-test-state/demo/config
+      type: Directory
+    name: stack-config
+  - hostPath:
+      path: /home/josee/Innoptech/veggie/agent-config/litellm
+      type: Directory
+    name: litellm-config
+  - name: opencode-home
+    persistentVolumeClaim:
+      claimName: garden-demo-opencode
+  - name: litellm-data
+    persistentVolumeClaim:
+      claimName: garden-demo-litellm
+  - emptyDir: {}
+    name: tmp
+  - emptyDir: {}
+    name: run

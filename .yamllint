@@ -6,6 +6,7 @@ ignore: |
   terraform/**/templates/
   ansible/collections/
   .ansible/
+  tests/golden/
 rules:
   line-length:
     max: 160

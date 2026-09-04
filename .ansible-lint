@@ -7,4 +7,5 @@ exclude_paths:
   - secrets/ # vault-encrypted files are not parseable YAML by design
   - ansible/collections/ # galaxy install target - vendored collections, not ours
   - agent-config/ # opencode/litellm config, not ansible content
+  - tests/golden/ # machine-generated kube YAML snapshots (ADR 0013)
   - "**/molecule/**/.molecule/"
