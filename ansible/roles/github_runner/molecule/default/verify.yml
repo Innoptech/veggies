@@ -1,0 +1,72 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Token fetcher installed with tight permissions
+      ansible.builtin.stat:
+        path: /home/gh-runner/.local/bin/fetch_runner_token
+      register: github_runner_fetcher
+      failed_when: >
+        not github_runner_fetcher.stat.exists
+        or github_runner_fetcher.stat.mode != "0750"
+
+    - name: Token fetcher runs
+      ansible.builtin.command:
+        cmd: /home/gh-runner/.local/bin/fetch_runner_token --help
+      changed_when: false
+
+    - name: No API env file when registration is disabled
+      ansible.builtin.stat:
+        path: /home/gh-runner/.config/gh-runner/api.env
+      register: github_runner_api_env
+      failed_when: github_runner_api_env.stat.exists
+
+    - name: Quadlet template exists
+      ansible.builtin.slurp:
+        src: /home/gh-runner/.config/containers/systemd/gh-runner@.container
+      register: github_runner_quadlet_content
+
+    - name: Quadlet carries limits and the token flow
+      ansible.builtin.assert:
+        that:
+          - "'MemoryMax=4G' in (github_runner_quadlet_content.content | b64decode)"
+          - "'CPUQuota=250%' in (github_runner_quadlet_content.content | b64decode)"
+          - "'ExecStartPre=' in (github_runner_quadlet_content.content | b64decode)"
+
+    - name: Instance symlink exists
+      ansible.builtin.stat:
+        path: /home/gh-runner/.config/containers/systemd/gh-runner@demo-1.container
+      register: github_runner_instance_link
+      failed_when: not github_runner_instance_link.stat.exists
+
+    - name: Work dir exists and belongs to gh-runner
+      ansible.builtin.stat:
+        path: /srv/gh-runner/demo-1
+      register: github_runner_workdir
+      failed_when: >
+        not github_runner_workdir.stat.exists
+        or not github_runner_workdir.stat.isdir
+        or github_runner_workdir.stat.pw_name != "gh-runner"
+
+    - name: Resolve the runner user's uid
+      ansible.builtin.getent:
+        database: passwd
+        key: gh-runner
+
+    - name: Quadlet generator accepts the template
+      ansible.builtin.command:
+        cmd: /usr/lib/systemd/system-generators/podman-system-generator --user --dryrun
+      register: github_runner_dryrun
+      changed_when: false
+      become: true
+      become_user: gh-runner
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd['gh-runner'][2] }}"
+      failed_when: false
+
+    - name: Generator produced a unit with the limits
+      ansible.builtin.assert:
+        that: "'MemoryMax=4G' in (github_runner_dryrun.stdout + github_runner_dryrun.stderr)"
+        fail_msg: "quadlet generator did not produce the expected unit - see the dryrun task output"

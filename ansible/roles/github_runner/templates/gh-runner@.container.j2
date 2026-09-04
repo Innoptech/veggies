@@ -1,0 +1,29 @@
+# Managed by Ansible (infra repo, github_runner role). Template unit:
+# instances are symlinks gh-runner@<name>.container next to this file.
+[Unit]
+Description=Ephemeral GitHub Actions runner %i
+
+[Container]
+Image=localhost/gh-runner:{{ github_runner_version }}
+ContainerName=gh-runner-%i
+# Written by ExecStartPre (fetch_runner_token) just before every start:
+EnvironmentFile=%h/.config/gh-runner/%i.env
+# Only the per-instance work dir is mounted (ADR 0005).
+Volume={{ github_runner_work_root }}/%i:/home/runner/_work:Z
+# The rootless podman socket of THIS user, so workflow jobs can use
+# `docker:` steps / `container:` jobs as siblings (docker API compatible).
+Volume=%t/podman/podman.sock:/var/run/docker.sock:z
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+# Fresh short-lived registration token on every (re)start:
+ExecStartPre=/home/{{ github_runner_user }}/.local/bin/fetch_runner_token --env-file %h/.config/gh-runner/api.env --instance %i --out %h/.config/gh-runner/%i.env
+MemoryMax={{ github_runner_memory_max }}
+CPUQuota={{ github_runner_cpu_quota }}
+
+[Install]
+WantedBy=default.target

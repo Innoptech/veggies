@@ -13,7 +13,8 @@
     - role: base
     - role: crowdsec
     - role: tailscale
-    # phase 5: podman, github_runner
+    - role: podman
+    - role: github_runner
     # phase 6: opencode (incl. litellm)
     # phase 7: egress
     # phase 8: backup

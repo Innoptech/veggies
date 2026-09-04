@@ -1,0 +1,38 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    admin_user: fedora
+    github_owner: someone # used only by api.env, which is skipped below
+    github_repos: [demo]
+    github_runner_count: 1
+    # No GitHub API calls, no 200 MB image build, nothing started in tests:
+    github_runner_build_image: false
+    github_runner_register: false
+    github_runner_start: false
+  pre_tasks:
+    - name: Create the users the base role would provide
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        shell: "{{ item.shell }}"
+        home: "/home/{{ item.name }}"
+        create_home: true
+      loop:
+        - { name: gh-runner, shell: /usr/sbin/nologin }
+        - { name: egress-proxy, shell: /usr/sbin/nologin }
+        - { name: fedora, shell: /bin/bash }
+
+    - name: Check the linger marker
+      ansible.builtin.stat:
+        path: /var/lib/systemd/linger/gh-runner
+      register: github_runner_molecule_linger
+
+    - name: Enable linger for gh-runner (user manager can start)
+      ansible.builtin.command:
+        cmd: /usr/bin/loginctl enable-linger gh-runner
+      when: not github_runner_molecule_linger.stat.exists
+      changed_when: true
+  roles:
+    - role: podman
+    - role: github_runner

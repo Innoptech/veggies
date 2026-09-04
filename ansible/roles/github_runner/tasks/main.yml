@@ -1,0 +1,153 @@
+---
+- name: Resolve the runner user's uid
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ github_runner_user }}"
+
+- name: Record the uid
+  ansible.builtin.set_fact:
+    github_runner_uid: "{{ ansible_facts.getent_passwd[github_runner_user][2] }}"
+
+- name: Compute runner instance names
+  ansible.builtin.set_fact:
+    # Jinja has no list comprehensions - use filters.
+    # scope=repo: one set of runners per repo ("<repo>-<n>");
+    # scope=org:  a single org-wide set ("<n>").
+    github_runner_instances: >-
+      {{ (github_repos | product(range(1, github_runner_count + 1) | list) | map('join', '-') | list)
+         if github_runner_scope == 'repo'
+         else (range(1, github_runner_count + 1) | list | map('string') | list) }}
+
+- name: Ensure the runner user's systemd manager is running
+  ansible.builtin.systemd:
+    name: "user@{{ github_runner_uid }}"
+    state: started
+
+- name: Ensure the runner work root exists
+  ansible.builtin.file:
+    path: "{{ github_runner_work_root }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0750"
+
+- name: Ensure the per-instance work dirs exist
+  ansible.builtin.file:
+    path: "{{ github_runner_work_root }}/{{ item }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0750"
+  loop: "{{ github_runner_instances }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Ensure the user bin directory exists
+  ansible.builtin.file:
+    path: "/home/{{ github_runner_user }}/.local/bin"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0750"
+
+- name: Install the token fetcher
+  ansible.builtin.copy:
+    src: fetch_runner_token.py
+    dest: "/home/{{ github_runner_user }}/.local/bin/fetch_runner_token"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0750"
+
+- name: Ensure the env directory exists
+  ansible.builtin.file:
+    path: "/home/{{ github_runner_user }}/.config/gh-runner"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0700"
+
+- name: Install the API env file (from the vault)
+  ansible.builtin.template:
+    src: api.env.j2
+    dest: "/home/{{ github_runner_user }}/.config/gh-runner/api.env"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0600"
+  no_log: true # contains the admin token
+  when: github_runner_register
+
+- name: Install the quadlet template
+  ansible.builtin.template:
+    src: gh-runner@.container.j2
+    dest: "/home/{{ github_runner_user }}/.config/containers/systemd/gh-runner@.container"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0640"
+  register: github_runner_quadlet
+  notify: Daemon-reload the gh-runner user manager
+
+- name: List existing runner unit links
+  ansible.builtin.find:
+    paths: "/home/{{ github_runner_user }}/.config/containers/systemd"
+    patterns: "gh-runner@*.container"
+    file_type: link
+  register: github_runner_existing_links
+
+- name: Instantiate runner units (symlinks next to the template)
+  ansible.builtin.file:
+    src: "/home/{{ github_runner_user }}/.config/containers/systemd/gh-runner@.container"
+    dest: "/home/{{ github_runner_user }}/.config/containers/systemd/gh-runner@{{ item }}.container"
+    state: link
+    follow: false
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+  loop: "{{ github_runner_instances }}"
+  loop_control:
+    label: "{{ item }}"
+  notify: Daemon-reload the gh-runner user manager
+
+- name: Remove units for instances that no longer exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  # No regex on purpose: derive the instance name with plain string ops.
+  when: >-
+    ((item.path | basename) | replace('gh-runner@', '') | replace('.container', ''))
+    not in github_runner_instances
+  loop: "{{ github_runner_existing_links.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  notify: Daemon-reload the gh-runner user manager
+
+- name: Build the runner image as the service user
+  containers.podman.podman_image:
+    name: localhost/gh-runner
+    tag: "{{ github_runner_version }}"
+    build:
+      file: runner.Containerfile
+      path: "{{ role_path }}/files"
+      args:
+        RUNNER_VERSION: "{{ github_runner_version }}"
+        RUNNER_SHA256: "{{ github_runner_sha256 }}"
+    state: build
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ github_runner_uid }}"
+  when: github_runner_build_image
+
+- name: Start runner units
+  ansible.builtin.systemd:
+    name: "gh-runner@{{ item }}.service"
+    scope: user
+    state: started
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ github_runner_uid }}"
+  loop: "{{ github_runner_instances }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - github_runner_start
+    - github_runner_register

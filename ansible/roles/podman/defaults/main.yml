@@ -1,0 +1,11 @@
+---
+# Users that get rootless podman wiring (quadlet dir, containers.conf, socket).
+# admin_user comes from group_vars.
+podman_users:
+  - gh-runner
+  - egress-proxy
+  - "{{ admin_user }}"
+
+# cgroup delegation for user managers - required so [Service] MemoryMax=/CPUQuota=
+# in user quadlets actually limit anything.
+podman_delegate_controllers: "cpu cpuset io memory pids"

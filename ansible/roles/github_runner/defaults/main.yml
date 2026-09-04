@@ -1,0 +1,19 @@
+---
+# Runner identity and shape (sized for 6 vCPU / 12 GB; ADR 0008).
+github_runner_user: gh-runner
+github_runner_scope: repo # repo | org (org requires a GitHub organization)
+github_runner_count: 2 # per repo when scope=repo, total when scope=org
+github_runner_memory_max: 4G
+github_runner_cpu_quota: "250%"
+github_runner_labels: [self-hosted, linux, x64, garden]
+github_runner_work_root: /srv/gh-runner
+github_runner_image: localhost/gh-runner:latest
+
+# actions/runner release - verified 2026-09-03 (release notes SHA-256).
+github_runner_version: "2.337.0"
+github_runner_sha256: 70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
+
+# Test/container gates:
+github_runner_build_image: true # false in molecule (the tarball is ~200 MB)
+github_runner_register: true # false in molecule (no GitHub API calls)
+github_runner_start: true # false in molecule (nothing to run without a token)

@@ -1,0 +1,78 @@
+---
+- name: Install podman and rootless networking
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - crun
+      - passt # provides the pasta binary - rootless networking (Fedora 44 default)
+      - slirp4netns # fallback
+      - fuse-overlayfs
+    state: present
+
+- name: Ensure the user@.service drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/user@.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Delegate cgroup controllers to user managers
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/user@.service.d/50-delegate.conf
+    content: |
+      [Service]
+      Delegate={{ podman_delegate_controllers }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Daemon-reload systemd
+  # TODO(verify): whether Fedora 44's user@.service already delegates enough;
+  # the explicit drop-in is kept so the runner limits never silently no-op.
+
+- name: Ensure quadlet config directory per user
+  ansible.builtin.file:
+    path: "/home/{{ item }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0750"
+  loop: "{{ podman_users }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Install per-user containers.conf (journald logging, systemd cgroups)
+  ansible.builtin.template:
+    src: containers.conf.j2
+    dest: "/home/{{ item }}/.config/containers/containers.conf"
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0640"
+  loop: "{{ podman_users }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Ensure systemd user wants directory per user
+  ansible.builtin.file:
+    path: "/home/{{ item }}/.config/systemd/user/sockets.target.wants"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0750"
+  loop: "{{ podman_users }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Enable the per-user podman API socket (docker-compatible)
+  ansible.builtin.file:
+    src: /usr/lib/systemd/user/podman.socket
+    dest: "/home/{{ item }}/.config/systemd/user/sockets.target.wants/podman.socket"
+    state: link
+    follow: false # otherwise ownership is re-applied to the link every run
+    owner: "{{ item }}"
+    group: "{{ item }}"
+  loop: "{{ podman_users }}"
+  loop_control:
+    label: "{{ item }}"
+  # Symlink-enabling works without a running user manager; the unit starts at
+  # boot because linger is enabled (base role).

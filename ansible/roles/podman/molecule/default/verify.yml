@@ -1,0 +1,60 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  vars:
+    podman_verify_users: [gh-runner, egress-proxy, fedora]
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+
+    - name: Podman and rootless networking installed
+      ansible.builtin.assert:
+        that: item in ansible_facts.packages
+        fail_msg: "package {{ item }} missing"
+      loop: [podman, crun, passt, fuse-overlayfs]
+
+    - name: Cgroup delegation drop-in installed
+      ansible.builtin.stat:
+        path: /etc/systemd/system/user@.service.d/50-delegate.conf
+      register: podman_delegate_conf
+      failed_when: not podman_delegate_conf.stat.exists
+
+    - name: Quadlet directory per user
+      ansible.builtin.stat:
+        path: "/home/{{ item }}/.config/containers/systemd"
+      register: podman_quadlet_dirs
+      loop: "{{ podman_verify_users }}"
+
+    - name: Assert quadlet directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isdir
+        fail_msg: "quadlet dir missing for {{ item.item }}"
+      loop: "{{ podman_quadlet_dirs.results }}"
+
+    - name: Podman socket enabled per user
+      ansible.builtin.stat:
+        path: "/home/{{ item }}/.config/systemd/user/sockets.target.wants/podman.socket"
+      register: podman_socket_links
+      loop: "{{ podman_verify_users }}"
+
+    - name: Assert socket symlinks
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "podman.socket not enabled for {{ item.item }}"
+      loop: "{{ podman_socket_links.results }}"
+
+    - name: Containers.conf installed per user
+      ansible.builtin.stat:
+        path: "/home/{{ item }}/.config/containers/containers.conf"
+      register: podman_containers_confs
+      loop: "{{ podman_verify_users }}"
+
+    - name: Assert containers.conf
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "containers.conf missing for {{ item.item }}"
+      loop: "{{ podman_containers_confs.results }}"

@@ -16,6 +16,7 @@ tailscale_hostname: garden
 # --- GitHub runner (phase 5) -----------------------------------------------------
 github_owner: "YOUR_ORG_OR_USER" # TODO(you)
 github_repos: [] # TODO(you): e.g. ["veggie", "data-pipelines"]
+github_runner_scope: repo # repo | org (org needs a GitHub organization)
 github_runner_labels: [self-hosted, linux, x64, garden]
 github_runner_count: 2 # sized for 6 vCPU / 12 GB
 github_runner_memory_max: 4G # per-runner cap (2 x 4G leaves host headroom)

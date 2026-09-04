@@ -1,0 +1,23 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    admin_user: fedora
+    # The podman role expects its users to exist (they come from the base role
+    # in production). Minimal stand-ins here keep the scenario focused.
+  pre_tasks:
+    - name: Create the users the base role would provide
+      ansible.builtin.user:
+        name: "{{ item }}"
+        shell: /usr/sbin/nologin
+        home: "/home/{{ item }}"
+        create_home: true
+      loop: [gh-runner, egress-proxy]
+
+    - name: Create the admin user
+      ansible.builtin.user:
+        name: fedora
+        shell: /bin/bash
+  roles:
+    - role: podman
