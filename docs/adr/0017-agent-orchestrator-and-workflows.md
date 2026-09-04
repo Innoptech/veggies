@@ -1,13 +1,9 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-04
 ---
 
 # 0017. Agent orchestrator and adaptive pipelines
-
-> **Proposed, under review.** The verified substrate and the rejected
-> alternatives are settled inputs to the discussion; the Decision section is
-> the proposal on the table. Do not implement against this ADR yet.
 
 ## Context
 
@@ -98,88 +94,103 @@ A future "meta" stack whose job is orchestrating other stacks is simply a
 stack whose orchestrator's roster is mostly other stacks — an evolution of
 this design, not a redesign.
 
-### Workflows live in the target repo, not in veggies.yml
+### Workflows are artifacts, not files (amended 2026-09-04)
 
-`workflows/*.yaml` in the repo the stack runs against (ADR 0013: repo-scoped
-config belongs with the repo). veggies.yml stays pure stack wiring
-(ADR 0023). Sketch:
+A workflow definition has three equally-valid sources, in order of expected
+frequency:
+
+1. **On the fly (primary)**: `veggies run <stack> --task "<spec text>"` or
+   `--task-file issue.md` (a spec, a pasted issue, discussion notes). A
+   **drafter session** (roster `plan` agent, fed the schema + the live
+   roster from `GET /agent` + the task) emits workflow YAML; the user
+   confirms the draft (unless `-y`); the orchestrator validates, persists
+   (sqlite + the YAML itself, auditable) and executes. "Discuss with an LLM
+   to write it" v0 = iterate on the task text against the confirmation
+   loop; an attachable drafter session is a v1 nicety.
+2. **Repo files**: `workflows/*.yaml` in the target repo — for *repeatable*
+   pipelines (CI). These run verbatim: the author already made the
+   selection decisions.
+3. **Hybrid**: a repo pipeline file + `--task` — the drafter re-drafts the
+   pipeline for the specific task (this is how CI passes PR context).
+
+veggies.yml stays pure stack wiring (ADR 0023). Drafting and the
+planner-selection this ADR originally described are **one mechanism**:
+generation subsumes selection — the drafter emits exactly the steps the
+task needs, each with a written `why:` rationale (schema field, persisted,
+surfaced in `veggies runs` output and CI logs). `required: true` and
+`gate: approval` remain hard constraints the drafter is instructed to
+preserve and validation enforces on file-sourced workflows.
+
+Sketch of the artifact schema (v0):
 
 ```yaml
-# workflows/feature.yaml
 name: feature
-notify_webhook: https://...          # optional, escalation v1
+permissions: deny                  # allow | ask | deny (default deny, see below)
+notify_webhook: https://...        # optional, escalation v1
 steps:
-  - id: plan
-    kind: agent                      # agent | shell
-    agent: plan                      # roster name (ADR 0019)
-    model: kimi-k3                   # optional; default = stack model
-    prompt: "Plan the change: {{ task }}"
-    timeout: 30m                     # optional, this is the default
-    required: true                   # the planner may not skip this
   - id: implement
-    kind: agent
-    agent: build
-    needs: [plan]
-    parallel: 3                      # fork the session N ways
-    combine: best-of                 # best-of (reviewer picks a diff) | shard
-    prompt: "Implement: {{ steps.plan.output }}"
+    kind: agent                    # agent | shell
+    agent: build                   # roster name (ADR 0019)
+    model: kimi-k3                 # optional; default = stack model
+    why: "the task is a code change; straight to implementation"
+    prompt: "Implement: {{ task }}"
+    timeout: 30m                   # optional, this is the default
   - id: check
-    kind: shell                      # non-agent gate; exit code = pass/fail
+    kind: shell                    # non-agent gate; exit code = pass/fail
     run: "pytest -q"
     needs: [implement]
   - id: review
     kind: agent
-    agent: review
+    agent: adversarial-review
     needs: [check]
-    gate: approval                   # pauses for a human (see escalation)
+    gate: approval                 # pauses for a human (see escalation)
     prompt: "Review the diff: {{ steps.implement.diff }}"
 ```
 
 Schema v0 rules (decided 2026-09-04):
 
-- `kind: agent | shell`. Shell steps run via `POST /session/:id/shell`
-  (harness-managed, audited alongside agent work); their exit code is the
-  gate. A failing shell step fails the run unless the planner declared a
-  recovery step.
+- `kind: agent | shell`. Shell steps run **in the orchestrator container**
+  against the same mounted `/workspace` (amended: the harness's
+  `/session/:id/shell` endpoint buries exit codes in message parts; a local
+  subprocess gives real ones). A failing shell step fails the run.
 - `parallel` + `combine`: `best-of` = N forked sessions attempt the same
   task, a downstream agent step picks the winning diff (costs N× tokens,
-  for hard problems); `shard` = the planner splits the task into N
+  for hard problems); `shard` = the drafter splits the task into N
   non-overlapping subtasks, results concatenate. Absent = single session.
+  The orchestrator persists fork IDs itself (verified: forks don't appear
+  in `/children`).
 - Prompts are **Jinja2** (same engine as Ansible) rendered strict-undefined:
   an unknown placeholder fails at load, never mid-run. Documented names:
   `task`, `steps.<id>.output`, `steps.<id>.diff`. Logic in prompts is
   possible but discouraged in schema docs — branching belongs to the
-  planner, not templates.
+  drafter, not templates.
 - `timeout` per step (default 30m): a hung agent fails the step, never
   hangs the pipeline. **No `retries` in v0** — retries hide model
   flakiness; add them when evidence says they're needed.
 - Validation fails fast: unknown keys, unknown roster agents (checked
-  against `GET /agent` — the API itself won't complain), and
-  `needs`-cycles are load errors. Unlike veggies.yml, nothing warns;
-  pipelines run unattended.
-
-### Adaptive execution: one pipeline def, the planner chooses the run
-
-Every run starts with a **planner session** (a roster `plan` agent on a
-cheap model alias) that receives the full pipeline definition plus the task
-and returns, as structured output: the subset of steps to execute, the
-order, parallelization, and **a written rationale per included/excluded
-step**. Hard constraints the planner cannot override: `required: true`
-steps and `gate: approval` steps stay in. The rationale is persisted in the
-orchestrator's sqlite queue and surfaced by `veggies status` (probe) and in
-CI logs. A trivial task collapses to a one-step run — which is also what CI
-uses for simple jobs: same pipeline def, planner-selected single step, no
-separate code path.
+  against `GET /agent` — verified: the dispatch API itself silently
+  no-ops on unknown agents), and `needs`-cycles are load errors. Unlike
+  veggies.yml, nothing warns; pipelines run unattended.
+- Every step carries `why:` (drafter-written rationale). It is the audit
+  trail for "why is the AI doing this" — shown at confirm time, stored
+  with the run, greppable in CI logs.
 
 ### Escalation v1
 
-An opencode `ask` permission (verified flow: `permission.asked` SSE ->
-answer `once`/`reject` via the API) or a `gate: approval` step pauses the
-pipeline; the orchestrator's status probe reports `awaiting-approval`
-(with step id and reason); if the workflow declares `notify_webhook`, it
-POSTs once per escalation. The human either attaches
-(`veggies attach <stack>`) and answers interactively, or answers the
-permission via the API. No louder channels in v1.
+Runs are unattended, so the default mid-run permission policy is **`deny`**:
+an `ask` event (verified flow: `permission.asked` SSE ->
+`POST .../permissions/:id {response: once|reject}`) is answered `reject`
+and the step fails loudly rather than parking silently forever. Per-workflow
+override: `permissions: allow` (auto-answer `once`; matches interactive
+stack behavior) or `permissions: ask` (park the run as
+`awaiting-approval` until `veggies approve <stack> <run-id>`).
+
+A `gate: approval` step always pauses the run regardless of policy; the
+orchestrator's status probe reports `awaiting-approval` (with step id and
+reason); if the workflow declares `notify_webhook`, it POSTs once per
+escalation. The human either attaches (`veggies attach <stack>`), runs
+`veggies approve`, or answers the permission via the API directly. No
+louder channels in v1.
 
 ### State and queue
 
@@ -209,16 +220,25 @@ CLI surface introduced by this ADR (implementation phase).
 ## Consequences
 
 - `cli/components/orchestrator.py` becomes the fourth component; the registry
-  line flips from `{}` to `{"orchestrator": <impl>}` and veggies.yml gains a
-  working `orchestrator:` key.
+  line flips from `{}` to `{"orchestrator": {"builtin": ...}}` and
+  veggies.yml gains a working `orchestrator:` key (opt-in; default
+  selection and the golden file are unchanged).
+- The capability contract grows two members (ADR 0023 amendment, landed
+  with the implementation): `ServiceRef.secret_key` (which key inside the
+  provider's secret holds the credential a consumer needs) and
+  `StatusProbe.kind` (`http` against the harness endpoint, or `exec` inside
+  the probe-owning component's container — how the orchestrator's queue
+  state reaches `veggies status` without new published ports).
 - The orchestrator carries two verified-API obligations: validate roster
   names against `GET /agent` at load (silent no-op otherwise), and persist
   fork IDs itself (forks don't appear in `/children`).
-- `veggies status` needs no changes: the orchestrator publishes its queue
-  state through probes() like every other component.
-- New CLI verbs (`run`, `--ttl`) and the workflow schema get their own tests;
-  the golden file gains a fourth container only in stacks that select the
-  orchestrator (default selection unchanged: it stays opt-in).
+- The CLI gains `veggies run` / `runs` / `approve`, talking to the
+  orchestrator via `podman exec` (uniform local + remote; no new ports or
+  secrets). `veggies run --ttl` for ephemeral CI stacks is deferred: the
+  first CI consumer defines it.
+- Workflow schema, drafter prompt, and executor all have pytest coverage;
+  the money demo (`veggies run smoke --task ...` end-to-end) is the
+  runbook's proof section.
 
 ## Dependencies
 
