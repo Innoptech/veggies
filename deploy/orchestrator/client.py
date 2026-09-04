@@ -7,6 +7,7 @@ orchestrator-client.py <cmd>` - uniform local/remote, no published port.
   client.py run [--task TEXT] --file -          (workflow yaml on stdin)
   client.py status [--one-line]
   client.py approve RUN_ID
+  client.py abort RUN_ID
 """
 
 import json
@@ -63,6 +64,10 @@ def main(argv):
         r = call("POST", f"/approve/{argv[1]}")
         print(json.dumps(r))
         return 0 if "approved" in r else 1
+    if cmd == "abort":
+        r = call("POST", f"/abort/{argv[1]}")
+        print(json.dumps(r))
+        return 0 if "aborted" in r else 1
     print(f"unknown command {cmd!r}")
     return 2
 

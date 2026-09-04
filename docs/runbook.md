@@ -161,7 +161,27 @@ Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
 `veggies down <name> [--purge]`. Remote: `veggies --host veggies up --clone
 <git-url>` then attach over the tailnet. Per-repo customization: `veggies.yml`
-(schema v0: `model`, `components`; ADR 0016).
+(schema v1: `model`, `components`, capability keys; ADR 0016/0023).
+
+### Workflows (ADR 0017; stack needs `orchestrator: builtin` in veggies.yml)
+
+- `veggies run <stack> --task "..."` drafts a workflow with the model
+  (shows it + per-step `why:` rationales, asks confirmation; `-y` skips),
+  then runs it. `--file workflows/x.yaml` (or `-` for stdin) runs a repo
+  pipeline verbatim. `--task` + `--file` adapts the pipeline to the task.
+- `veggies runs <stack>` lists runs with step states and rationales;
+  `veggies approve <stack> <run-id>` releases a `gate: approval` park;
+  `veggies abort <stack> <run-id>` kills a live run (sessions aborted).
+- Debugging: `podman logs veggies-<name>-orchestrator` narrates every step
+  transition; the sqlite run store survives restarts (boot marks orphaned
+  runs failed instead of hanging them).
+- Verified gotchas (2026-09-04): the question tool parks a headless run
+  forever -> the orchestrator aborts such sessions and fails the step with
+  the question text (write narrower prompts instead). Agent steps run in
+  the harness container (no python3!); runnable checks belong in
+  `kind: shell` steps, which run in the orchestrator image. Mid-run
+  permission `ask`s default to deny (fail loud); per-workflow
+  `permissions: allow|ask` overrides.
 
 Troubleshooting:
 

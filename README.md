@@ -53,8 +53,11 @@ egress: squid
 # components: [opencode, litellm, squid]
 ```
 
-Capabilities (harness / model-router / egress, with `orchestrator` reserved
-for ADR 0017) are the contract; the registry maps them to implementations.
+Capabilities (harness / model-router / egress, plus opt-in `orchestrator:
+builtin` per ADR 0017) are the contract; the registry maps them to
+implementations. With an orchestrator, `veggies run <stack> --task "..."`
+drafts + runs adaptive multi-agent workflows (draft confirmation, per-step
+rationales, `veggies runs` / `approve` / `abort`; see runbook §9).
 Precedence: `--model` flag > veggies.yml > vendored default. Unknown keys
 warn and are ignored; invalid values abort with an error.
 - Boot persistence locally needs linger once: `sudo loginctl enable-linger

@@ -161,3 +161,30 @@ def test_full_roundtrip_drafted_yaml():
     data = yaml.safe_load(core.extract_workflow_yaml(reply))
     w = core.validate_workflow(data, ROSTER)
     assert [s["id"] for s in w["steps"]] == ["implement", "check"]
+
+
+def test_to_submission_roundtrips_through_validation():
+    # the /draft endpoint returns the submission form; /run validates again
+    rich = wf(permissions="allow", steps=[
+        {"id": "implement", "kind": "agent", "agent": "build", "model": "kimi-k3",
+         "prompt": "do {{ task }}", "why": "code change", "parallel": 3,
+         "combine": "best-of", "timeout": "10m"},
+        {"id": "check", "kind": "shell", "run": "pytest -q", "needs": ["implement"]},
+        {"id": "review", "kind": "agent", "agent": "adversarial-review",
+         "prompt": "review", "needs": ["check"], "gate": "approval"},
+    ])
+    w = core.validate_workflow(rich, ROSTER)
+    sub = core.to_submission(w)
+    assert "order" not in sub  # derived, never shipped
+    assert core.validate_workflow(sub, ROSTER)["name"] == "demo"  # re-validates
+    by_id = {s["id"]: s for s in sub["steps"]}
+    assert by_id["implement"]["timeout"] == 600 and by_id["implement"]["combine"] == "best-of"
+    assert "timeout" not in by_id["check"]  # default stripped
+    assert by_id["review"]["gate"] == "approval"
+    assert sub["permissions"] == "allow"
+    # defaults stay implicit
+    minimal = core.to_submission(core.validate_workflow(wf(), ROSTER))
+    assert minimal == {"name": "demo", "steps": [
+        {"id": "implement", "kind": "agent", "agent": "build", "prompt": "do {{ task }}"},
+        {"id": "check", "kind": "shell", "run": "pytest -q", "needs": ["implement"]},
+    ]}

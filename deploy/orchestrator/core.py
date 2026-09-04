@@ -165,6 +165,41 @@ def render_prompt(template: str, context: dict) -> str:
         raise WorkflowError(f"template error: {e}") from e
 
 
+def to_submission(wf: dict) -> dict:
+    """The inverse of validate_workflow's normalization: strip derived
+    (`order`) and default/None values so the doc round-trips through
+    validation (draft -> confirm -> run)."""
+    out: dict = {"name": wf["name"], "steps": []}
+    if wf.get("permissions", "deny") != "deny":
+        out["permissions"] = wf["permissions"]
+    if wf.get("notify_webhook"):
+        out["notify_webhook"] = wf["notify_webhook"]
+    for s in wf["steps"]:
+        st: dict = {"id": s["id"], "kind": s["kind"]}
+        if s["kind"] == "agent":
+            st["agent"] = s["agent"]
+            if s.get("model"):
+                st["model"] = s["model"]
+            st["prompt"] = s["prompt"]
+            if s.get("parallel"):
+                st["parallel"] = s["parallel"]
+                st["combine"] = s["combine"]
+        else:
+            st["run"] = s["run"]
+        if s.get("why"):
+            st["why"] = s["why"]
+        if s.get("needs"):
+            st["needs"] = s["needs"]
+        if s.get("gate"):
+            st["gate"] = s["gate"]
+        if s.get("required"):
+            st["required"] = True
+        if s.get("timeout", DEFAULT_TIMEOUT_S) != DEFAULT_TIMEOUT_S:
+            st["timeout"] = s["timeout"]
+        out["steps"].append(st)
+    return out
+
+
 # --- Drafter -----------------------------------------------------------------
 
 SCHEMA_HINT = """\

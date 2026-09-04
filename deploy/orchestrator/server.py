@@ -28,7 +28,20 @@ from pathlib import Path
 
 import yaml
 
-import core  # shipped alongside (config_files); same dir on sys.path
+import importlib.util as _ilu
+
+
+def _load_core():
+    """core.py ships alongside this file as orchestrator-core.py
+    (config_files); dashes aren't importable module names, so load by path."""
+    here = Path(__file__).with_name("orchestrator-core.py")
+    spec = _ilu.spec_from_file_location("orchestrator_core", here)
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+core = _load_core()
 
 PORT = 4400
 HARNESS = None          # set from HARNESS_URL env
@@ -85,6 +98,22 @@ def session_idle(sid):
     return sid not in st  # verified: only non-idle sessions are listed
 
 
+def session_complete(sid):
+    """True once an assistant message exists after our user message AND no
+    tool part is still running (verified 2026-09-04: the question tool parks
+    a headless session forever - that is still-working, not complete)."""
+    msgs = hapi("GET", f"/session/{sid}/message", timeout=60)
+    replied = False
+    for m in msgs:
+        if m.get("info", {}).get("role") != "assistant":
+            continue
+        replied = True
+        for part in m.get("parts", []):
+            if part.get("type") == "tool" and part.get("state", {}).get("status") == "running":
+                return False
+    return replied
+
+
 def session_output(sid):
     msgs = hapi("GET", f"/session/{sid}/message", timeout=60)
     texts = [p.get("text", "") for m in reversed(msgs)
@@ -99,12 +128,46 @@ def session_diff(sid):
         return ""
 
 
+def session_replied(sid):
+    msgs = hapi("GET", f"/session/{sid}/message", timeout=60)
+    return any(m.get("info", {}).get("role") == "assistant" for m in msgs)
+
+
+def pending_question(sid):
+    """The question tool's ask, if one is parked (verified 2026-09-04: it
+    waits forever headless; there is no answer API - abort-on-sight)."""
+    try:
+        msgs = hapi("GET", f"/session/{sid}/message", timeout=30)
+    except Exception:
+        return None
+    for m in msgs:
+        for part in m.get("parts", []):
+            if (part.get("type") == "tool" and part.get("tool") == "question"
+                    and part.get("state", {}).get("status") == "running"):
+                qs = part.get("state", {}).get("input", {}).get("questions", [])
+                return "; ".join(q.get("question", "?") for q in qs) or "?"
+    return None
+
+
 def wait_session(sid, deadline):
+    """-> True (complete) | False (timeout) | str (parked on a question -
+    the session is aborted by the caller)."""
+    last_q_check = 0.0
     while time.time() < deadline:
         if session_idle(sid):
-            return True
+            if session_complete(sid):
+                return True
+        elif time.time() - last_q_check > 15:
+            last_q_check = time.time()
+            q = pending_question(sid)
+            if q is not None:
+                return f"agent asked a question (headless impossible): {q}"
         time.sleep(3)
     return False
+
+
+def log(msg):
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)  # podman logs
 
 
 # --- run store -----------------------------------------------------------------
@@ -113,7 +176,7 @@ def db():
     return DB
 
 
-def run_create(wf, task):
+def run_create(wf, wf_raw, task):
     rid = uuid.uuid4().hex[:8]
     detail = {"steps": {s["id"]: {"status": "pending", "why": s.get("why", "")}
                         for s in wf["steps"]},
@@ -121,7 +184,7 @@ def run_create(wf, task):
     with DB_LOCK:
         db().execute(
             "INSERT INTO runs VALUES (?,?,?,?,?,?,?)",
-            (rid, wf["name"], task, yaml.safe_dump(wf), "running",
+            (rid, wf["name"], task, wf_raw, "running",
              json.dumps(detail), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
         db().commit()
     RUN_EVENTS[rid] = threading.Event()
@@ -220,16 +283,34 @@ def exec_agent_step(run, wf, step):
 
     sessions, results = [], []
     for i, p in enumerate(prompts):
+        log(f"run {rid} step {step['id']}: creating session {i}")
         sid = session_new(f"{rid}:{step['id']}:{i}")
+        log(f"run {rid} step {step['id']}: session {sid} created; prompting async")
         SESSION_RUN[sid] = rid
         session_prompt(sid, p, agent=step["agent"], model=step.get("model"), wait=False)
+        log(f"run {rid} step {step['id']}: prompt dispatched to {sid}")
         sessions.append(sid)
     deadline = time.time() + step["timeout"]
     ok = True
+    log(f"run {rid} step {step['id']}: waiting on {len(sessions)} session(s)")
     for sid in sessions:
-        if not wait_session(sid, deadline):
+        res = wait_session(sid, deadline)
+        if res is not True:
+            if isinstance(res, str):  # question-parked: abort, fail loud
+                try:
+                    hapi("POST", f"/session/{sid}/abort")
+                except Exception:
+                    pass
+                set_step(rid, step["id"], status="failed", error=res)
+                log(f"run {rid} step {sid}: {res[:120]}")
+                return False
             set_step(rid, step["id"], status="failed",
                      error=f"timeout after {step['timeout']}s")
+            return False
+        if not session_replied(sid):
+            set_step(rid, step["id"], status="failed",
+                     error="session ended with no assistant reply "
+                           "(dispatch failed? unknown agent/model?)")
             return False
         if run_get(rid)["status"] == "failed":  # permission denied mid-step
             ok = False
@@ -260,23 +341,31 @@ def exec_shell_step(run, step):
 
 
 def execute(rid):
-    run = run_get(rid)
-    wf = core.validate_workflow(yaml.safe_load(run["workflow_yaml"]),
-                                [a["name"] for a in roster()])
     try:
+        run = run_get(rid)
+        wf = core.validate_workflow(yaml.safe_load(run["workflow_yaml"]),
+                                    [a["name"] for a in roster()])
+        log(f"run {rid} ({wf['name']}): {len(wf['steps'])} steps, "
+            f"policy={wf['permissions']}")
         for tier in wf["order"]:
             for sid in tier:
                 step = next(s for s in wf["steps"] if s["id"] == sid)
+                log(f"run {rid} step {sid} ({step['kind']}) started")
                 ok = (exec_agent_step(run, wf, step) if step["kind"] == "agent"
                       else exec_shell_step(run, step))
                 if not ok:
+                    log(f"run {rid} step {sid} FAILED")
                     run_update(rid, status="failed",
                                detail_mut=lambda d: d.update(error=f"step {sid} failed"))
                     return
+                log(f"run {rid} step {sid} done")
                 if step.get("gate") == "approval":
+                    log(f"run {rid} parked at gate {sid}")
                     park_until_approved(rid, "gate", sid)
         run_update(rid, status="done")
+        log(f"run {rid} DONE")
     except Exception as e:
+        log(f"run {rid} ERROR: {type(e).__name__}: {e}")
         run_update(rid, status="failed",
                    detail_mut=lambda d: d.update(error=f"{type(e).__name__}: {e}"))
 
@@ -332,6 +421,7 @@ def watch_permissions():
 
 def draft(task, pipeline=None):
     ros = roster()
+    log(f"draft: task={task[:60]!r} roster={len(ros)} agents")
     prompt = core.build_drafter_prompt(task, ros, pipeline)
     last_err = None
     for _ in range(2):  # one retry with the error fed back
@@ -342,7 +432,7 @@ def draft(task, pipeline=None):
             raw = core.extract_workflow_yaml(reply)
             wf = core.validate_workflow(yaml.safe_load(raw),
                                         [a["name"] for a in ros])
-            return yaml.safe_dump(wf)
+            return yaml.safe_dump(core.to_submission(wf))
         except (core.WorkflowError, yaml.YAMLError) as e:
             last_err = e
             prompt += f"\n\nYour previous reply failed validation: {e}. Fix it."
@@ -387,7 +477,8 @@ class Handler(BaseHTTPRequestHandler):
                 b = self._body()
                 ros = [a["name"] for a in roster()]
                 wf = core.validate_workflow(yaml.safe_load(b["workflow_yaml"]), ros)
-                rid = run_create(wf, b.get("task", ""))
+                rid = run_create(wf, b["workflow_yaml"], b.get("task", ""))
+                log(f"run {rid} created ({wf['name']})")
                 threading.Thread(target=execute, args=(rid,), daemon=True).start()
                 return self._send(200, {"run_id": rid})
             m = re.fullmatch(r"/approve/([0-9a-f]{8})", self.path)
@@ -397,6 +488,24 @@ class Handler(BaseHTTPRequestHandler):
                     RUN_EVENTS[rid].set()
                     return self._send(200, {"approved": rid})
                 return self._send(404, {"error": "no such parked run"})
+            m = re.fullmatch(r"/abort/([0-9a-f]{8})", self.path)
+            if m:
+                rid = m.group(1)
+                run = run_get(rid)
+                if not run or run["status"] not in ("running", "awaiting-approval"):
+                    return self._send(404, {"error": "no such live run"})
+                log(f"run {rid} aborted by operator")
+                for sid, owner in list(SESSION_RUN.items()):
+                    if owner == rid:
+                        try:
+                            hapi("POST", f"/session/{sid}/abort")
+                        except Exception:
+                            pass
+                run_update(rid, status="failed",
+                           detail_mut=lambda d: d.update(error="aborted by operator"))
+                if rid in RUN_EVENTS:
+                    RUN_EVENTS[rid].set()  # wake a parked gate; it re-reads status
+                return self._send(200, {"aborted": rid})
             self._send(404, {"error": "unknown path"})
         except (core.WorkflowError, yaml.YAMLError, KeyError) as e:
             self._send(400, {"error": str(e)})
@@ -415,7 +524,11 @@ def main():
     DB.execute("CREATE TABLE IF NOT EXISTS runs "
                "(id TEXT PRIMARY KEY, name TEXT, task TEXT, workflow_yaml TEXT, "
                " status TEXT, detail TEXT, created TEXT)")
+    n = DB.execute("UPDATE runs SET status='failed' "
+                   "WHERE status IN ('running','awaiting-approval')").rowcount
     DB.commit()
+    if n:
+        log(f"boot: marked {n} orphaned run(s) failed (orchestrator restarted)")
     threading.Thread(target=watch_permissions, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 

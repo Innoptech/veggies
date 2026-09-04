@@ -795,6 +795,13 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return r.returncode
 
 
+def cmd_abort(args: argparse.Namespace) -> int:
+    record, spec, _ = require_orchestrator(args)
+    r = orch_exec(record, spec, "abort", args.run_id)
+    print(r.stdout.strip())
+    return r.returncode
+
+
 
 LEGACY_STATE_DIR = Path("~/.local/state/garden")
 
@@ -884,6 +891,11 @@ def main(argv: list[str] | None = None) -> int:
     p_approve.add_argument("name")
     p_approve.add_argument("run_id")
     p_approve.set_defaults(func=cmd_approve)
+
+    p_abort = sub.add_parser("abort", help="kill a live workflow run (sessions aborted)")
+    p_abort.add_argument("name")
+    p_abort.add_argument("run_id")
+    p_abort.set_defaults(func=cmd_abort)
 
     p_logs = sub.add_parser("logs", help="pod logs (or one container)")
     p_logs.add_argument("name")

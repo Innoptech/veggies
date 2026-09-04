@@ -28,7 +28,11 @@ reviews PRs; agents implement. These rules are not negotiable:
    0016). Components depend on capability contracts (`cli/capabilities.py`)
    and the PodContext, never on each other; implementations live in
    `cli/components/`, selected via the REGISTRY and per-repo `veggies.yml`
-   (schema v1: model, components or capability keys).
+   (schema v1: model, components or capability keys). The orchestrator
+   (ADR 0017, opt-in) is `cli/components/orchestrator.py` + payload in
+   `deploy/orchestrator/` (core.py pure + pytest-covered; server.py runs
+   in-pod; workflows are drafted on the fly - never hardcode roster names
+   outside tests, validate against GET /agent).
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket
