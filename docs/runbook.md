@@ -153,14 +153,22 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 ## 9. veggies stacks (ADR 0013/0014)
 
 Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
+`veggies status <name>` (health + model/agents/sessions via the API);
 `veggies down <name> [--purge]`. Remote: `veggies --host veggies up --clone
-<git-url>` then attach over the tailnet.
+<git-url>` then attach over the tailnet. Per-repo customization: `veggies.yml`
+(schema v0: `model`, `components`; ADR 0016).
 
 Troubleshooting:
 
 - Stack flapping right after up: `veggies logs <name> <container>`. Known-good
   invariants: no subPath mounts (SELinux), exec-probes only (minimal images
-  have no `nc`), `pid_filename none` and no `cache_dir null` in squid.conf.
+  have no `nc`), `pid_filename none` and no `cache_dir null` in squid.conf,
+  stack-config mounted readOnly at /stack-config (opencode needs a WRITABLE
+  ~/.config/opencode - the wrapper copies opencode.json there).
+- API endpoints 500/hang right after up: cold bootstrap (plugin cache) takes
+  ~20s; concurrent requests during bootstrap pile up - wait and retry. If it
+  never settles, suspect the superpowers plugin pin (must be a commit sha;
+  tags are mutable and v5.0.3 was deleted upstream).
 - SELinux denials on a stack: re-run `veggies up` (it re-asserts
   `chcon -R -t container_file_t -l s0` on every bind source). If you
   hand-mount anything new, label it the same way.
