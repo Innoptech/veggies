@@ -7,6 +7,7 @@ github_owner    = "YOUR_ORG_OR_USER" # TODO(you)
 github_repos    = ["REPLACE_ME"]     # TODO(you): e.g. ["veggie", "data-pipelines"]
 admin_login     = "YOUR_LOGIN"       # TODO(you): the human reviewer
 required_checks = ["pre-commit"]     # TODO(you): must match the repos' CI check names
+# required_checks_overrides = { "veggie" = ["pre-commit", "pytest"] } # per-repo when they differ
 # The bot's identity lives in secrets/github.yml; the policy excludes it from
 # review counting via require_code_owner_reviews, not via a login variable.
 

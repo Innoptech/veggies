@@ -4,15 +4,16 @@
 module "github" {
   source = "./github"
 
-  repos                 = var.github_repos
-  admin_login           = var.admin_login
-  required_checks       = var.required_checks
-  actions_secrets       = var.actions_secrets
-  actions_variables     = var.actions_variables
-  environment_name      = var.environment_name
-  runner_group_name     = var.runner_group_name
-  label_paths           = var.label_paths
-  manage_label_workflow = var.manage_label_workflow
+  repos                     = var.github_repos
+  admin_login               = var.admin_login
+  required_checks           = var.required_checks
+  required_checks_overrides = var.required_checks_overrides
+  actions_secrets           = var.actions_secrets
+  actions_variables         = var.actions_variables
+  environment_name          = var.environment_name
+  runner_group_name         = var.runner_group_name
+  label_paths               = var.label_paths
+  manage_label_workflow     = var.manage_label_workflow
 }
 
 # Scaffold only (ADRs 0002, 0008): enable_ovh stays false while garden is a

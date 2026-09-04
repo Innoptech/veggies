@@ -19,7 +19,7 @@ resource "github_branch_protection" "main" {
 
   required_status_checks {
     strict   = true # branch must be up to date before merging
-    contexts = var.required_checks
+    contexts = lookup(var.required_checks_overrides, each.key, var.required_checks)
   }
 
   required_pull_request_reviews {

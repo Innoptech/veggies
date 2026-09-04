@@ -24,6 +24,12 @@ variable "required_checks" {
   default = ["pre-commit"]
 }
 
+variable "required_checks_overrides" {
+  type        = map(list(string))
+  description = "Per-repo required-check contexts, replacing the default list: { repo = [checks] }."
+  default     = {}
+}
+
 variable "admin_login" {
   type        = string
   description = "GitHub login of the human reviewer (you). Required reviewer on environments; must own CODEOWNERS entries in project repos."

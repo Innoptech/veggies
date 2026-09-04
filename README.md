@@ -11,7 +11,7 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phase 8/9 (backups + cleanup timers). See the phase map and the pending-values list below.
+Phase 9/9 (apply workflow + runbook). All nine phases are implemented; live values are placeholders until you fill them (see below).
 
 ## Architecture at a glance
 

@@ -23,6 +23,12 @@ variable "required_checks" {
   default     = ["pre-commit"] # TODO(you): match the project repos' workflows
 }
 
+variable "required_checks_overrides" {
+  type        = map(list(string))
+  description = "Per-repo required-check contexts, replacing the default list: { repo = [checks] }."
+  default     = {}
+}
+
 variable "actions_secrets" {
   type        = map(map(string))
   description = "Actions secrets per repo: { repo = { NAME = value } }. Fed from the ansible vault, never from tfvars."
