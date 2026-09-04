@@ -248,6 +248,14 @@ def write_stack_config(spec: StackSpec, infra_repo: Path) -> None:
         "allowlist.txt": render_allowlist(),
         "opencode.json": render_opencode_json(infra_repo, model=spec.model),
     }
+    # Vendored agents + skills ship as per-stack copies (edit + `veggies up`
+    # to apply; the opencode wrapper copies them into its global config dir).
+    for sub in ("agents", "skills"):
+        src = infra_repo / "agent-config" / sub
+        if src.is_dir():
+            for f in sorted(src.rglob("*")):
+                if f.is_file():
+                    files[f"{sub}/{f.relative_to(src)}"] = f.read_text()
     if spec.is_remote:
         # No infra checkout on the VPS: ship the litellm config as a copy.
         files["config.yaml"] = (

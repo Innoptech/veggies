@@ -20,7 +20,9 @@ spec:
   containers:
   - args:
     - mkdir -p /root/.config/opencode && cp /stack-config/opencode.json /root/.config/opencode/
-      && exec opencode serve --hostname 0.0.0.0 --port 4096
+      && cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; cp -r /stack-config/skills
+      /root/.config/opencode/ 2>/dev/null; exec opencode serve --hostname 0.0.0.0
+      --port 4096
     command:
     - sh
     - -c

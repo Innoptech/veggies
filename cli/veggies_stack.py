@@ -235,6 +235,10 @@ def _opencode_container(spec: StackSpec, infra_repo: Path) -> dict:
         "args": [
             "mkdir -p /root/.config/opencode && "
             "cp /stack-config/opencode.json /root/.config/opencode/ && "
+            # Vendored agents/skills (if shipped) copy alongside; global
+            # config dirs are where opencode discovers them.
+            "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
+            "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
             f"exec opencode serve --hostname 0.0.0.0 --port {OPENCODE_CONTAINER_PORT}"
         ],
         "workingDir": "/workspace",
