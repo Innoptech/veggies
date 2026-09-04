@@ -13,7 +13,7 @@
         shell: /usr/sbin/nologin
         home: "/home/{{ item }}"
         create_home: true
-      loop: [gh-runner, egress-proxy]
+      loop: [gh-runner, egress-proxy, stacks]
 
     - name: Create the admin user
       ansible.builtin.user:

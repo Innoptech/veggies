@@ -81,7 +81,12 @@ HARDENED_SQUID = {
 }
 
 VAULT_MODEL = "secrets/model.yml"
+VAULT_GITHUB = "secrets/github.yml"
 VAULT_PASSWORD_FILE = "~/.config/infra/vault-password"
+
+# Remote mode (ADR 0014): everything runs as this user over ssh+sudo.
+REMOTE_USER = "stacks"
+REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/garden"
 
 
 # --- Spec and state ------------------------------------------------------------
@@ -113,6 +118,20 @@ class StackSpec:
     @property
     def volume_opencode(self) -> str:
         return f"{self.pod}-opencode"
+
+    @property
+    def is_remote(self) -> bool:
+        return self.host is not None
+
+    def state_root(self) -> str:
+        """Where this stack's files live on ITS host (rendered into YAML)."""
+        return REMOTE_STATE_ROOT if self.is_remote else str(state_dir())
+
+    def config_dir(self) -> str:
+        return f"{self.state_root()}/{self.name}/config"
+
+    def pod_yaml_path(self) -> str:
+        return f"{self.state_root()}/{self.name}/pod.yaml"
 
 
 def sanitize_name(raw: str) -> str:
@@ -242,10 +261,17 @@ def _secret_env(name: str, secret: str, key: str) -> dict:
 
 
 def render_pod(spec: StackSpec, infra_repo: Path) -> list[dict]:
-    """The multi-document kube YAML (PVCs + Pod) for one stack."""
+    """The multi-document kube YAML (PVCs + Pod) for one stack. All hostPath
+    values are paths on the host the stack runs on (ADR 0014)."""
     publish_ip = "0.0.0.0" if spec.host else "127.0.0.1"
-    stack_cfg = str(state_dir() / spec.name / "config")
+    stack_cfg = spec.config_dir()
     repo_path = spec.repo  # clone mode: CLI clones first, repo is the clone path
+    # Local: live-mount the vendored config (edit + `garden up` to apply).
+    # Remote: a rendered copy sits in the stack's config dir on that host.
+    litellm_cfg = (
+        spec.config_dir() if spec.is_remote
+        else str(infra_repo / "agent-config" / "litellm")
+    )
 
     opencode = {
         "name": "opencode",
@@ -352,10 +378,7 @@ def render_pod(spec: StackSpec, infra_repo: Path) -> list[dict]:
                 },
                 {
                     "name": "agent-config",
-                    "hostPath": {
-                        "path": str(infra_repo / "agent-config/litellm"),
-                        "type": "Directory",
-                    },
+                    "hostPath": {"path": litellm_cfg, "type": "Directory"},
                 },
                 {
                     "name": "opencode-home",
@@ -443,21 +466,74 @@ def run(cmd: list[str], *, input_text: str | None = None, check: bool = True,
     )
 
 
-def podman(*args: str, **kwargs) -> subprocess.CompletedProcess:
-    return run(["podman", *args], **kwargs)
+def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """Run a command on the stack's host. Remote = ssh + passwordless sudo
+    into the stacks user (ADR 0014); stdin (kube YAML, secrets) pipes through."""
+    if host is None:
+        return run(args, **kwargs)
+    return run(["ssh", host, "sudo", "-n", "-iu", REMOTE_USER, *args], **kwargs)
 
 
-def ensure_images(infra_repo: Path) -> None:
+def host_podman(host: str | None, *args: str, **kwargs) -> subprocess.CompletedProcess:
+    return host_run(host, ["podman", *args], **kwargs)
+
+
+def host_systemctl(host: str | None, *args: str, **kwargs) -> subprocess.CompletedProcess:
+    if host is None:
+        return run(["systemctl", "--user", *args], **kwargs)
+    return host_run(host, ["systemctl", "--user", *args], **kwargs)
+
+
+def host_write(host: str | None, path: str, content: str, mode: int = 0o600) -> None:
+    if host is None:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        os.chmod(p, mode)
+        return
+    import shlex
+    q = shlex.quote(path)
+    host_run(host, ["sh", "-c",
+                    f"umask 077 && mkdir -p $(dirname {q}) && cat > {q}"],
+             input_text=content)
+
+
+def quadlet_dir(host: str | None) -> str:
+    if host is None:
+        return str(Path(os.environ.get(
+            "GARDEN_QUADLET_DIR", "~/.config/containers/systemd")).expanduser())
+    return f"/home/{REMOTE_USER}/.config/containers/systemd"
+
+
+def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
+    result = host_run(host, ["test", f"-{kind}", path], check=False,
+                      capture=True)
+    return result.returncode == 0
+
+
+def ensure_images(host: str | None, infra_repo: Path) -> None:
     """Squid and the opencode derivative are built (layer-cache makes this a
-    no-op when unchanged); litellm is pulled once."""
-    podman("build", "-q", "-t", IMAGE_SQUID, "-f",
-           str(infra_repo / "ansible/roles/egress/files/squid.Containerfile"),
-           str(infra_repo / "ansible/roles/egress/files"))
-    podman("build", "-q", "-t", IMAGE_OPENCODE, "-f",
-           str(infra_repo / "deploy/images/opencode.Containerfile"),
-           str(infra_repo / "deploy/images"))
-    if subprocess.run(["podman", "image", "exists", IMAGE_LITELLM]).returncode != 0:
-        podman("pull", "-q", IMAGE_LITELLM)
+    no-op when unchanged); litellm is pulled once. Remote: the Containerfiles
+    are shipped into the remote state dir and built there (ADR 0014)."""
+    squid_cf = (infra_repo / "ansible/roles/egress/files/squid.Containerfile").read_text()
+    opencode_cf = (infra_repo / "deploy/images/opencode.Containerfile").read_text()
+    if host is None:
+        (infra_repo / "deploy/images").mkdir(parents=True, exist_ok=True)
+        host_build_dir = None
+    images_dir = f"{REMOTE_STATE_ROOT}/images" if host else None
+    for image, containerfile in ((IMAGE_SQUID, squid_cf), (IMAGE_OPENCODE, opencode_cf)):
+        if host is None:
+            cf_path = str(state_dir() / "images" / f"{image.split('/')[-1].split(':')[0]}.Containerfile")
+            host_write(None, cf_path, containerfile)
+            host_podman(None, "build", "-q", "-t", image, "-f", cf_path,
+                        str(state_dir() / "images"))
+        else:
+            cf_path = f"{images_dir}/{image.split('/')[-1].split(':')[0]}.Containerfile"
+            host_write(host, cf_path, containerfile)
+            host_podman(host, "build", "-q", "-t", image, "-f", cf_path, images_dir)
+    if host_podman(host, "image", "exists", IMAGE_LITELLM,
+                   check=False, capture=True).returncode != 0:
+        host_podman(host, "pull", "-q", IMAGE_LITELLM)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
@@ -466,14 +542,15 @@ def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
     pending = set(container_names(spec))
     while time.monotonic() < deadline:
         for name in sorted(pending):
-            status = podman(
+            status = host_podman(
+                spec.host,
                 "inspect", "--format",
                 "{{.State.Status}}:{{if .State.Health}}{{.State.Health.Status}}{{end}}",
                 name, capture=True,
             ).stdout.strip()
             if status.startswith("exited") or status.startswith("dead"):
-                logs = podman("logs", "--tail", "20", name,
-                              capture=True, check=False)
+                logs = host_podman(spec.host, "logs", "--tail", "20", name,
+                                   capture=True, check=False)
                 raise RuntimeError(
                     f"container {name} died ({status}):\n{logs.stdout}{logs.stderr}"
                 )
@@ -485,7 +562,7 @@ def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
     raise RuntimeError(f"timed out waiting for healthy: {sorted(pending)}")
 
 
-def label_for_containers(path: Path) -> None:
+def label_for_containers(host: str | None, path: str) -> None:
     """Shared SELinux label for hostPath sources. podman kube play does NOT
     reliably relabel hostPath volumes (observed: user_tmp_t/gconf_home_t left
     as-is; once even private :Z MCS categories that then blocked other pods).
@@ -493,49 +570,40 @@ def label_for_containers(path: Path) -> None:
     a previous kube play left *private* MCS categories (cX,cY) on these files,
     which then blocked every other pod. Harmless for the owning user
     (unconfined_t can still read/write)."""
-    run(["chcon", "-R", "-t", "container_file_t", "-l", "s0", str(path)])
+    host_run(host, ["chcon", "-R", "-t", "container_file_t", "-l", "s0", path])
 
 
-def write_stack_config(root: Path, spec: StackSpec, infra_repo: Path) -> None:
-    cfg = root / spec.name / "config"
-    cfg.mkdir(parents=True, exist_ok=True)
-    os.chmod(root, 0o700)
-    os.chmod(root / spec.name, 0o700)
-    os.chmod(cfg, 0o700)
-    for filename, content in {
+def write_stack_config(spec: StackSpec, infra_repo: Path) -> None:
+    files = {
         "squid.conf": render_squid_conf(),
         "allowlist.txt": render_allowlist(),
         "opencode.json": render_opencode_json(infra_repo),
-    }.items():
-        path = cfg / filename
-        path.write_text(content)
-        os.chmod(path, 0o600)
-    label_for_containers(root / spec.name)
+    }
+    if spec.is_remote:
+        # No infra checkout on the VPS: ship the litellm config as a copy.
+        files["config.yaml"] = (
+            infra_repo / "agent-config/litellm/config.yaml").read_text()
+    for filename, content in files.items():
+        host_write(spec.host, f"{spec.config_dir()}/{filename}", content)
+    label_for_containers(spec.host, f"{spec.state_root()}/{spec.name}")
 
 
-def safe_rmtree(root: Path, path: Path) -> None:
+def safe_rmtree(host: str | None, root: str, path: str) -> None:
     """Refuse to delete anything outside the garden state dir (a mounted repo
     must never be touched by `down --purge`)."""
-    resolved = path.resolve()
-    if not str(resolved).startswith(str(root.resolve()) + os.sep):
-        raise ValueError(f"refusing to remove {resolved} - outside {root}")
-    shutil.rmtree(resolved, ignore_errors=True)
+    if not (path == root or path.startswith(root.rstrip("/") + "/")):
+        raise ValueError(f"refusing to remove {path} - outside {root}")
+    if host is None:
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        host_run(host, ["rm", "-rf", path])
 
 
-def stack_config_dir(root: Path, spec: StackSpec) -> Path:
-    return root / spec.name / "config"
+def quadlet_path(spec: StackSpec) -> str:
+    return f"{quadlet_dir(spec.host)}/{spec.pod}.kube"
 
 
-def quadlet_path(spec: StackSpec) -> Path:
-    return Path(
-        os.environ.get(
-            "GARDEN_QUADLET_DIR",
-            "~/.config/containers/systemd",
-        )
-    ).expanduser() / f"{spec.pod}.kube"
-
-
-def render_quadlet(spec: StackSpec, pod_yaml: Path) -> str:
+def render_quadlet(spec: StackSpec, pod_yaml: str) -> str:
     """Boot/crash persistence: systemd plays the pod-only YAML (secrets live
     in the podman store, created once at up time and referenced by name)."""
     return f"""# Generated by garden (ADR 0013). Removed by `garden down`.
@@ -584,28 +652,40 @@ WantedBy=timers.target
 """
 
 
-def ensure_watchdog() -> None:
+def ensure_watchdog(host: str | None) -> None:
     """Shared per-user watchdog (idempotent)."""
-    unit_dir = Path("~/.config/systemd/user").expanduser()
-    unit_dir.mkdir(parents=True, exist_ok=True)
+    if host is None:
+        unit_dir = str(Path("~/.config/systemd/user").expanduser())
+    else:
+        unit_dir = f"/home/{REMOTE_USER}/.config/systemd/user"
     for name, text in (("garden-watchdog.service", WATCHDOG_SERVICE),
                        ("garden-watchdog.timer", WATCHDOG_TIMER)):
-        path = unit_dir / name
-        if not path.exists() or path.read_text() != text:
-            path.write_text(text)
-    run(["systemctl", "--user", "daemon-reload"])
-    run(["systemctl", "--user", "enable", "--now", "-q", "garden-watchdog.timer"])
+        host_write(host, f"{unit_dir}/{name}", text, mode=0o644)
+    host_systemctl(host, "daemon-reload")
+    host_systemctl(host, "enable", "--now", "-q", "garden-watchdog.timer")
 
 
 # --- Commands ------------------------------------------------------------------
 
 
+def stack_url(record: dict) -> str:
+    """Attach URL: loopback locally, the tailnet name for remote stacks."""
+    host = record["host"] or "127.0.0.1"
+    return f"http://{host}:{record['port']}"
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
     name = args.name or sanitize_name(args.repo)
+    if args.clone and args.host:
+        repo = f"{REMOTE_STATE_ROOT}/clones/{name}"  # matches cmd_up
+    elif args.clone:
+        repo = str(state_dir() / "clones" / name)
+    else:
+        repo = str(Path(args.repo).expanduser().resolve())
     spec = StackSpec(
         name=name,
-        repo=str(Path(args.repo).expanduser().resolve()),
+        repo=repo,
         mode="clone" if args.clone else "mount",
         port=args.port or allocate_port(State().used_ports()),
         host=args.host,
@@ -615,47 +695,67 @@ def cmd_render(args: argparse.Namespace) -> int:
 
 
 def cmd_up(args: argparse.Namespace) -> int:
-    if args.host:
-        raise ValueError("remote mode arrives in phase 13 (ADR 0014)")
     infra_repo = Path(__file__).parent.parent.resolve()
     state = State()
+    host = args.host
 
     name = args.name or sanitize_name(args.repo)
+    if host and not args.clone:
+        raise ValueError(
+            "remote stacks are clone-mode: pass --clone with a git URL "
+            "(a local bind-mount is meaningless on another host)"
+        )
     if args.clone:
-        clone_dir = state.root / "clones" / name
-        if not clone_dir.exists():
-            clone_dir.parent.mkdir(parents=True, exist_ok=True)
-            run(["git", "clone", args.repo, str(clone_dir)])
+        if host:
+            clone_dir = f"{REMOTE_STATE_ROOT}/clones/{name}"
+            if not host_exists(host, clone_dir, kind="d"):
+                clone_cmd = ["git", "clone"]
+                if args.repo.startswith("https://github.com/"):
+                    # Token rides the process list on the VPS briefly - see
+                    # the threat model (ADR 0014). ssh URLs need no token.
+                    token = vault_key("github_token", VAULT_GITHUB)
+                    clone_cmd += ["-c",
+                                  f"http.extraHeader=Authorization: Bearer {token}"]
+                clone_cmd += [args.repo, clone_dir]
+                host_run(host, clone_cmd)
+        else:
+            clone_path = state.root / "clones" / name
+            if not clone_path.exists():
+                clone_path.parent.mkdir(parents=True, exist_ok=True)
+                run(["git", "clone", args.repo, str(clone_path)])
+            clone_dir = str(clone_path)
         repo_path = clone_dir
         mode = "clone"
     else:
-        repo_path = Path(args.repo).expanduser().resolve()
-        if not repo_path.is_dir():
+        repo_path = str(Path(args.repo).expanduser().resolve())
+        if not Path(repo_path).is_dir():
             raise ValueError(f"repo path does not exist: {repo_path}")
         mode = "mount"
 
     existing = state.get(name)
     port = existing["port"] if existing else allocate_port(state.used_ports())
-    spec = StackSpec(name=name, repo=str(repo_path), mode=mode, port=port,
+    spec = StackSpec(name=name, repo=repo_path, mode=mode, port=port, host=host,
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
 
+    url = f"http://{host or '127.0.0.1'}:{port}"
     if sys.stdin.isatty() and not args.yes:
-        print(f"stack:   {spec.pod}")
+        print(f"stack:   {spec.pod} on {host or 'this machine'}")
         print(f"repo:    {spec.repo} ({mode})")
-        print(f"attach:  http://127.0.0.1:{port}")
+        print(f"attach:  {url}")
         if input("Bring it up? [Y/n] ").strip().lower() not in ("", "y", "yes"):
             print("aborted")
             return 1
 
     print("==> images")
-    ensure_images(infra_repo)
+    ensure_images(host, infra_repo)
 
     print("==> stack config")
-    write_stack_config(state.root, spec, infra_repo)
-    # Everything a container bind-mounts must carry container_file_t (shared).
-    label_for_containers(infra_repo / "agent-config" / "litellm")
-    label_for_containers(repo_path)
+    write_stack_config(spec, infra_repo)
+    if host is None:
+        # Everything a container bind-mounts must carry container_file_t.
+        label_for_containers(None, str(infra_repo / "agent-config" / "litellm"))
+        label_for_containers(None, repo_path)
 
     values = {
         "master_key": secrets_mod.token_hex(32),
@@ -665,32 +765,29 @@ def cmd_up(args: argparse.Namespace) -> int:
     }
 
     # Idempotent refresh: drop the old pod and secrets before replaying.
-    podman("pod", "rm", "-f", spec.pod, check=False, capture=True)
-    podman("secret", "rm", spec.secret_litellm, spec.secret_opencode,
-           check=False, capture=True)
+    host_podman(host, "pod", "rm", "-f", spec.pod, check=False, capture=True)
+    host_podman(host, "secret", "rm", spec.secret_litellm, spec.secret_opencode,
+                check=False, capture=True)
 
     print("==> secrets (stdin only, then they live in the podman store)")
-    podman("kube", "play", "-",
-           input_text=yaml.safe_dump_all(render_secret_docs(spec, values),
-                                         sort_keys=True))
+    host_podman(host, "kube", "play", "-",
+                input_text=yaml.safe_dump_all(render_secret_docs(spec, values),
+                                              sort_keys=True))
 
     # Pod-only YAML on disk for the quadlet; never contains secrets.
-    pod_yaml = state.root / spec.name / "pod.yaml"
-    pod_yaml.write_text(render_yaml(spec, infra_repo))
-    os.chmod(pod_yaml, 0o600)
+    host_write(host, spec.pod_yaml_path(), render_yaml(spec, infra_repo))
 
     if args.no_install:
         print("==> kube play (no boot persistence)")
-        podman("kube", "play", "--replace", str(pod_yaml))
+        host_podman(host, "kube", "play", "--replace", spec.pod_yaml_path())
     else:
-        qpath = quadlet_path(spec)
-        qpath.parent.mkdir(parents=True, exist_ok=True)
-        qpath.write_text(render_quadlet(spec, pod_yaml))
-        run(["systemctl", "--user", "daemon-reload"])
-        print(f"==> systemd start ({qpath.name})")
-        run(["systemctl", "--user", "restart", f"{spec.pod}.service"])
-        ensure_watchdog()
-        if not linger_enabled():
+        host_write(host, quadlet_path(spec),
+                   render_quadlet(spec, spec.pod_yaml_path()), mode=0o644)
+        host_systemctl(host, "daemon-reload")
+        print(f"==> systemd start ({spec.pod}.service)")
+        host_systemctl(host, "restart", f"{spec.pod}.service")
+        ensure_watchdog(host)
+        if host is None and not linger_enabled():
             print("!! linger is off: stacks start at login, not at boot.")
             print(f"   enable once with: sudo loginctl enable-linger {os.environ.get('USER')}")
 
@@ -698,8 +795,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     wait_healthy(spec)
     state.add(spec, password=values["password"])
 
-    url = f"http://127.0.0.1:{port}"
     print(f"\nstack up: {url}  (user: opencode, password: {values['password']})")
+    if host:
+        print("remote attach needs your tailnet up (ADR 0003/0014)")
     if not args.no_attach and sys.stdin.isatty() and shutil.which("opencode"):
         os.execvp("opencode", ["opencode", "attach", url,
                                "--username", "opencode",
@@ -714,26 +812,25 @@ def cmd_down(args: argparse.Namespace) -> int:
         raise ValueError(f"unknown stack {args.name!r} (garden ls)")
     spec = StackSpec(name=args.name, repo=record["repo"], mode=record["mode"],
                      port=record["port"], host=record["host"])
-    qpath = quadlet_path(spec)
-    if qpath.exists():
-        qpath.unlink()
-        run(["systemctl", "--user", "daemon-reload"], check=False)
-    podman("pod", "stop", "-t", "5", spec.pod, check=False, capture=True)
-    podman("pod", "rm", "-f", spec.pod, check=False, capture=True)
+    host = spec.host
+    if host_exists(host, quadlet_path(spec)):
+        host_run(host, ["rm", "-f", quadlet_path(spec)])
+        host_systemctl(host, "daemon-reload", check=False)
+    host_podman(host, "pod", "stop", "-t", "5", spec.pod, check=False, capture=True)
+    host_podman(host, "pod", "rm", "-f", spec.pod, check=False, capture=True)
     if args.purge:
-        podman("volume", "rm", "-f", spec.volume_opencode,
-               check=False, capture=True)
-        podman("secret", "rm", spec.secret_litellm, spec.secret_opencode,
-               check=False, capture=True)
-        safe_rmtree(state.root, state.root / args.name / "config")
-        safe_rmtree(state.root, state.root / args.name)
+        host_podman(host, "volume", "rm", "-f", spec.volume_opencode,
+                    check=False, capture=True)
+        host_podman(host, "secret", "rm", spec.secret_litellm, spec.secret_opencode,
+                    check=False, capture=True)
+        safe_rmtree(host, spec.state_root(), f"{spec.state_root()}/{args.name}")
         if record["mode"] == "clone":
-            safe_rmtree(state.root, state.root / "clones" / args.name)
+            safe_rmtree(host, spec.state_root(),
+                        f"{spec.state_root()}/clones/{args.name}")
         state.remove(args.name)
         print(f"purged {args.name}")
     else:
         print(f"stopped {args.name} (volumes, secrets and state kept; "
-              f"`garden up --repo {record['repo']} --name {args.name}` restarts it, "
               f"`garden down {args.name} --purge` deletes everything)")
     return 0
 
@@ -742,7 +839,7 @@ def cmd_attach(args: argparse.Namespace) -> int:
     record = State().get(args.name)
     if record is None:
         raise ValueError(f"unknown stack {args.name!r} (garden ls)")
-    url = f"http://127.0.0.1:{record['port']}"
+    url = stack_url(record)
     if not shutil.which("opencode"):
         print(f"opencode CLI not found; attach manually: {url} "
               f"(user: opencode, password: {record['password']})")
@@ -763,6 +860,9 @@ def cmd_logs(args: argparse.Namespace) -> int:
     else:
         cmd = ["podman", "pod", "logs"] + (["-f"] if args.follow else []) + \
               [f"garden-{args.name}"]
+    if record["host"]:
+        os.execvp("ssh", ["ssh", record["host"], "sudo", "-n", "-iu",
+                          REMOTE_USER, *cmd])
     os.execvp("podman", cmd)
     return 0  # unreachable
 
@@ -772,17 +872,20 @@ def cmd_ls(args: argparse.Namespace) -> int:
     if not stacks:
         print("no stacks - run `garden up` inside a repo")
         return 0
-    live = {}
-    result = podman("pod", "ps", "--format", "json",
-                    "--filter", "name=^garden-", capture=True, check=False)
-    if result.returncode == 0 and result.stdout.strip():
-        for pod in json.loads(result.stdout):
-            live[pod["Name"]] = pod["Status"]
+    live: dict[str, str] = {}
+    hosts = {None} | {s["host"] for s in stacks.values() if s["host"]}
+    for host in hosts:
+        result = host_podman(host, "pod", "ps", "--format", "json",
+                             "--filter", "name=^garden-",
+                             capture=True, check=False)
+        if result.returncode == 0 and result.stdout.strip():
+            for pod in json.loads(result.stdout):
+                live[pod["Name"]] = pod["Status"]
     print(f"{'NAME':<20} {'STATUS':<12} {'PERSIST':<8} {'HOST':<7} {'PORT':<6} REPO")
     for name, s in sorted(stacks.items()):
         status = live.get(f"garden-{name}", "down")
-        spec = StackSpec(name=name, repo=s["repo"])
-        persist = "quadlet" if quadlet_path(spec).exists() else "-"
+        spec = StackSpec(name=name, repo=s["repo"], host=s["host"])
+        persist = "quadlet" if host_exists(spec.host, quadlet_path(spec)) else "-"
         print(f"{name:<20} {status:<12} {persist:<8} {s['host'] or 'local':<7} "
               f"{s['port']:<6} {s['repo']} ({s['mode']})")
     return 0

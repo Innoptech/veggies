@@ -4,7 +4,7 @@
   become: true
   gather_facts: false
   vars:
-    base_verify_service_users: [gh-runner, egress-proxy]
+    base_verify_service_users: [gh-runner, egress-proxy, stacks]
   tasks:
     - name: Gather service facts
       ansible.builtin.service_facts:

@@ -19,12 +19,13 @@
       loop:
         - { name: gh-runner, shell: /usr/sbin/nologin }
         - { name: egress-proxy, shell: /usr/sbin/nologin }
+        - { name: stacks, shell: /usr/sbin/nologin }
 
     - name: Check the linger markers
       ansible.builtin.stat:
         path: "/var/lib/systemd/linger/{{ item }}"
       register: egress_molecule_linger
-      loop: [gh-runner, egress-proxy]
+      loop: [gh-runner, egress-proxy, stacks]
 
     - name: Enable linger where missing
       ansible.builtin.command:

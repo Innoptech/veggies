@@ -226,10 +226,10 @@ def test_container_names_prefixed(spec):
 
 def test_safe_rmtree_refuses_outside_paths(tmp_path):
     with pytest.raises(ValueError):
-        garden.safe_rmtree(tmp_path, Path("/etc/someone-elses-repo"))
+        garden.safe_rmtree(None, str(tmp_path), "/etc/someone-elses-repo")
     inside = tmp_path / "stack/config"
     inside.mkdir(parents=True)
-    garden.safe_rmtree(tmp_path, inside)
+    garden.safe_rmtree(None, str(tmp_path), str(inside))
     assert not inside.exists()
 
 
@@ -262,7 +262,52 @@ def test_rendered_yaml_never_contains_secrets(spec):
 
 def test_quadlet_path_honors_env(spec, monkeypatch, tmp_path):
     monkeypatch.setenv("GARDEN_QUADLET_DIR", str(tmp_path))
-    assert garden.quadlet_path(spec) == tmp_path / "garden-demo.kube"
+    assert garden.quadlet_path(spec) == f"{tmp_path}/garden-demo.kube"
+
+
+# --- remote mode (ADR 0014) ------------------------------------------------------
+
+
+def test_remote_spec_paths(spec):
+    spec.host = "garden"
+    assert spec.config_dir() == "/home/stacks/.local/state/garden/demo/config"
+    assert spec.pod_yaml_path() == "/home/stacks/.local/state/garden/demo/pod.yaml"
+    pod = _pod(spec)
+    volumes = {v["name"]: v for v in pod["spec"]["volumes"]}
+    # remote stacks mount the shipped config copy, not an infra checkout
+    assert volumes["agent-config"]["hostPath"]["path"] == spec.config_dir()
+    assert volumes["stack-config"]["hostPath"]["path"] == spec.config_dir()
+
+
+def test_remote_render_has_no_local_paths(spec):
+    spec.host = "garden"
+    text = garden.render_yaml(spec, INFRA_REPO)
+    assert str(INFRA_REPO) not in text
+    assert "/home/stacks/" in text
+
+
+def test_host_run_wraps_ssh_sudo(monkeypatch):
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = ""
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return R()
+
+    monkeypatch.setattr(garden, "run", fake_run)
+    garden.host_run(None, ["true"])
+    garden.host_run("garden", ["podman", "pod", "ps"])
+    assert calls[0] == ["true"]
+    assert calls[1][:5] == ["ssh", "garden", "sudo", "-n", "-iu"]
+    assert "stacks" in calls[1]
+
+
+def test_stack_url_local_and_remote():
+    assert garden.stack_url({"host": None, "port": 4096}) == "http://127.0.0.1:4096"
+    assert garden.stack_url({"host": "garden", "port": 4097}) == "http://garden:4097"
 
 
 def test_watchdog_units_are_minimal_and_scoped():

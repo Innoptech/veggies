@@ -4,6 +4,7 @@
 podman_users:
   - gh-runner
   - egress-proxy
+  - stacks # garden CLI remote stacks (ADR 0014)
   - "{{ admin_user }}"
 
 # cgroup delegation for user managers - required so [Service] MemoryMax=/CPUQuota=

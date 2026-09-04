@@ -1,11 +1,14 @@
 ---
-- name: Read the account database (runner and proxy uids)
+- name: Read the account database (denied users' uids)
   ansible.builtin.getent:
     database: passwd
 
-- name: Record the runner uid for the nft template
+- name: Record the denied uids for the nft template
   ansible.builtin.set_fact:
-    egress_runner_uid: "{{ ansible_facts.getent_passwd[egress_runner_user][2] }}"
+    egress_denied_uids: >-
+      {{ egress_denied_users
+         | map('extract', ansible_facts.getent_passwd)
+         | map(attribute=2) | list }}
 
 - name: Install the nftables ruleset
   ansible.builtin.template:

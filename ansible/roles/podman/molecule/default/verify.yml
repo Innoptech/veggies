@@ -4,7 +4,7 @@
   become: true
   gather_facts: false
   vars:
-    podman_verify_users: [gh-runner, egress-proxy, fedora]
+    podman_verify_users: [gh-runner, egress-proxy, stacks, fedora]
   tasks:
     - name: Gather package facts
       ansible.builtin.package_facts:

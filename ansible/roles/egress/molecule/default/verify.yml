@@ -23,11 +23,13 @@
       register: egress_nft_table
       changed_when: false
 
-    - name: Rules carry the UID pin and the deny log
+    - name: Rules carry the UID pins and the deny log (one per denied user)
       ansible.builtin.assert:
         that:
           - "'skuid' in egress_nft_table.stdout"
-          - "'infra-egress-deny' in egress_nft_table.stdout"
+          # one accept + one deny rule per entry in egress_denied_users
+          - "egress_nft_table.stdout.count('infra-egress-deny') == 2"
+          - "egress_nft_table.stdout.count('dport') == 2"
           - "'dport' in egress_nft_table.stdout"
 
     - name: Allowlist contains github and the model endpoint

@@ -1,5 +1,9 @@
 ---
-egress_runner_user: gh-runner
+# Users whose outbound traffic is forced through the proxy (ADR 0006):
+# everything except 127.0.0.1/gateway squid+litellm ports is logged+dropped.
+egress_denied_users:
+  - gh-runner
+  - stacks # garden CLI stacks (ADR 0014)
 egress_proxy_user: egress-proxy
 
 egress_squid_port: 3128
