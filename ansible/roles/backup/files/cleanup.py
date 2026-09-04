@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cleanup.py - daily hygiene for garden (infra repo, backup role).
+"""cleanup.py - daily hygiene for veggies (infra repo, backup role).
 
 - prune each service user's container images/containers older than 7 days
 - delete runner work dirs (*/ _work) older than --stale-days
@@ -117,7 +117,7 @@ def main() -> int:
         if webhook and not args.dry_run:
             req = urllib.request.Request(
                 webhook,
-                data=json.dumps({"text": f"garden: {msg}"}).encode(),
+                data=json.dumps({"text": f"veggies: {msg}"}).encode(),
                 headers={"Content-Type": "application/json"},
             )
             try:

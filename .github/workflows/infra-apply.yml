@@ -68,8 +68,8 @@ jobs:
           tofu apply -input=false -auto-approve
 
   converge:
-    # Converges garden from a GitHub-hosted runner over the tailnet. Deliberately
-    # NOT on garden's own runner: a runner container cannot reach garden's sshd
+    # Converges veggies from a GitHub-hosted runner over the tailnet. Deliberately
+    # NOT on veggies's own runner: a runner container cannot reach veggies's sshd
     # (firewalld public zone + our own egress rules block the gateway path).
     runs-on: ubuntu-latest
     needs: apply
@@ -128,8 +128,8 @@ jobs:
           python scripts/vault_get.py secrets/infra.yml converge_ssh_private_key > ~/.ssh/converge_key
           chmod 600 ~/.ssh/converge_key
 
-      - name: Converge garden
+      - name: Converge veggies
         run: |
           set -euo pipefail
           ANSIBLE_SSH_ARGS="-i $HOME/.ssh/converge_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10" \
-            ansible-playbook ansible/playbooks/site.yml --limit garden
+            ansible-playbook ansible/playbooks/site.yml --limit veggies

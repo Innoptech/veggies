@@ -24,7 +24,7 @@ See `defaults/main.yml` and `group_vars/all.yml(.example)`:
 
 ## Be careful
 
-- The operator machine's tofu state is NOT on garden - back it up from your
+- The operator machine's tofu state is NOT on veggies - back it up from your
   workstation with the same vault creds (runbook section 6 note).
 - First backup initializes the repo (`restic-prep` in ExecStartPre).
 - `restore.sh` overwrites into `/` - read the runbook before running it.

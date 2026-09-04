@@ -1,6 +1,6 @@
 # infra
 
-Infrastructure-as-code and configuration management for **garden**: an
+Infrastructure-as-code and configuration management for **veggies**: an
 always-on OVHcloud VPS that hosts autonomous coding agents (opencode) and
 ephemeral self-hosted GitHub Actions runners, reachable only over Tailscale.
 
@@ -11,30 +11,30 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phases 1-14 done. The infra is implemented; live values are placeholders until you fill them (see below). The `garden` CLI (repo-scoped agent stacks, ADR 0013/0014) is implemented and verified live locally.
+Phases 1-14 done. The infra is implemented; live values are placeholders until you fill them (see below). The `veggies` CLI (repo-scoped agent stacks, ADR 0013/0014) is implemented and verified live locally.
 
-## Stacks: the daily driver (`garden`, ADR 0013)
+## Stacks: the daily driver (`veggies`, ADR 0013)
 
 One stack = one repo = one pod: opencode-serve + litellm + squid, rootless,
 persistent (quadlet + watchdog), locally or on the VPS.
 
 ```bash
-mask garden-install          # once: puts `garden` in ~/.local/bin
+mask veggies-install          # once: puts `veggies` in ~/.local/bin
 cd ~/code/some-repo
-garden up                    # prompts, builds, starts, attaches
-garden ls                    # all stacks, live status, persistence
-garden attach <name>         # back into a running stack
-garden logs <name> [-f]      # pod logs (or a single container)
-garden down <name>           # stop (keeps volumes/secrets/state)
-garden down <name> --purge   # delete everything for that stack
-garden --host garden up --clone https://github.com/you/repo.git  # on the VPS
+veggies up                    # prompts, builds, starts, attaches
+veggies ls                    # all stacks, live status, persistence
+veggies attach <name>         # back into a running stack
+veggies logs <name> [-f]      # pod logs (or a single container)
+veggies down <name>           # stop (keeps volumes/secrets/state)
+veggies down <name> --purge   # delete everything for that stack
+veggies --host veggies up --clone https://github.com/you/repo.git  # on the VPS
 ```
 
 - Only the opencode port is published (127.0.0.1 locally, tailnet-only on the
   VPS via firewalld); litellm and squid are pod-internal.
 - Mount mode bind-mounts your checkout rw and relabels it
   `container_file_t` (harmless for your user; that's the `:z` equivalent).
-  `--clone` keeps the clone inside the garden state dir instead.
+  `--clone` keeps the clone inside the veggies state dir instead.
 - Env overrides for scripts: `GARDEN_REPO GARDEN_NAME GARDEN_HOST
   GARDEN_CLONE=1 GARDEN_YES=1 GARDEN_NO_ATTACH=1 GARDEN_NO_INSTALL=1`.
 - Boot persistence locally needs linger once: `sudo loginctl enable-linger
@@ -44,7 +44,7 @@ garden --host garden up --clone https://github.com/you/repo.git  # on the VPS
 
 | | Interim (today) | Target (recorded direction) |
 |---|---|---|
-| Compute | Manually-rented OVH VPS `garden` (6 vCPU / 12 GB), Fedora 44 | OVH Public Cloud via OpenTofu module (scaffolded, gated) - ADR 0002/0008 |
+| Compute | Manually-rented OVH VPS `veggies` (6 vCPU / 12 GB), Fedora 44 | OVH Public Cloud via OpenTofu module (scaffolded, gated) - ADR 0002/0008 |
 | IaC | OpenTofu 1.12 (github module from phase 2) | + openstack module when migrating |
 | Config mgmt | Ansible 2.21, roles + `site.yml`, Molecule (podman) per role | same |
 | Containers | Rootless Podman + Quadlet, users `fedora` / `gh-runner` / `egress-proxy` (ADR 0009) | same |
@@ -64,7 +64,7 @@ garden --host garden up --clone https://github.com/you/repo.git  # on the VPS
 | gitleaks / tflint / actionlint | 8.30.1 / 0.64.0 / 1.7.12 | same |
 | python | 3.14 | system |
 | ansible-core / ansible-lint / molecule / pre-commit / yamllint / pytest | pinned in `requirements-dev.txt` | `mask setup` |
-| podman | 5.8.x | system (workstation + garden are Fedora 44) |
+| podman | 5.8.x | system (workstation + veggies are Fedora 44) |
 
 ## Setup
 
@@ -88,7 +88,7 @@ $EDITOR ~/.config/infra/vault-password && chmod 600 ~/.config/infra/vault-passwo
 | `mask vault-edit secrets/model.yml` | create/edit encrypted secrets |
 | `mask vault-check` | fail if any secrets file is plaintext |
 | `mask molecule-test <role>` / `mask molecule-all` | role tests (phase 4+) |
-| `mask converge` / `mask bootstrap` | Ansible against garden (phase 4+) |
+| `mask converge` / `mask bootstrap` | Ansible against veggies (phase 4+) |
 
 ## Secrets workflow (ansible-vault, ADR 0004)
 
@@ -109,7 +109,7 @@ rotation procedures live in `docs/runbook.md` section 3.
 ```
 README.md  AGENTS.md  maskfile.md  requirements-dev.txt
 .pre-commit-config.yaml  .ansible-lint  .yamllint  .tflint.hcl
-ansible/         cfg, inventory (garden), group_vars example, requirements.yml
+ansible/         cfg, inventory (veggies), group_vars example, requirements.yml
                  playbooks/ (phase 4+), roles/ (phase 4+), molecule per role
 terraform/       root module; github/ (phase 2), ovh/ (phase 3, scaffold-only)
 secrets/         ansible-vault files (+ .example templates)

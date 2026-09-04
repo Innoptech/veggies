@@ -2,8 +2,8 @@
 # Steady-state converge. Role order matters: network access (tailscale) before
 # anything that pulls; proxy (egress) before agents that must be constrained.
 # base_public_ssh stays false here - site.yml never re-opens public SSH.
-- name: Converge garden
-  hosts: garden
+- name: Converge veggies
+  hosts: veggies
   become: true
   vars_files:
     - ../secrets/infra.yml

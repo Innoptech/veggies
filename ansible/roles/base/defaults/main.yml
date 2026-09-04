@@ -16,7 +16,7 @@ base_start_chrony: true
 base_service_users:
   - gh-runner
   - egress-proxy
-  - stacks # repo-scoped agent pods via the garden CLI (ADR 0013/0014)
+  - stacks # repo-scoped agent pods via the veggies CLI (ADR 0013/0014)
 
 base_journald_system_max_use: 500M
 base_journald_runtime_max_use: 200M

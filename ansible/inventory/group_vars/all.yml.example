@@ -11,13 +11,13 @@ admin_ssh_public_keys: [] # TODO(you): e.g. ["ssh-ed25519 AAAA... you@workstatio
 # --- Tailscale (phase 4) ---------------------------------------------------------
 tailscale_tailnet: "REPLACE_ME.ts.net" # TODO(you): tailnet name
 tailscale_tag: "tag:agent-host" # TODO(you): ACL tag for this node
-tailscale_hostname: garden
+tailscale_hostname: veggies
 
 # --- GitHub runner (phase 5) -----------------------------------------------------
 github_owner: "YOUR_ORG_OR_USER" # TODO(you)
 github_repos: [] # TODO(you): e.g. ["veggie", "data-pipelines"]
 github_runner_scope: repo # repo | org (org needs a GitHub organization)
-github_runner_labels: [self-hosted, linux, x64, garden]
+github_runner_labels: [self-hosted, linux, x64, veggies]
 github_runner_count: 2 # sized for 6 vCPU / 12 GB
 github_runner_memory_max: 4G # per-runner cap (2 x 4G leaves host headroom)
 github_runner_cpu_quota: "250%" # per-runner cap (2 x 250% of 600% total)

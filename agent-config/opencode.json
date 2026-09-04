@@ -7,7 +7,7 @@
   "provider": {
     "litellm": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "garden-litellm",
+      "name": "veggies-litellm",
       "options": {
         "baseURL": "http://host.containers.internal:4000/v1"
       },

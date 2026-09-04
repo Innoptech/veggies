@@ -53,9 +53,9 @@ def test_repo_for_instance():
 
 def test_write_env_permissions(tmp_path):
     out = tmp_path / "1.env"
-    frt.write_env(str(out), {"RUNNER_TOKEN": "T", "RUNNER_NAME": "garden-1"})
+    frt.write_env(str(out), {"RUNNER_TOKEN": "T", "RUNNER_NAME": "veggies-1"})
     assert (out.stat().st_mode & 0o777) == 0o600
-    assert out.read_text() == "RUNNER_TOKEN=T\nRUNNER_NAME=garden-1\n"
+    assert out.read_text() == "RUNNER_TOKEN=T\nRUNNER_NAME=veggies-1\n"
 
 
 def test_load_env_file(tmp_path, monkeypatch):

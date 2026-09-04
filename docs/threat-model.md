@@ -1,4 +1,4 @@
-# Threat model - garden
+# Threat model - veggies
 
 What an agent with a prompt injection can and cannot reach; what a leaked key
 exposes. Mechanisms link to their ADRs.
@@ -39,7 +39,7 @@ nftables rules still apply. SELinux stays Enforcing.
 | Key | Where it lives | If leaked |
 |-----|----------------|-----------|
 | Fireworks API key | litellm container env (0600, vault-sourced) | Full model spend until rotated - one file to rekey, one converge to roll out |
-| litellm runner virtual key | runner runtime.env | Spend through the proxy only, revocable, only useful from garden's 127.0.0.1/169.254.1.2 |
+| litellm runner virtual key | runner runtime.env | Spend through the proxy only, revocable, only useful from veggies's 127.0.0.1/169.254.1.2 |
 | litellm opencode virtual key | opencode auth.json | same, via the admin user's container |
 | GitHub runner admin PAT/App | gh-runner api.env (0600) | Runner admin on the governed repos until revoked; never enters containers |
 | Tailscale auth key | tailscale role (no_log) | Adds nodes with `tag:agent-host` until revoked in the tailnet console |
@@ -56,14 +56,14 @@ nftables rules still apply. SELinux stays Enforcing.
 - A determined agent can abuse the *allowlisted* domains themselves (e.g.
   commit secrets to a gist it creates with a stolen workflow token) - the
   mitigations are the review gate and the workflow token's minimal perms.
-- garden stacks (ADR 0013/0014): each stack's litellm holds a copy of the
+- veggies stacks (ADR 0013/0014): each stack's litellm holds a copy of the
   Fireworks key (podman secret, per-stack random master key). A stack escape
-  exposes that copy - revoke by `garden down --purge` + rotating in the vault.
+  exposes that copy - revoke by `veggies down --purge` + rotating in the vault.
 - Remote clone of a private repo puts the vault's github_token in the VPS
   process list for the clone's duration (git http.extraHeader). Readable only
-  to root/stacks on garden; accepted. TODO(verify): move to a credential
+  to root/stacks on veggies; accepted. TODO(verify): move to a credential
   helper or deploy keys later.
 - Local stacks' egress is env-var enforced only (no nftables on a workstation)
-  - the hard per-UID boundary exists on garden (ADR 0006). A local agent that
+  - the hard per-UID boundary exists on veggies (ADR 0006). A local agent that
   unsets HTTPS_PROXY bypasses the proxy; treat local stacks as guardrails,
   not confinement.

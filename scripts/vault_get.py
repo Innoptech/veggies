@@ -17,7 +17,7 @@ import yaml
 
 
 def _ansible_vault() -> str:
-    """Prefer the venv sibling of the running interpreter (the garden shim
+    """Prefer the venv sibling of the running interpreter (the veggies shim
     invokes us via the venv python without putting the venv on PATH)."""
     sibling = Path(sys.executable).parent / "ansible-vault"
     if sibling.exists():

@@ -7,8 +7,8 @@
 # The verification play sits between hardening and the close-out ON PURPOSE:
 # public SSH is only removed after tailnet SSH is proven. The verify tasks are
 # deliberately untagged so `--tags` cannot skip them.
-- name: Bootstrap garden over the public IP
-  hosts: garden
+- name: Bootstrap veggies over the public IP
+  hosts: veggies
   become: true
   vars:
     base_public_ssh: true # the bootstrap window, closed by the last play
@@ -20,7 +20,7 @@
     - role: tailscale
 
 - name: Verify tailnet reachability (gate - do not tag, do not skip)
-  hosts: garden
+  hosts: veggies
   become: true
   gather_facts: false
   tasks:
@@ -39,7 +39,7 @@
 
     - name: Record the tailnet IPv4
       ansible.builtin.set_fact:
-        garden_ts_ip: >-
+        veggies_ts_ip: >-
           {{ (bootstrap_ts_status.stdout | from_json).Self.TailscaleIPs
              | select('match', '^100\.') | first }}
 
@@ -47,7 +47,7 @@
       ansible.builtin.command:
         cmd: >-
           ssh -o BatchMode=yes -o ConnectTimeout=10
-          -o StrictHostKeyChecking=accept-new {{ admin_user }}@{{ garden_ts_ip }} true
+          -o StrictHostKeyChecking=accept-new {{ admin_user }}@{{ veggies_ts_ip }} true
       delegate_to: localhost
       changed_when: false
       failed_when: bootstrap_ts_ssh.rc != 0
@@ -55,7 +55,7 @@
       # If this fails the play stops here and public SSH stays open.
 
 - name: Close public SSH
-  hosts: garden
+  hosts: veggies
   become: true
   tasks:
     - name: Remove ssh from the public zone
@@ -74,4 +74,4 @@
 
     - name: Next step for the operator
       ansible.builtin.debug:
-        msg: "Public SSH is closed. Update ~/.ssh/config 'Host garden' to the tailnet name, then run: mask converge"
+        msg: "Public SSH is closed. Update ~/.ssh/config 'Host veggies' to the tailnet name, then run: mask converge"

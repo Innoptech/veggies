@@ -4,7 +4,7 @@
 variable "instance_name" {
   type        = string
   description = "Instance name in the OpenStack catalog."
-  default     = "garden"
+  default     = "veggies"
 }
 
 variable "region" {

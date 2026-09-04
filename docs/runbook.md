@@ -1,18 +1,18 @@
-# Runbook - garden
+# Runbook - veggies
 
 Operational procedures for the agent host. Tested where a test is possible;
 the rebuild checklist (section 1) is the acceptance test for the whole repo.
 
 ## 1. Rebuild-from-zero checklist (the acceptance test)
 
-Execute this on a second VPS (or a reinstalled garden) to prove the repo
+Execute this on a second VPS (or a reinstalled veggies) to prove the repo
 rebuilds the machine. Every box must be ticked in order.
 
 Provision manually (ADR 0008):
 
 - [ ] Order/reinstall the VPS: Fedora 44 image, your ssh key attached.
-- [ ] Point `Host garden` in `~/.ssh/config` at the new public IP.
-- [ ] `ssh garden true` works as `fedora`.
+- [ ] Point `Host veggies` in `~/.ssh/config` at the new public IP.
+- [ ] `ssh veggies true` works as `fedora`.
 
 Prepare the repo locally:
 
@@ -27,15 +27,15 @@ Bootstrap:
 - [ ] `mask bootstrap` - it MUST prove tailnet SSH before closing public SSH
       (that play cannot be skipped; if it fails, public SSH stays open and you
       fix tailscale first).
-- [ ] Update `Host garden` to the tailnet name (MagicDNS).
-- [ ] `ssh garden true` over the tailnet.
+- [ ] Update `Host veggies` to the tailnet name (MagicDNS).
+- [ ] `ssh veggies true` over the tailnet.
 
 Converge + verify:
 
 - [ ] `mask converge` finishes green and idempotent on rerun.
-- [ ] `ssh garden agent-status` shows the quadlets, runners registering, disk ok.
+- [ ] `ssh veggies agent-status` shows the quadlets, runners registering, disk ok.
 - [ ] A test PR in a governed repo: `/opencode` comment triggers a job on
-      garden; the PR cannot merge without your review (ADR 0007).
+      veggies; the PR cannot merge without your review (ADR 0007).
 - [ ] Deny test: in a runner, `curl https://example.com` fails and
       `journalctl -k -g infra-egress-deny` shows the drop (ADR 0006).
 - [ ] `systemctl list-timers 'backup*'` shows the timers; a manual
@@ -91,7 +91,7 @@ path (ADR 0002): change `ovh_flavor_name`, `tofu apply`, confirm the resize.
 ## 5. Recover a wedged runner
 
 ```bash
-ssh garden
+ssh veggies
 systemctl --machine=gh-runner@ --user list-units 'gh-runner@*'
 journalctl --machine=gh-runner -M? # see note
 systemctl --machine=gh-runner@ --user restart gh-runner@<repo>-1.service
@@ -116,7 +116,7 @@ sudo /usr/local/sbin/restore.sh /etc/restic/restic.env   # or any env file copy
 Verify permissions under /home/* afterwards, then `mask converge` to
 re-assert the current state. Exercise this in the section-1 checklist.
 
-Operator-machine note: the tofu state is NOT on garden (ADR 0008). Back it up
+Operator-machine note: the tofu state is NOT on veggies (ADR 0008). Back it up
 from the workstation with the same restic repo (separate prefix suggested):
 
 ```bash
@@ -146,24 +146,24 @@ frontmatter or `/models`.
 - Superpowers bump: change the pinned tag in `agent-config/opencode.json`
   (`#vX.Y.Z`), PR, converge.
 
-## 9. garden stacks (ADR 0013/0014)
+## 9. veggies stacks (ADR 0013/0014)
 
-Daily: `garden up` in a repo; `garden attach <name>`; `garden ls`;
-`garden down <name> [--purge]`. Remote: `garden --host garden up --clone
+Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
+`veggies down <name> [--purge]`. Remote: `veggies --host veggies up --clone
 <git-url>` then attach over the tailnet.
 
 Troubleshooting:
 
-- Stack flapping right after up: `garden logs <name> <container>`. Known-good
+- Stack flapping right after up: `veggies logs <name> <container>`. Known-good
   invariants: no subPath mounts (SELinux), exec-probes only (minimal images
   have no `nc`), `pid_filename none` and no `cache_dir null` in squid.conf.
-- SELinux denials on a stack: re-run `garden up` (it re-asserts
+- SELinux denials on a stack: re-run `veggies up` (it re-asserts
   `chcon -R -t container_file_t -l s0` on every bind source). If you
   hand-mount anything new, label it the same way.
 - A container stays `exited` under the quadlet: that is expected (systemd
-  owns restart there); the `garden-watchdog.timer` revives it within ~30s.
-  Check: `systemctl --user status garden-watchdog.timer`.
-- Remote ops fail with sudo/ssh errors: tailnet up? `ssh garden true`? The
+  owns restart there); the `veggies-watchdog.timer` revives it within ~30s.
+  Check: `systemctl --user status veggies-watchdog.timer`.
+- Remote ops fail with sudo/ssh errors: tailnet up? `ssh veggies true`? The
   stacks user exists only after `mask converge` (base role).
-- Rotate a stack's keys: `garden down <name> --purge && garden up ...`
+- Rotate a stack's keys: `veggies down <name> --purge && veggies up ...`
   (fresh random master key + fresh copy of the vault's Fireworks key).

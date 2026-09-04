@@ -1,6 +1,6 @@
 # tailscale
 
-Installs tailscale, joins `garden` to the tailnet with a pre-authorized key
+Installs tailscale, joins `veggies` to the tailnet with a pre-authorized key
 from the vault, advertises the ACL tag, enables Tailscale SSH, and binds
 `tailscale0` to the trusted firewalld zone (sshd stays as the fallback path).
 ADR 0003.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# restore.sh - restore garden's state onto a fresh instance.
+# restore.sh - restore veggies's state onto a fresh instance.
 #
 # Usage (as root, AFTER the base role created the users):
 #   restore.sh /path/to/restic.env

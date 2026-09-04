@@ -16,7 +16,7 @@ module "github" {
   manage_label_workflow     = var.manage_label_workflow
 }
 
-# Scaffold only (ADRs 0002, 0008): enable_ovh stays false while garden is a
+# Scaffold only (ADRs 0002, 0008): enable_ovh stays false while veggies is a
 # manually-rented VPS. Enabling is the reviewed migration plan, not an impulse.
 module "ovh" {
   source = "./ovh"

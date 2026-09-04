@@ -6,7 +6,7 @@ One root module (this directory) composing child modules:
 |-----------|-------|---------------|----------|
 | `./`      | 1     | active        | versions, providers, variables, local-state note |
 | `github/` | 2     | active        | branch protection, required checks, environments, Actions secrets, runner group (ADR 0007) |
-| `ovh/`    | 3     | **scaffold**  | Public Cloud instance/SG/volume/cloud-init - gated by `var.enable_ovh`, **never applied** until the ADR 0002 migration (today's host `garden` is a manually-rented VPS, ADR 0008) |
+| `ovh/`    | 3     | **scaffold**  | Public Cloud instance/SG/volume/cloud-init - gated by `var.enable_ovh`, **never applied** until the ADR 0002 migration (today's host `veggies` is a manually-rented VPS, ADR 0008) |
 
 ## State
 

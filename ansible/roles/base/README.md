@@ -1,6 +1,6 @@
 # base
 
-Foundation hardening for `garden` (Fedora 44, SELinux kept Enforcing).
+Foundation hardening for `veggies` (Fedora 44, SELinux kept Enforcing).
 
 ## What it changes
 

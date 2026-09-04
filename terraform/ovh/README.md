@@ -1,6 +1,6 @@
 # terraform/ovh - Public Cloud compute (SCAFFOLD, gated)
 
-**Not applied.** Today's `garden` is a manually-rented VPS (ADR 0008); this
+**Not applied.** Today's `veggies` is a manually-rented VPS (ADR 0008); this
 module is the reviewed-in-advance migration path to OVH Public Cloud
 (ADR 0002). The root module calls it with `count = var.enable_ovh ? 1 : 0`
 and `enable_ovh` defaults to `false`.

@@ -113,7 +113,7 @@ def main() -> int:
         {
             "RUNNER_TOKEN": reg_token,
             "RUNNER_URL": runner_url,
-            "RUNNER_NAME": f"garden-{args.instance}",
+            "RUNNER_NAME": f"veggies-{args.instance}",
             "RUNNER_LABELS": labels,
         },
     )

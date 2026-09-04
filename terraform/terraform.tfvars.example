@@ -16,7 +16,7 @@ required_checks = ["pre-commit"]     # TODO(you): must match the repos' CI check
 # actions_secrets = { "veggie" = { "SOME_TOKEN" = "..." } }
 
 # Optional org runner group (organizations only):
-# runner_group_name = "garden-runners"
+# runner_group_name = "veggies-runners"
 
 # Opt-in: push the needs-team-review labeller to a side branch per repo
 # (merge the PR yourself - direct pushes would bypass this very policy):

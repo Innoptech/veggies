@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# garden at a glance: opencode server, runner units, disk.
+# veggies at a glance: opencode server, runner units, disk.
 set -euo pipefail
 
 echo "== opencode (127.0.0.1:4096)"

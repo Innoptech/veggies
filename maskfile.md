@@ -203,13 +203,13 @@ scripts/check_vault_encrypted.sh
 
 ## converge
 
-> Full Ansible run against garden (playbooks arrive in phase 4).
+> Full Ansible run against veggies (playbooks arrive in phase 4).
 
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
 [ -f ansible/playbooks/site.yml ] || { echo "ansible/playbooks/site.yml arrives in phase 4"; exit 1; }
-ansible-playbook ansible/playbooks/site.yml --limit garden
+ansible-playbook ansible/playbooks/site.yml --limit veggies
 ```
 
 ## bootstrap
@@ -220,19 +220,19 @@ ansible-playbook ansible/playbooks/site.yml --limit garden
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
 [ -f ansible/playbooks/bootstrap.yml ] || { echo "ansible/playbooks/bootstrap.yml arrives in phase 4"; exit 1; }
-ansible-playbook ansible/playbooks/bootstrap.yml --limit garden
+ansible-playbook ansible/playbooks/bootstrap.yml --limit veggies
 ```
 
-## garden-install
+## veggies-install
 
-> Install the `garden` CLI (ADR 0013) into ~/.local/bin (wrapper around the
+> Install the `veggies` CLI (ADR 0013) into ~/.local/bin (wrapper around the
 > repo venv). This shim - not mask - is the interface, because mask parses
 > subcommand flags as its own.
 
 ```bash
 set -euo pipefail
 mkdir -p ~/.local/bin
-printf '#!/bin/sh\nexec %s/.venv/bin/python %s/cli/garden.py "$@"\n' "$PWD" "$PWD" > ~/.local/bin/garden
-chmod +x ~/.local/bin/garden
-echo "installed: ~/.local/bin/garden"
+printf '#!/bin/sh\nexec %s/.venv/bin/python %s/cli/veggies.py "$@"\n' "$PWD" "$PWD" > ~/.local/bin/veggies
+chmod +x ~/.local/bin/veggies
+echo "installed: ~/.local/bin/veggies"
 ```

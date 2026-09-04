@@ -5,7 +5,7 @@ tailscale_auth_key: ""
 
 # From group_vars/all.yml:
 # tailscale_tag: "tag:agent-host"
-# tailscale_hostname: "garden"
+# tailscale_hostname: "veggies"
 
 tailscale_ssh: true # Tailscale SSH on the tailnet (sshd stays as fallback)
 tailscale_extra_args: "" # additional `tailscale up` arguments, if ever needed
