@@ -56,3 +56,14 @@ nftables rules still apply. SELinux stays Enforcing.
 - A determined agent can abuse the *allowlisted* domains themselves (e.g.
   commit secrets to a gist it creates with a stolen workflow token) - the
   mitigations are the review gate and the workflow token's minimal perms.
+- garden stacks (ADR 0013/0014): each stack's litellm holds a copy of the
+  Fireworks key (podman secret, per-stack random master key). A stack escape
+  exposes that copy - revoke by `garden down --purge` + rotating in the vault.
+- Remote clone of a private repo puts the vault's github_token in the VPS
+  process list for the clone's duration (git http.extraHeader). Readable only
+  to root/stacks on garden; accepted. TODO(verify): move to a credential
+  helper or deploy keys later.
+- Local stacks' egress is env-var enforced only (no nftables on a workstation)
+  - the hard per-UID boundary exists on garden (ADR 0006). A local agent that
+  unsets HTTPS_PROXY bypasses the proxy; treat local stacks as guardrails,
+  not confinement.

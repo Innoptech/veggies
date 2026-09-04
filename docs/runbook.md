@@ -145,3 +145,25 @@ frontmatter or `/models`.
   frontmatter (see opencode skills docs). Same flow.
 - Superpowers bump: change the pinned tag in `agent-config/opencode.json`
   (`#vX.Y.Z`), PR, converge.
+
+## 9. garden stacks (ADR 0013/0014)
+
+Daily: `garden up` in a repo; `garden attach <name>`; `garden ls`;
+`garden down <name> [--purge]`. Remote: `garden --host garden up --clone
+<git-url>` then attach over the tailnet.
+
+Troubleshooting:
+
+- Stack flapping right after up: `garden logs <name> <container>`. Known-good
+  invariants: no subPath mounts (SELinux), exec-probes only (minimal images
+  have no `nc`), `pid_filename none` and no `cache_dir null` in squid.conf.
+- SELinux denials on a stack: re-run `garden up` (it re-asserts
+  `chcon -R -t container_file_t -l s0` on every bind source). If you
+  hand-mount anything new, label it the same way.
+- A container stays `exited` under the quadlet: that is expected (systemd
+  owns restart there); the `garden-watchdog.timer` revives it within ~30s.
+  Check: `systemctl --user status garden-watchdog.timer`.
+- Remote ops fail with sudo/ssh errors: tailnet up? `ssh garden true`? The
+  stacks user exists only after `mask converge` (base role).
+- Rotate a stack's keys: `garden down <name> --purge && garden up ...`
+  (fresh random master key + fresh copy of the vault's Fireworks key).

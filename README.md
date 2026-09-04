@@ -11,7 +11,34 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phase 9/9 (apply workflow + runbook). All nine phases are implemented; live values are placeholders until you fill them (see below).
+Phases 1-14 done. The infra is implemented; live values are placeholders until you fill them (see below). The `garden` CLI (repo-scoped agent stacks, ADR 0013/0014) is implemented and verified live locally.
+
+## Stacks: the daily driver (`garden`, ADR 0013)
+
+One stack = one repo = one pod: opencode-serve + litellm + squid, rootless,
+persistent (quadlet + watchdog), locally or on the VPS.
+
+```bash
+mask garden-install          # once: puts `garden` in ~/.local/bin
+cd ~/code/some-repo
+garden up                    # prompts, builds, starts, attaches
+garden ls                    # all stacks, live status, persistence
+garden attach <name>         # back into a running stack
+garden logs <name> [-f]      # pod logs (or a single container)
+garden down <name>           # stop (keeps volumes/secrets/state)
+garden down <name> --purge   # delete everything for that stack
+garden --host garden up --clone https://github.com/you/repo.git  # on the VPS
+```
+
+- Only the opencode port is published (127.0.0.1 locally, tailnet-only on the
+  VPS via firewalld); litellm and squid are pod-internal.
+- Mount mode bind-mounts your checkout rw and relabels it
+  `container_file_t` (harmless for your user; that's the `:z` equivalent).
+  `--clone` keeps the clone inside the garden state dir instead.
+- Env overrides for scripts: `GARDEN_REPO GARDEN_NAME GARDEN_HOST
+  GARDEN_CLONE=1 GARDEN_YES=1 GARDEN_NO_ATTACH=1 GARDEN_NO_INSTALL=1`.
+- Boot persistence locally needs linger once: `sudo loginctl enable-linger
+  $USER` (the CLI warns you).
 
 ## Architecture at a glance
 

@@ -17,13 +17,14 @@
       loop:
         - { name: gh-runner, shell: /usr/sbin/nologin }
         - { name: egress-proxy, shell: /usr/sbin/nologin }
+        - { name: stacks, shell: /usr/sbin/nologin }
         - { name: fedora, shell: /bin/bash }
 
     - name: Check the linger markers
       ansible.builtin.stat:
         path: "/var/lib/systemd/linger/{{ item }}"
       register: opencode_molecule_linger
-      loop: [gh-runner, egress-proxy, fedora]
+      loop: [gh-runner, egress-proxy, stacks, fedora]
 
     - name: Enable linger (the base role does this; keeps user managers up)
       ansible.builtin.command:

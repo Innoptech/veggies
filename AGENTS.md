@@ -22,3 +22,9 @@ reviews PRs; agents implement. These rules are not negotiable:
    over ~30 lines - use an Ansible module or a tested Python script instead.
 8. **Task runner**: `maskfile.md` (mask 0.11.x). CI does not use mask - it
    invokes tools directly.
+9. **garden CLI** (`cli/garden.py`, ADR 0013/0014): repo-scoped agent stacks.
+   Pure renderers + state are pytest-covered in `tests/test_garden.py`;
+   `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
+   it whenever the renderer changes. Never add subPath mounts or tcpSocket
+   probes (both verified broken here; see code comments). The vault is read
+   only via `scripts/vault_get.py`; secrets travel over stdin only.
