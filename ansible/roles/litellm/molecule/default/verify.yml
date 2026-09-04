@@ -13,7 +13,7 @@
       ansible.builtin.assert:
         that:
           - "'ghcr.io/berriai/litellm:v1.99.1' in (litellm_quadlet_content.content | b64decode)"
-          - "'PublishPort=127.0.0.1:4000:4000' in (litellm_quadlet_content.content | b64decode)"
+          - "'PublishPort=4000:4000' in (litellm_quadlet_content.content | b64decode)" # 0.0.0.0: rootless containers cannot reach host loopback (ADR 0006)
           - "'NoNewPrivileges=true' in (litellm_quadlet_content.content | b64decode)"
 
     - name: Config dir exists with tight permissions
