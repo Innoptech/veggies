@@ -43,6 +43,7 @@ from veggies_stack import (  # noqa: E402
     REMOTE_USER,
     SQUID_ALLOWLIST_BASE,
     SQUID_MODEL_ENDPOINTS,
+    Component,
     StackSpec,
     VaultKey,
     allocate_port,
@@ -94,6 +95,9 @@ class State:
             "mode": spec.mode,
             "port": spec.port,
             "host": spec.host,
+            "components": spec.components,
+            "selections": spec.selections,
+            "model": spec.model,
             "created": spec.created,
             # opencode serve basic-auth password. Kept here (0600) rather than
             # re-derived from podman secrets - same protection level locally.
@@ -375,6 +379,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         host=args.host,
         model=args.model or cfg.get("model"),
         components=cfg.get("components"),
+        selections=cfg.get("selections"),
     )
     sys.stdout.write(render_yaml(spec, infra_repo))
     return 0
@@ -426,6 +431,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     spec = StackSpec(name=name, repo=repo_path, mode=mode, port=port, host=host,
                      model=args.model or cfg.get("model"),
                      components=cfg.get("components"),
+                     selections=cfg.get("selections"),
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     if spec.model:
@@ -532,13 +538,17 @@ def cmd_attach(args: argparse.Namespace) -> int:
     if record is None:
         raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
     url = stack_url(record)
-    if not shutil.which("opencode"):
-        print(f"opencode CLI not found; attach manually: {url} "
-              f"(user: opencode, password: {record['password']})")
+    harness = harness_of(spec_from_record(args.name, record))
+    if harness is None or harness.attach is None:
+        print(f"this stack's harness is not attachable via the CLI; "
+              f"url: {url} (password: {record['password']})")
         return 1
-    os.execvp("opencode", ["opencode", "attach", url,
-                           "--username", "opencode",
-                           "--password", record["password"]])
+    argv = harness.attach(url, record["password"])
+    if not shutil.which(argv[0]):
+        print(f"{argv[0]} CLI not found; attach manually: {url} "
+              f"(password: {record['password']})")
+        return 1
+    os.execvp(argv[0], argv)
     return 0  # unreachable
 
 
@@ -616,8 +626,20 @@ def _basic_auth(password: str) -> str:
     return b64mod.b64encode(f"opencode:{password}".encode()).decode()
 
 
+def spec_from_record(name: str, record: dict) -> StackSpec:
+    """The stack as it was brought up (state persists the wiring choices)."""
+    return StackSpec(name=name, repo=record["repo"], host=record["host"],
+                     components=record.get("components"),
+                     selections=record.get("selections"))
+
+
+def harness_of(spec: StackSpec) -> Component | None:
+    return next((c for c in resolve_components(spec.components, spec.selections)
+                 if c.provides == "harness"), None)
+
+
 def format_status(name: str, record: dict, containers: list[tuple[str, str, str]],
-                  api: dict[str, object] | None) -> str:
+                  api_results: list[str] | None) -> str:
     """Pure formatter for `veggies status` (tested without IO)."""
     lines = [f"stack: {name} ({record['mode']}, port {record['port']}, "
              f"host {record['host'] or 'local'})",
@@ -625,16 +647,10 @@ def format_status(name: str, record: dict, containers: list[tuple[str, str, str]
     lines.append("containers:")
     for cname, status, health in containers:
         lines.append(f"  {cname:<28} {status:<10} {health}")
-    if api is None:
+    if api_results is None:
         lines.append("api:     unreachable (down, or cold bootstrap in progress - retry)")
     else:
-        sessions = api.get("sessions")
-        agents = api.get("agents")
-        busy = api.get("busy")
-        lines.append(f"api:     ok  (model {api.get('model')}, "
-                     f"{len(agents) if isinstance(agents, list) else '?'} agents, "
-                     f"{len(sessions) if isinstance(sessions, list) else '?'} sessions"
-                     f"{', BUSY' if busy else ''})")
+        lines.append(f"api:     ok  ({', '.join(api_results)})")
     return "\n".join(lines)
 
 
@@ -642,7 +658,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     record = State().get(args.name)
     if record is None:
         raise ValueError(f"unknown stack: {args.name} (see `veggies ls`)")
-    spec = StackSpec(name=args.name, repo=record["repo"], host=record["host"])
+    spec = spec_from_record(args.name, record)
     names = container_names(spec)
     containers: list[tuple[str, str, str]] = []
     r = host_podman(record["host"], "inspect", "--format",
@@ -657,22 +673,19 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not containers:
         containers = [(n, "down", "-") for n in names]
 
-    api: dict[str, object] | None = None
+    api_results: list[str] | None = None
     password = record.get("password", "")
-    if password and any(c[1] == "running" for c in containers):
-        cfg = probe_api(record["host"], record["port"], password,
-                        "/config?directory=/workspace")
-        if cfg is not None:
-            sessions = probe_api(record["host"], record["port"], password,
-                                 "/session?directory=/workspace")
-            agents = probe_api(record["host"], record["port"], password,
-                               "/agent?directory=/workspace")
-            sess_status = probe_api(record["host"], record["port"], password,
-                                    "/session/status?directory=/workspace")
-            busy = bool(sess_status) if isinstance(sess_status, dict) else False
-            api = {"model": cfg.get("model", "?") if isinstance(cfg, dict) else "?",
-                   "sessions": sessions, "agents": agents, "busy": busy}
-    print(format_status(args.name, record, containers, api))
+    harness = harness_of(spec)
+    if password and harness is not None and any(c[1] == "running" for c in containers):
+        results = []
+        for probe in harness.probes(spec):
+            j = probe_api(record["host"], record["port"], password, probe.path)
+            if j is None:
+                results = None  # one failed probe = api unreachable, as a whole
+                break
+            results.append(f"{probe.label} {probe.extract(j)}")
+        api_results = results
+    print(format_status(args.name, record, containers, api_results))
     return 0
 
 

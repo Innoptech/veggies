@@ -331,20 +331,72 @@ def test_format_status_api_up():
         "demo", record,
         [("veggies-demo-opencode", "running", "healthy"),
          ("veggies-demo-litellm", "running", "healthy")],
-        {"model": "litellm/kimi-k3", "sessions": [1, 2], "agents": ["a"] * 11,
-         "busy": False})
+        ["model litellm/kimi-k3", "agents 11", "sessions 2", "activity idle"])
     assert "model litellm/kimi-k3" in out
-    assert "11 agents" in out and "2 sessions" in out and "BUSY" not in out
+    assert "agents 11" in out and "sessions 2" in out
     assert "veggies-demo-litellm" in out
 
 
-def test_format_status_api_down_and_busy():
+def test_format_status_api_down():
     record = {"repo": "/r/demo", "mode": "clone", "port": 4097, "host": "veggies"}
     down = veggies.format_status("demo", record, [("veggies-demo-opencode", "exited", "-")], None)
     assert "unreachable" in down
-    busy = veggies.format_status("demo", record, [],
-                                 {"model": "m", "sessions": [], "agents": [], "busy": True})
-    assert "BUSY" in busy
+
+
+def test_harness_probes_and_attach_contract(spec):
+    harness = veggies.harness_of(spec)
+    assert harness is not None and harness.name == "opencode"
+    labels = [p.label for p in harness.probes(spec)]
+    assert labels == ["model", "agents", "sessions", "activity"]
+    argv = harness.attach("http://127.0.0.1:4096", "pw")
+    assert argv[:2] == ["opencode", "attach"] and "pw" in argv
+
+
+def test_stub_harness_proves_the_seam(spec, tmp_path):
+    """A harness the CLI has never heard of assembles through the generic
+    path (ADR 0023): the seam, not the implementation list, is the contract."""
+    stub = veggies_stack.Component(
+        name="stub",
+        provides="harness",
+        requires=("model-router", "egress"),
+        render=lambda ctx: {
+            "name": "stub", "image": "localhost/stub:latest",
+            "env": [{"name": k, "value": v}
+                    for k, v in ctx.service("egress").env.items()]
+            + [{"name": "ROUTER", "value": ctx.service("model-router").base_url}],
+        },
+        volumes=lambda ctx: [{"name": "tmp", "emptyDir": {}}],
+    )
+    docs = veggies_stack.render_pod(
+        spec, INFRA_REPO,
+        components=[stub, veggies_stack.REGISTRY["model-router"]["litellm"],
+                    veggies_stack.REGISTRY["egress"]["squid"]])
+    pod = [d for d in docs if d["kind"] == "Pod"][0]
+    env = {e["name"]: e["value"] for e in pod["spec"]["containers"][0]["env"]}
+    assert env["ROUTER"] == "http://127.0.0.1:4000/v1"
+    assert env["http_proxy"] == "http://127.0.0.1:3128"
+    # and its secrets come from declarations, not hardcoding
+    assert veggies.render_secret_docs(spec, {"password": "x"}, components=[
+        veggies_stack.Component("s", "harness", (), lambda c: {}, lambda c: [],
+                                secrets=lambda sp: [
+                                    veggies_stack.SecretSpec(
+                                        "s", {"password": veggies_stack.Generated(8)})])
+    ])[0]["metadata"]["name"] == "veggies-demo-s"
+
+
+def test_registry_capability_keys(spec):
+    # v1 capability keys resolve; reserved orchestrator refuses politely
+    comps = veggies_stack.resolve_components(selections={"harness": "opencode"})
+    assert [c.name for c in comps] == ["opencode", "litellm", "squid"]
+    with pytest.raises(ValueError, match="reserved"):
+        veggies_stack.resolve_components(selections={"orchestrator": "x"})
+    with pytest.raises(ValueError, match="unknown harness implementation"):
+        veggies_stack.resolve_components(selections={"harness": "claude-code"})
+    # veggies.yml v1 keys
+    cfg, _ = veggies_stack.parse_repo_config("harness: opencode\nmodel_router: litellm\n")
+    assert cfg["selections"] == {"harness": "opencode", "model-router": "litellm"}
+    with pytest.raises(ValueError, match="not both"):
+        veggies_stack.parse_repo_config("components: [squid]\nharness: opencode\n")
 
 
 def test_probe_api_remote_uses_ssh_curl(monkeypatch):
