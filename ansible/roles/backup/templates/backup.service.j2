@@ -1,0 +1,12 @@
+# Managed by Ansible (infra repo, backup role).
+[Unit]
+Description=restic backup of garden state to object storage
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/restic.env
+ExecStartPre=/usr/local/sbin/restic-prep
+ExecStart=/usr/bin/restic backup --one-file-system {{ backup_paths | join(' ') }}
+ExecStartPost=/usr/bin/restic forget --prune --keep-daily {{ backup_retention_daily }} --keep-weekly {{ backup_retention_weekly }}

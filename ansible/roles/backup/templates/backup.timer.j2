@@ -1,0 +1,10 @@
+# Managed by Ansible (infra repo, backup role).
+[Unit]
+Description=Daily restic backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

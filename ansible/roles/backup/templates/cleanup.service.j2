@@ -1,0 +1,8 @@
+# Managed by Ansible (infra repo, backup role).
+[Unit]
+Description=Daily hygiene: prune images, stale work dirs, oversized caches, disk alert
+
+[Service]
+Type=oneshot
+Environment=CLEANUP_WEBHOOK_URL={{ backup_cleanup_webhook_url | default('') }}
+ExecStart=/usr/local/sbin/cleanup.py --work-root /srv/gh-runner --stale-days {{ backup_cleanup_stale_workdir_days }} --cache-mb {{ backup_cleanup_cache_max_mb }} --disk-percent {{ backup_cleanup_disk_alert_percent }}{{ ' --users ' + (backup_cleanup_users | join(' ')) if backup_cleanup_users else '' }}

@@ -1,0 +1,10 @@
+# Managed by Ansible (infra repo, backup role).
+[Unit]
+Description=Weekly restic check
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

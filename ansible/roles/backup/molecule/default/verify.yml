@@ -1,0 +1,81 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+
+    - name: Restic installed
+      ansible.builtin.assert:
+        that: "'restic' in ansible_facts.packages"
+
+    - name: Unit files installed
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ item }}"
+      register: backup_unit_files
+      loop:
+        - backup.service
+        - backup.timer
+        - restic-check.service
+        - restic-check.timer
+        - cleanup.service
+        - cleanup.timer
+
+    - name: Assert unit files
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "missing unit {{ item.item }}"
+      loop: "{{ backup_unit_files.results }}"
+
+    - name: Timers enabled (wants symlinks)
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/timers.target.wants/{{ item }}"
+      register: backup_timer_links
+      loop:
+        - backup.timer
+        - restic-check.timer
+        - cleanup.timer
+
+    - name: Assert timers enabled
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "timer {{ item.item }} not enabled"
+      loop: "{{ backup_timer_links.results }}"
+
+    - name: Helper scripts installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: backup_helpers
+      loop:
+        - /usr/local/sbin/restic-prep
+        - /usr/local/sbin/cleanup.py
+        - /usr/local/sbin/restore.sh
+
+    - name: Assert helper scripts
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "missing {{ item.item }}"
+      loop: "{{ backup_helpers.results }}"
+
+    - name: Cleanup.py runs in dry-run mode
+      ansible.builtin.command:
+        cmd: /usr/local/sbin/cleanup.py --dry-run --users nobody-cares-user
+      register: backup_cleanup_dryrun
+      changed_when: false
+
+    - name: Cleanup dry-run reported disk status
+      ansible.builtin.assert:
+        that: "'disk usage' in backup_cleanup_dryrun.stdout"
+
+    - name: Restore.sh parses
+      ansible.builtin.command:
+        cmd: bash -n /usr/local/sbin/restore.sh
+      changed_when: false
+
+    - name: No restic env file without vault values
+      ansible.builtin.stat:
+        path: /etc/restic/restic.env
+      register: backup_env_file
+      failed_when: backup_env_file.stat.exists

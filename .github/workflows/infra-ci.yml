@@ -82,7 +82,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        role: [base, crowdsec, tailscale, podman, github_runner, litellm, opencode, egress] # keep in sync with ansible/roles/
+        # keep in sync with ansible/roles/
+        role: [base, crowdsec, tailscale, podman, github_runner, litellm, opencode, egress, backup]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0

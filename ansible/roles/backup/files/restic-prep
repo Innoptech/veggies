@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# restic-prep: initialize the repository if it does not exist yet.
+# Called by backup.service's ExecStartPre. Env comes from the unit's
+# EnvironmentFile.
+set -euo pipefail
+
+if /usr/bin/restic snapshots >/dev/null 2>&1; then
+  exit 0
+fi
+echo "restic-prep: initializing repository $RESTIC_REPOSITORY"
+/usr/bin/restic init

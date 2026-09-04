@@ -1,0 +1,25 @@
+---
+backup_paths:
+  - /home/fedora/.config/opencode
+  - /home/fedora/.local/share/opencode
+  - /home/gh-runner/.config
+  - /home/egress-proxy/.config
+  - /srv
+  - /etc/nftables
+  - /etc/ssh/sshd_config.d
+
+# Retention (group_vars overridable; spec proposal: 7 daily, 4 weekly):
+backup_retention_daily: 7
+backup_retention_weekly: 4
+
+# cleanup thresholds (backup_ prefix per lint rules; this role owns cleanup)
+backup_cleanup_stale_workdir_days: 2
+backup_cleanup_cache_max_mb: 500
+backup_cleanup_disk_alert_percent: 80
+backup_cleanup_users:
+  - gh-runner
+  - egress-proxy
+  - "{{ admin_user }}"
+
+# backup_repo (group_vars) + restic creds (secrets/infra.yml) drive the
+# destination; in molecule no vault values exist and the env file is skipped.

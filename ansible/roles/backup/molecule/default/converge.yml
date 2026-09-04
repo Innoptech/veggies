@@ -1,0 +1,10 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    admin_user: fedora
+    # No vault values in tests: the restic env file is skipped, timers still
+    # install and enable (the oneshot services only run via timers).
+  roles:
+    - role: backup

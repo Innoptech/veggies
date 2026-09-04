@@ -18,4 +18,4 @@
     - role: litellm
     - role: github_runner
     - role: opencode
-    # phase 8: backup
+    - role: backup

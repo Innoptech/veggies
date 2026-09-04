@@ -33,8 +33,9 @@ egress_allowlist_extra: [] # TODO(you): extra domains if ever needed
 backup_retention_daily: 7
 backup_retention_weekly: 4
 backup_repo: "s3:https://s3.REPLACE_ME.cloud.ovh.net/REPLACE_ME" # TODO(you): bucket + endpoint
-cleanup_disk_alert_percent: 80
-cleanup_alert_webhook: "" # optional; empty = log only
+backup_cleanup_disk_alert_percent: 80
+# the optional webhook URL is semi-secret - it lives in secrets/infra.yml as
+# backup_cleanup_webhook_url
 
 # --- opencode (phase 6) -------------------------------------------------------------
 opencode_config_repo: "" # optional external override; default: vendored agent-config/

@@ -1,0 +1,63 @@
+---
+- name: Install restic
+  ansible.builtin.dnf:
+    name: restic
+    state: present
+
+- name: Ensure the restic config directory exists
+  ansible.builtin.file:
+    path: /etc/restic
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install the restic env file (from the vault)
+  ansible.builtin.template:
+    src: restic.env.j2
+    dest: /etc/restic/restic.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: restic_password is defined
+
+- name: Install helper scripts
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - { src: restic-prep, dest: /usr/local/sbin/restic-prep }
+    - { src: cleanup.py, dest: /usr/local/sbin/cleanup.py }
+    - { src: restore.sh, dest: /usr/local/sbin/restore.sh }
+
+- name: Install systemd units and timers
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - backup.service
+    - backup.timer
+    - restic-check.service
+    - restic-check.timer
+    - cleanup.service
+    - cleanup.timer
+  register: backup_units
+  notify: Daemon-reload systemd
+
+- name: Enable the timers
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - backup.timer
+    - restic-check.timer
+    - cleanup.timer
+  # The services themselves are oneshot and run only via their timers.

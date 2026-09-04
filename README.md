@@ -11,7 +11,7 @@ the shared agent baseline lives in `agent-config/` (phase 6, ADR 0012).
 
 ## Status
 
-Phase 7/9 (egress allowlist + threat model). See the phase map and the pending-values list below.
+Phase 8/9 (backups + cleanup timers). See the phase map and the pending-values list below.
 
 ## Architecture at a glance
 
