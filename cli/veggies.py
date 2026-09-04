@@ -45,6 +45,8 @@ from veggies_stack import (  # noqa: E402
     StackSpec,
     allocate_port,
     container_names,
+    load_repo_config,
+    parse_repo_config,
     render_allowlist,
     render_opencode_json,
     render_squid_conf,
@@ -244,7 +246,7 @@ def write_stack_config(spec: StackSpec, infra_repo: Path) -> None:
     files = {
         "squid.conf": render_squid_conf(),
         "allowlist.txt": render_allowlist(),
-        "opencode.json": render_opencode_json(infra_repo),
+        "opencode.json": render_opencode_json(infra_repo, model=spec.model),
     }
     if spec.is_remote:
         # No infra checkout on the VPS: ship the litellm config as a copy.
@@ -341,6 +343,17 @@ def stack_url(record: dict) -> str:
     return f"http://{host}:{record['port']}"
 
 
+def discover_repo_config(host: str | None, repo_path: str) -> tuple[dict, list[str]]:
+    """veggies.yml from the target repo (ADR 0016): local path, or the
+    remote clone over ssh. Missing file = empty config, never an error."""
+    if host is None:
+        return load_repo_config(Path(repo_path))
+    r = host_run(host, ["cat", f"{repo_path}/veggies.yml"], check=False, capture=True)
+    if r.returncode != 0:
+        return {}, []
+    return parse_repo_config(r.stdout)
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
     name = args.name or sanitize_name(args.repo)
@@ -350,12 +363,17 @@ def cmd_render(args: argparse.Namespace) -> int:
         repo = str(state_dir() / "clones" / name)
     else:
         repo = str(Path(args.repo).expanduser().resolve())
+    cfg, warnings = discover_repo_config(args.host, repo)
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
     spec = StackSpec(
         name=name,
         repo=repo,
         mode="clone" if args.clone else "mount",
         port=args.port or allocate_port(State().used_ports()),
         host=args.host,
+        model=args.model or cfg.get("model"),
+        components=cfg.get("components"),
     )
     sys.stdout.write(render_yaml(spec, infra_repo))
     return 0
@@ -399,11 +417,18 @@ def cmd_up(args: argparse.Namespace) -> int:
             raise ValueError(f"repo path does not exist: {repo_path}")
         mode = "mount"
 
+    cfg, warnings = discover_repo_config(host, repo_path)
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
     existing = state.get(name)
     port = existing["port"] if existing else allocate_port(state.used_ports())
     spec = StackSpec(name=name, repo=repo_path, mode=mode, port=port, host=host,
+                     model=args.model or cfg.get("model"),
+                     components=cfg.get("components"),
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    if spec.model:
+        print(f"model:   litellm/{spec.model} (veggies.yml)")
 
     url = f"http://{host or '127.0.0.1'}:{port}"
     if sys.stdin.isatty() and not args.yes:
@@ -587,6 +612,8 @@ def main(argv: list[str] | None = None) -> int:
     p_render.add_argument("--name", default=os.environ.get("VEGGIES_NAME"))
     p_render.add_argument("--port", type=int, default=None)
     p_render.add_argument("--host", default=os.environ.get("VEGGIES_HOST"))
+    p_render.add_argument("--model", default=None,
+                      help="litellm model alias (overrides veggies.yml)")
     p_render.add_argument("--clone", action="store_true",
                           help="repo is a URL; clone instead of mounting")
     p_render.set_defaults(func=cmd_render)
@@ -598,6 +625,8 @@ def main(argv: list[str] | None = None) -> int:
     p_up.add_argument("--repo", default=os.environ.get("VEGGIES_REPO", "."))
     p_up.add_argument("--name", default=os.environ.get("VEGGIES_NAME"))
     p_up.add_argument("--host", default=os.environ.get("VEGGIES_HOST"))
+    p_up.add_argument("--model", default=None,
+                      help="litellm model alias (overrides veggies.yml)")
     p_up.add_argument("--clone", action="store_true",
                       default=os.environ.get("VEGGIES_CLONE") == "1",
                       help="repo is a URL; clone into the state dir")

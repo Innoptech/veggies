@@ -276,6 +276,47 @@ def test_render_pod_composes_components(spec):
     assert docs  # full render unchanged
 
 
+def test_parse_repo_config_schema_v0():
+    cfg, warnings = veggies_stack.parse_repo_config("model: kimi-k3\ncomponents: [opencode, litellm, squid]\n")
+    assert cfg == {"model": "kimi-k3", "components": ["opencode", "litellm", "squid"]}
+    assert warnings == []
+
+
+def test_parse_repo_config_unknown_key_warns():
+    cfg, warnings = veggies_stack.parse_repo_config("mcps: [filesystem]\n")
+    assert cfg == {}
+    assert len(warnings) == 1 and "mcps" in warnings[0]
+
+
+def test_parse_repo_config_bad_values_raise():
+    with pytest.raises(ValueError, match="unknown components"):
+        veggies_stack.parse_repo_config("components: [opencode, bogus]\n")
+    with pytest.raises(ValueError, match="'model' must be a string"):
+        veggies_stack.parse_repo_config("model: 42\n")
+    with pytest.raises(ValueError, match="must be a mapping"):
+        veggies_stack.parse_repo_config("- just\n- a\n- list\n")
+
+
+def test_load_repo_config_missing_is_empty(tmp_path):
+    assert veggies_stack.load_repo_config(tmp_path) == ({}, [])
+
+
+def test_model_override_lands_in_opencode_json():
+    out = json.loads(veggies.render_opencode_json(INFRA_REPO, model="devstral"))
+    assert out["model"] == "litellm/devstral"
+    default = json.loads(veggies.render_opencode_json(INFRA_REPO))
+    assert "model" in default  # vendored default untouched when no override
+
+
+def test_spec_components_flow_into_render(spec):
+    spec.components = ["opencode", "litellm"]
+    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO) if d["kind"] == "Pod"][0]
+    assert [c["name"] for c in pod["spec"]["containers"]] == ["opencode", "litellm"]
+    with pytest.raises(ValueError, match="unknown components"):
+        veggies_stack.render_pod(
+            veggies.StackSpec(name="x", repo="/r", components=["bogus"]), INFRA_REPO)
+
+
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
     old = tmp_path / "garden"
     new = tmp_path / "veggies"

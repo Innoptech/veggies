@@ -35,8 +35,22 @@ veggies --host veggies up --clone https://github.com/you/repo.git  # on the VPS
 - Mount mode bind-mounts your checkout rw and relabels it
   `container_file_t` (harmless for your user; that's the `:z` equivalent).
   `--clone` keeps the clone inside the veggies state dir instead.
-- Env overrides for scripts: `GARDEN_REPO GARDEN_NAME GARDEN_HOST
-  GARDEN_CLONE=1 GARDEN_YES=1 GARDEN_NO_ATTACH=1 GARDEN_NO_INSTALL=1`.
+- Env overrides for scripts: `VEGGIES_REPO VEGGIES_NAME VEGGIES_HOST
+  VEGGIES_CLONE=1 VEGGIES_YES=1 VEGGIES_NO_ATTACH=1 VEGGIES_NO_INSTALL=1`.
+
+### veggies.yml (per-repo customization, ADR 0016)
+
+A repo can declare its stack with an optional `veggies.yml` at its root —
+versioned with the repo it describes. Schema v0:
+
+```yaml
+model: kimi-k3          # litellm alias; becomes the stack's default model
+components: [opencode, litellm, squid]  # default: all three (the core stack)
+```
+
+Precedence: `--model` flag > veggies.yml > vendored default. Unknown keys
+warn and are ignored (so future schema versions degrade gracefully); invalid
+values abort with an error.
 - Boot persistence locally needs linger once: `sudo loginctl enable-linger
   $USER` (the CLI warns you).
 

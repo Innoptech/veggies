@@ -90,6 +90,8 @@ class StackSpec:
     mode: str = "mount"  # mount | clone
     port: int = OPENCODE_PORT_BASE
     host: str | None = None  # None = local; else ssh host alias (ADR 0014)
+    model: str | None = None  # litellm alias, from veggies.yml or --model
+    components: list[str] | None = None  # component names; None = CORE
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     )
@@ -185,13 +187,15 @@ logfile_rotate 0
 """
 
 
-def render_opencode_json(infra_repo: Path) -> str:
+def render_opencode_json(infra_repo: Path, model: str | None = None) -> str:
     """Stack variant of agent-config/opencode.json: in-pod litellm address and
     the master key via env (secretKeyRef) instead of an auth.json file."""
     src = json.loads((infra_repo / "agent-config/opencode.json").read_text())
     provider = src["provider"]["litellm"]
     provider["options"]["baseURL"] = LITELLM_BASE_URL
     provider["options"]["apiKey"] = "{env:LITELLM_MASTER_KEY}"
+    if model:
+        src["model"] = f"litellm/{model}"
     return json.dumps(src, indent=2) + "\n"
 
 
@@ -349,6 +353,55 @@ CORE = [
 ]
 COMPONENT_NAMES = {c.name for c in CORE}
 
+REPO_CONFIG_FILE = "veggies.yml"
+REPO_CONFIG_KEYS = {"model", "components"}
+
+
+def resolve_components(names: list[str] | None) -> list[Component]:
+    """Component names -> registry entries (spec order preserved)."""
+    if names is None:
+        return list(CORE)
+    by_name = {c.name: c for c in CORE}
+    unknown = sorted(set(names) - COMPONENT_NAMES)
+    if unknown:
+        raise ValueError(
+            f"unknown components: {', '.join(unknown)} "
+            f"(available: {', '.join(sorted(COMPONENT_NAMES))})"
+        )
+    return [by_name[n] for n in names]
+
+
+def parse_repo_config(text: str) -> tuple[dict, list[str]]:
+    """Validate veggies.yml content (schema v0). Returns (config, warnings);
+    unknown keys warn, bad values raise."""
+    data = yaml.safe_load(text)
+    if data is None:
+        return {}, []
+    if not isinstance(data, dict):
+        raise ValueError(f"{REPO_CONFIG_FILE}: top level must be a mapping")
+    warnings = [f"{REPO_CONFIG_FILE}: ignoring unknown key {k!r}"
+                for k in sorted(set(data) - REPO_CONFIG_KEYS)]
+    cfg: dict = {}
+    if "model" in data:
+        if not isinstance(data["model"], str):
+            raise ValueError(f"{REPO_CONFIG_FILE}: 'model' must be a string")
+        cfg["model"] = data["model"]
+    if "components" in data:
+        comps = data["components"]
+        if not isinstance(comps, list) or not all(isinstance(c, str) for c in comps):
+            raise ValueError(f"{REPO_CONFIG_FILE}: 'components' must be a list of strings")
+        resolve_components(comps)  # raises on unknown names
+        cfg["components"] = comps
+    return cfg, warnings
+
+
+def load_repo_config(repo: Path) -> tuple[dict, list[str]]:
+    """Local convenience wrapper (missing file = empty config)."""
+    f = repo / REPO_CONFIG_FILE
+    if not f.is_file():
+        return {}, []
+    return parse_repo_config(f.read_text())
+
 # Golden-stable volume ordering (tests/golden/pod.yaml is byte-compared).
 VOLUME_ORDER = ["repo", "stack-config", "agent-config", "opencode-home", "tmp", "run"]
 
@@ -361,7 +414,8 @@ def render_pod(
 ) -> list[dict]:
     """The multi-document kube YAML (PVCs + Pod) for one stack. All hostPath
     values are paths on the host the stack runs on (ADR 0014)."""
-    components = components if components is not None else CORE
+    if components is None:
+        components = resolve_components(spec.components)
     containers = [c.render(spec, infra_repo) for c in components]
     vols: dict[str, dict] = {}
     for c in components:
