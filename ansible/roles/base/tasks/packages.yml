@@ -9,7 +9,7 @@
       - openssh-server
       - policycoreutils-python-utils # SELinux tooling under Enforcing
       - tmux # agent-attach target
-      - git # opencode config checkout
+      - git
       - jq
       - tar
     state: present

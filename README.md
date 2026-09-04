@@ -50,7 +50,7 @@ veggies --host veggies up --clone https://github.com/you/repo.git  # on the VPS
 | Containers | Rootless Podman + Quadlet, users `fedora` / `gh-runner` / `egress-proxy` (ADR 0009) | same |
 | Network | Tailscale-only SSH; public SSH closed after bootstrap (ADR 0003) | same |
 | Egress | squid proxy + per-UID nftables; agents reach an allowlist only (ADR 0006) | same |
-| Models | LiteLLM gateway quadlet; Fireworks key held only by the proxy; agents get revocable virtual keys (ADR 0011) | same |
+| Models | per-stack LiteLLM in the pod; Fireworks key held only by the proxy (podman secret); agents get revocable virtual keys (ADR 0011) | same |
 | Secrets | ansible-vault files committed to git (ADR 0004) | same |
 | State | local, gitignored, restic-backed-up | OVH S3-compatible backend (scaffolded) |
 | Backups | restic to OVH Object Storage (phase 8) | same |
@@ -96,7 +96,7 @@ Three domain files, all committed **encrypted** (pre-commit + CI enforce):
 
 | File | Holds | Consumed by |
 |------|-------|-------------|
-| `secrets/model.yml` | Fireworks key, litellm master + runner virtual keys | litellm quadlet only |
+| `secrets/model.yml` | Fireworks key, litellm master key | injected per stack by `veggies` (podman secrets) |
 | `secrets/github.yml` | GitHub App creds or bot PAT | tofu github module, runner registration |
 | `secrets/infra.yml` | tailscale auth key, restic password + S3 creds | tailscale/backup roles |
 
@@ -130,7 +130,7 @@ docs/            adr/ (0000 template, 0001, index), runbook.md, threat-model.md 
 | ufw | firewalld (Fedora-native) | ADR 0008 |
 | fail2ban | CrowdSec + nftables bouncer + auditd | ADR 0010 |
 | Docker daemon | rootless Podman + Quadlet, per-user | ADR 0009 |
-| (no model router) | LiteLLM gateway quadlet | ADR 0011 |
+| (no model router) | per-stack LiteLLM in the pod | ADR 0011/0013 |
 | Agent config only in project repos | + vendored baseline `agent-config/` with Superpowers pinned | ADR 0012 |
 
 ## Placeholders to fill (before the noted phase)

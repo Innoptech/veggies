@@ -1,7 +1,6 @@
 ---
 backup_paths:
-  - /home/fedora/.config/opencode
-  - /home/fedora/.local/share/opencode
+  - /home/stacks/.local/state/veggies # stack metadata (ADR 0016)
   - /home/gh-runner/.config
   - /home/egress-proxy/.config
   - /srv

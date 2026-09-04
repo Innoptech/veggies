@@ -7,9 +7,14 @@ exposes. Mechanisms link to their ADRs.
 
 | Identity | Runs | Trusted? | Egress |
 |----------|------|----------|--------|
-| `fedora` (admin) | ssh, opencode quadlet | yes (it's you) | unrestricted |
-| `gh-runner` | ephemeral runner containers | **no** - executes untrusted PR content | proxy 3128 + litellm 4000 only (nftables per-UID) |
-| `egress-proxy` | squid + litellm quadlets | yes (our config) | unrestricted |
+| `fedora` (admin) | ssh | yes (it's you) | unrestricted |
+| `stacks` | veggies stack pods (ADR 0013/0014) | **no** - runs agent workloads | proxy 3128 only (nftables per-UID) |
+| `gh-runner` | ephemeral runner containers | **no** - executes untrusted PR content | proxy 3128 only (nftables per-UID) |
+| `egress-proxy` | squid | yes (our config) | unrestricted |
+
+There is no host-global opencode/litellm (ADR 0016): every agent workload
+is a stack pod owned by the `stacks` user; the CLI is the only thing that
+installs or observes stacks.
 
 Container escape from a runner lands in `gh-runner` - unprivileged, no sudo,
 no docker daemon (rootless podman socket only), no other users' data, and the
@@ -20,13 +25,12 @@ nftables rules still apply. SELinux stays Enforcing.
 - Read the repo it runs on and its own work dir.
 - Reach the squid allowlist (github, registries, mirrors, fireworks) -
   responses logged.
-- Call litellm with the runner virtual key (revocable; spend-cappable).
 
 ## A prompt-injected job cannot (by design)
 
 - Reach arbitrary hosts: nftables drop + log for the UID (`journalctl -k -g
   infra-egress-deny`).
-- Hold the real Fireworks key: it exists only in the litellm container's env.
+- Hold the real Fireworks key: it exists only in per-stack litellm containers (podman secrets).
 - Merge its own PR: branch protection requires a CODEOWNER review and the bot
   is never a code owner (ADR 0007); `production-infra` environment needs the
   human.
@@ -38,9 +42,8 @@ nftables rules still apply. SELinux stays Enforcing.
 
 | Key | Where it lives | If leaked |
 |-----|----------------|-----------|
-| Fireworks API key | litellm container env (0600, vault-sourced) | Full model spend until rotated - one file to rekey, one converge to roll out |
-| litellm runner virtual key | runner runtime.env | Spend through the proxy only, revocable, only useful from veggies's 127.0.0.1/169.254.1.2 |
-| litellm opencode virtual key | opencode auth.json | same, via the admin user's container |
+| Fireworks API key | per-stack litellm podman secret (vault-sourced) | Full model spend until rotated - `veggies secrets` re-injects per stack |
+| per-stack litellm master key | state.json (0600) + podman secret | Random per stack; useless outside that stack's pod |
 | GitHub runner admin PAT/App | gh-runner api.env (0600) | Runner admin on the governed repos until revoked; never enters containers |
 | Tailscale auth key | tailscale role (no_log) | Adds nodes with `tag:agent-host` until revoked in the tailnet console |
 | restic password + S3 creds | backup role env | Can decrypt/delete the backup bucket; cannot reach the host |
@@ -48,9 +51,10 @@ nftables rules still apply. SELinux stays Enforcing.
 
 ## Remaining known gaps (accepted, documented)
 
-- The tailnet can reach squid:3128 and litellm:4000 (firewalld trusted zone).
-  Mitigation: tailnet ACLs (outside this repo) + litellm key auth + squid
-  source ACLs.
+- The tailnet can reach squid:3128 (firewalld trusted zone).
+  Mitigation: tailnet ACLs (outside this repo) + squid source ACLs.
+  Stack opencode ports bind 127.0.0.1 only, so they are not tailnet-reachable
+  (ADR 0013).
 - CrowdSec's value is bootstrap-window + visibility only while nothing public
   listens (ADR 0010).
 - A determined agent can abuse the *allowlisted* domains themselves (e.g.

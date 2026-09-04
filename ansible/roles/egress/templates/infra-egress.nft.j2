@@ -14,7 +14,7 @@ table inet infra-egress {
 {% for uid in egress_denied_uids %}
     # {{ egress_denied_users[loop.index0] }} may reach exactly two local
     # services: the filtering proxy and the model gateway.
-    meta skuid {{ uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }} } tcp dport { {{ egress_squid_port }}, {{ egress_litellm_port }} } counter accept
+    meta skuid {{ uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }} } tcp dport {{ egress_squid_port }} counter accept
 
     # Everything else from {{ egress_denied_users[loop.index0] }}: logged and dropped.
     meta skuid {{ uid }} log prefix "infra-egress-deny: " counter drop

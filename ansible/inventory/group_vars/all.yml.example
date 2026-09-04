@@ -36,6 +36,3 @@ backup_repo: "s3:https://s3.REPLACE_ME.cloud.ovh.net/REPLACE_ME" # TODO(you): bu
 backup_cleanup_disk_alert_percent: 80
 # the optional webhook URL is semi-secret - it lives in secrets/infra.yml as
 # backup_cleanup_webhook_url
-
-# --- opencode (phase 6) -------------------------------------------------------------
-opencode_config_repo: "" # optional external override; default: vendored agent-config/

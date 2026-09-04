@@ -10,12 +10,13 @@
     - ../secrets/github.yml
     - ../secrets/model.yml
   roles:
+    # Substrate only (ADR 0016): these roles prepare a box so `veggies`
+    # stacks can run on it. No role may install/configure/observe a stack
+    # container - that is the CLI's job (ADR 0013/0014).
     - role: base
     - role: crowdsec
     - role: tailscale
     - role: podman
     - role: egress # before anything that must build/pull as a restricted user
-    - role: litellm
     - role: github_runner
-    - role: opencode
     - role: backup

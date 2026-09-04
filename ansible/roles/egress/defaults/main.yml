@@ -1,13 +1,12 @@
 ---
 # Users whose outbound traffic is forced through the proxy (ADR 0006):
-# everything except 127.0.0.1/gateway squid+litellm ports is logged+dropped.
+# everything except 127.0.0.1/gateway squid is logged+dropped.
 egress_denied_users:
   - gh-runner
   - stacks # veggies CLI stacks (ADR 0014)
 egress_proxy_user: egress-proxy
 
 egress_squid_port: 3128
-egress_litellm_port: 4000
 # The gateway address rootless containers use to reach host-published services
 # (verified 2026-09-03: host.containers.internal resolves here under pasta).
 egress_host_gateway: 169.254.1.2

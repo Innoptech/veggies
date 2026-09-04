@@ -9,6 +9,6 @@ LoginGraceTime 30
 ClientAliveInterval 300
 ClientAliveCountMax 2
 # Local forwarding stays enabled on purpose: it is how the human reaches
-# `opencode serve` (127.0.0.1) and the litellm admin UI over SSH.
+# Stack opencode ports (127.0.0.1) are reachable over SSH (ADR 0013).
 AllowTcpForwarding local
 AllowAgentForwarding no

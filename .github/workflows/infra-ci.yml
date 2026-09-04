@@ -83,7 +83,7 @@ jobs:
       fail-fast: false
       matrix:
         # keep in sync with ansible/roles/
-        role: [base, crowdsec, tailscale, podman, github_runner, litellm, opencode, egress, backup]
+        role: [base, crowdsec, tailscale, podman, github_runner, egress, backup]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0

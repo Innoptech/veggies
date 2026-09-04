@@ -1,9 +1,0 @@
----
-- name: Daemon-reload the opencode user manager
-  ansible.builtin.systemd:
-    scope: user
-    daemon_reload: true
-  become: true
-  become_user: "{{ opencode_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[opencode_user][2] }}"

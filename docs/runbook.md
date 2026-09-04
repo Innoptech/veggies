@@ -33,7 +33,7 @@ Bootstrap:
 Converge + verify:
 
 - [ ] `mask converge` finishes green and idempotent on rerun.
-- [ ] `ssh veggies agent-status` shows the quadlets, runners registering, disk ok.
+- [ ] `veggies --host veggies ls` from the operator machine shows stacks; `ssh veggies systemctl --user list-units 'gh-runner*' -M gh-runner@` shows runners.
 - [ ] A test PR in a governed repo: `/opencode` comment triggers a job on
       veggies; the PR cannot merge without your review (ADR 0007).
 - [ ] Deny test: in a runner, `curl https://example.com` fails and
@@ -72,8 +72,8 @@ Rotation matrix (do these in one PR each):
 
 | Secret | Rotate by |
 |--------|-----------|
-| fireworks_api_key | new key in Fireworks console -> vault-edit model.yml -> `mask converge` -> revoke old |
-| litellm_* keys | vault-edit -> converge (restarts quadlets via handlers) |
+| fireworks_api_key | new key in Fireworks console -> vault-edit model.yml -> `veggies secrets <name>` per stack (or down/up) -> revoke old |
+| per-stack litellm keys | random per stack; rotate with `veggies down <name> --purge` + `veggies up` |
 | github_token / App key | new credential -> vault-edit github.yml -> `mask tofu-apply` + converge |
 | tailscale_auth_key | new pre-auth key (tagged) -> vault-edit infra.yml -> converge (no-op while Running; only used at join) |
 | restic_password | vault-edit infra.yml -> converge; old snapshots need the OLD password - keep it until you prune or re-key the repo |
@@ -132,19 +132,23 @@ One PR, three edits:
 2. `agent-config/litellm/config.yaml` - add the `model_list` entry (and any
    fallback rule).
 3. `ansible/inventory/group_vars/all.yml` - add the endpoint to
-   `egress_model_endpoints`.
+   `egress_model_endpoints`, then `mask converge` (updates the VPS squid
+   allowlist - substrate, ADR 0016).
 
-`mask converge`. opencode picks the new model via `litellm/<alias>` in agent
-frontmatter or `/models`.
+Stacks pick the new model up at next `veggies up` (agent-config is mounted
+at render time); select it via `litellm/<alias>` in agent frontmatter or
+`/models`. Existing stacks: `veggies down <name>` + `veggies up`, and
+`veggies secrets <name>` if the key changed.
 
 ## 8. Add an agent or a skill
 
 - Agent: new file in `agent-config/agents/<name>.md` (frontmatter:
-  description, mode, model, permission). PR, merge, `mask converge`.
+  description, mode, model, permission). PR, merge; stacks pick it up at
+  next `veggies up` (recreate running stacks to apply).
 - Skill: `agent-config/skills/<name>/SKILL.md` with `name` + `description`
   frontmatter (see opencode skills docs). Same flow.
 - Superpowers bump: change the pinned tag in `agent-config/opencode.json`
-  (`#vX.Y.Z`), PR, converge.
+  (`#vX.Y.Z`), PR; same stack-recreate rollout.
 
 ## 9. veggies stacks (ADR 0013/0014)
 

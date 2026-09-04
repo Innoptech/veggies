@@ -76,18 +76,6 @@
   no_log: true # contains the admin token
   when: github_runner_register
 
-- name: Install the runner runtime env (scoped litellm key, from the vault)
-  ansible.builtin.template:
-    src: runtime.env.j2
-    dest: "/home/{{ github_runner_user }}/.config/gh-runner/runtime.env"
-    owner: "{{ github_runner_user }}"
-    group: "{{ github_runner_user }}"
-    mode: "0600"
-  no_log: true
-  when:
-    - github_runner_register
-    - litellm_runner_virtual_key is defined
-
 - name: Install the quadlet template
   ansible.builtin.template:
     src: gh-runner@.container.j2

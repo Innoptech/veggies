@@ -28,6 +28,11 @@ via `veggies status` and attachable on demand.
   capabilities/limits of opencode v1.x subagents) or an external engine?
 - Queue substrate: sqlite (boring, matches host skills) vs none (in-memory)
   vs redis (extra component).
+- CI consequence of ADR 0016: deleting host-global litellm removed the
+  github_runner's model endpoint (LITELLM_API_BASE). Nothing consumed it in
+  this repo yet; the envisioned `/opencode` PR workflows should run as
+  ephemeral veggies stacks (`veggies up --clone <pr ref>` in the runner job)
+  instead of reviving a host-global gateway.
 
 ## Dependencies
 
