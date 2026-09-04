@@ -19,11 +19,11 @@ metadata:
 spec:
   containers:
   - args:
-    - serve
-    - --hostname
-    - 0.0.0.0
-    - --port
-    - '4096'
+    - mkdir -p /root/.config/opencode && cp /stack-config/opencode.json /root/.config/opencode/
+      && exec opencode serve --hostname 0.0.0.0 --port 4096
+    command:
+    - sh
+    - -c
     env:
     - name: OPENCODE_SERVER_PASSWORD
       valueFrom:
@@ -73,7 +73,7 @@ spec:
     volumeMounts:
     - mountPath: /workspace
       name: repo
-    - mountPath: /root/.config/opencode
+    - mountPath: /stack-config
       name: stack-config
       readOnly: true
     - mountPath: /root

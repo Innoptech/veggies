@@ -226,7 +226,17 @@ def _opencode_container(spec: StackSpec, infra_repo: Path) -> dict:
     return {
         "name": "opencode",
         "image": IMAGE_OPENCODE,
-        "args": ["serve", "--hostname", "0.0.0.0", "--port", str(OPENCODE_CONTAINER_PORT)],
+        # opencode writes instance state (.gitignore etc.) into
+        # ~/.config/opencode at bootstrap (EROFS 500s on every API call if
+        # read-only, verified 2026-09-04) - so stack-config mounts at
+        # /stack-config and the wrapper copies opencode.json into the
+        # writable home volume before exec'ing the server.
+        "command": ["sh", "-c"],
+        "args": [
+            "mkdir -p /root/.config/opencode && "
+            "cp /stack-config/opencode.json /root/.config/opencode/ && "
+            f"exec opencode serve --hostname 0.0.0.0 --port {OPENCODE_CONTAINER_PORT}"
+        ],
         "workingDir": "/workspace",
         "env": [
             _secret_env("OPENCODE_SERVER_PASSWORD", spec.secret_opencode, "password"),
@@ -250,8 +260,7 @@ def _opencode_container(spec: StackSpec, infra_repo: Path) -> dict:
             {"name": "repo", "mountPath": "/workspace"},
             # Directory mounts only - subPath file mounts bypass SELinux
             # relabeling and read as EACCES (verified 2026-09-04).
-            {"name": "stack-config", "mountPath": "/root/.config/opencode",
-             "readOnly": True},
+            {"name": "stack-config", "mountPath": "/stack-config", "readOnly": True},
             {"name": "opencode-home", "mountPath": "/root"},
             {"name": "tmp", "mountPath": "/tmp"},
         ],
