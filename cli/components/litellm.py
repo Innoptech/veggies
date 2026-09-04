@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from capabilities import (
     HARDENED,
+    BuildSpec,
     Component,
     Generated,
     PodContext,
@@ -97,4 +98,5 @@ COMPONENT = Component(
     service_ref=_service_ref,
     secrets=_secrets,
     config_files=_config_files,
+    build=BuildSpec(IMAGE_LITELLM),  # pulled, not built
 )

@@ -15,6 +15,7 @@ from capabilities import (
     Generated,
     PodContext,
     SecretSpec,
+    BuildSpec,
     StackSpec,
     StatusProbe,
     secret_env,
@@ -158,4 +159,5 @@ COMPONENT = Component(
     config_files=_config_files,
     probes=_probes,
     attach=_attach,
+    build=BuildSpec(IMAGE_OPENCODE, "deploy/images/opencode.Containerfile"),
 )

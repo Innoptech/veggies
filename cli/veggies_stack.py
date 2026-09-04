@@ -57,8 +57,11 @@ REGISTRY: dict[str, dict[str, Component]] = {
 }
 # Iteration order of DEFAULT_SELECTION pins the container order (golden-stable).
 DEFAULT_SELECTION = {"harness": "opencode", "model-router": "litellm", "egress": "squid"}
-# veggies.yml capability keys -> capability name
-CAPABILITY_KEYS = {"harness": "harness", "model_router": "model-router", "egress": "egress"}
+# veggies.yml capability keys -> capability name. "orchestrator" is
+# selectable in the file so it fails with the polite reserved-capability
+# error (ADR 0023 / proposed ADR 0017) instead of an "unknown key" warning.
+CAPABILITY_KEYS = {"harness": "harness", "model_router": "model-router",
+                   "egress": "egress", "orchestrator": "orchestrator"}
 
 CORE = [REGISTRY[cap][impl] for cap, impl in DEFAULT_SELECTION.items()]
 COMPONENT_NAMES = {c.name for c in CORE}

@@ -151,6 +151,16 @@ class StatusProbe:
     extract: Callable[[object], str]  # parsed JSON -> display value
 
 
+@dataclass(frozen=True)
+class BuildSpec:
+    """How the runtime materializes this component's image at up-time:
+    built from a Containerfile (path relative to the infra repo) or pulled
+    as-is (containerfile=None). Components own their images (ADR 0023);
+    `ensure_images` builds/pulls exactly the selected components' images."""
+    image: str
+    containerfile: str | None = None  # relative to infra repo; None = pull only
+
+
 @dataclass
 class PodContext:
     """Wiring handed to every component at render time: spec, repo, and
@@ -192,3 +202,4 @@ class Component:
     config_files: Callable[[PodContext], dict[str, str]] = lambda ctx: {}
     probes: Callable[[StackSpec], list[StatusProbe]] = lambda spec: []
     attach: Callable[[str, str], list[str]] | None = None  # (url, password) -> argv
+    build: BuildSpec | None = None  # None = no image needed at up-time

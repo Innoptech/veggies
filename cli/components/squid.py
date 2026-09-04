@@ -6,7 +6,7 @@ lowercase forms, verified 2026-09-04)."""
 
 from __future__ import annotations
 
-from capabilities import HARDENED, Component, PodContext, ServiceRef, StackSpec
+from capabilities import HARDENED, BuildSpec, Component, PodContext, ServiceRef, StackSpec
 
 IMAGE_SQUID = "localhost/squid:latest"  # ansible/roles/egress/files/squid.Containerfile
 _SQUID_PORT = 3128  # pod-internal only, never published
@@ -129,4 +129,5 @@ COMPONENT = Component(
     volumes=_volumes,
     service_ref=_service_ref,
     config_files=_config_files,
+    build=BuildSpec(IMAGE_SQUID, "ansible/roles/egress/files/squid.Containerfile"),
 )

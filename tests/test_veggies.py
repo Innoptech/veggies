@@ -96,9 +96,9 @@ def test_render_containers_and_pins(spec):
     containers = _pod(spec)["spec"]["containers"]
     by_name = {c["name"]: c for c in containers}
     assert set(by_name) == {"opencode", "litellm", "squid"}
-    assert by_name["litellm"]["image"] == veggies.IMAGE_LITELLM
-    assert by_name["squid"]["image"] == veggies.IMAGE_SQUID
-    assert by_name["opencode"]["image"] == veggies.IMAGE_OPENCODE
+    assert by_name["litellm"]["image"] == veggies_stack.IMAGE_LITELLM
+    assert by_name["squid"]["image"] == veggies_stack.IMAGE_SQUID
+    assert by_name["opencode"]["image"] == veggies_stack.IMAGE_OPENCODE
 
 
 def test_only_opencode_publishes_a_port(spec):
@@ -158,7 +158,7 @@ def test_repo_is_the_only_code_mount(spec):
 
 
 def test_opencode_json_stack_variant(spec):
-    rendered = json.loads(veggies.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
+    rendered = json.loads(veggies_stack.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
     litellm = rendered["provider"]["litellm"]
     assert litellm["options"]["baseURL"] == "http://127.0.0.1:4000/v1"
     assert litellm["options"]["apiKey"] == "{env:LITELLM_MASTER_KEY}"
@@ -169,10 +169,10 @@ def test_opencode_json_stack_variant(spec):
 
 
 def test_squid_conf_matches_prod_shape():
-    conf = veggies.render_squid_conf()
+    conf = veggies_stack.render_squid_conf()
     assert "http_access deny all" in conf
     assert "dstdomain" in conf
-    allowlist = veggies.render_allowlist().splitlines()
+    allowlist = veggies_stack.render_allowlist().splitlines()
     assert "api.fireworks.ai" in allowlist
     assert allowlist[-1] == "api.fireworks.ai"  # model endpoints appended last
 
@@ -184,12 +184,12 @@ def test_squid_allowlist_base_matches_role():
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/egress/defaults/main.yml").read_text()
     )
-    assert veggies.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
+    assert veggies_stack.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
 
 
 def test_model_endpoints_match_group_vars_example():
     text = (ROOT / "ansible/inventory/group_vars/all.yml.example").read_text()
-    assert yaml.safe_load(text)["egress_model_endpoints"] == veggies.SQUID_MODEL_ENDPOINTS
+    assert yaml.safe_load(text)["egress_model_endpoints"] == veggies_stack.SQUID_MODEL_ENDPOINTS
 
 
 def test_squid_containerfile_reused():
@@ -310,9 +310,9 @@ def test_load_repo_config_missing_is_empty(tmp_path):
 
 
 def test_model_override_lands_in_opencode_json():
-    out = json.loads(veggies.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1", model="devstral"))
+    out = json.loads(veggies_stack.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1", model="devstral"))
     assert out["model"] == "litellm/devstral"
-    default = json.loads(veggies.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
+    default = json.loads(veggies_stack.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
     assert "model" in default  # vendored default untouched when no override
 
 
@@ -384,6 +384,22 @@ def test_stub_harness_proves_the_seam(spec, tmp_path):
     ])[0]["metadata"]["name"] == "veggies-demo-s"
 
 
+def test_component_build_descriptors(spec):
+    # Images are component-owned: a stack builds/pulls exactly what it runs.
+    builds = {c.name: c.build for c in veggies_stack.CORE}
+    assert builds["opencode"].containerfile == "deploy/images/opencode.Containerfile"
+    assert builds["squid"].containerfile.endswith("squid.Containerfile")
+    assert builds["litellm"].containerfile is None  # pull-only
+    subset = veggies_stack.resolve_components(names=["litellm", "squid"])
+    assert [c.build.image for c in subset] == [
+        veggies_stack.IMAGE_LITELLM, veggies_stack.IMAGE_SQUID]
+
+
+def test_orchestrator_key_reserved_error():
+    with pytest.raises(ValueError, match="reserved"):
+        veggies_stack.parse_repo_config("orchestrator: maestro\n")
+
+
 def test_registry_capability_keys(spec):
     # v1 capability keys resolve; reserved orchestrator refuses politely
     comps = veggies_stack.resolve_components(selections={"harness": "opencode"})
@@ -421,9 +437,9 @@ def test_probe_api_failure_returns_none(monkeypatch):
 
 def test_required_secret_values_generic(spec):
     sources = veggies.required_secret_values(spec)
-    assert isinstance(sources["master_key"], veggies.VaultKey) is False
+    assert isinstance(sources["master_key"], veggies_stack.VaultKey) is False
     assert isinstance(sources["master_key"], veggies.Generated)
-    assert isinstance(sources["fireworks_api_key"], veggies.VaultKey)
+    assert isinstance(sources["fireworks_api_key"], veggies_stack.VaultKey)
     assert veggies.Generated(12).nbytes == 12
 
 

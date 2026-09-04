@@ -36,28 +36,19 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from veggies_stack import (  # noqa: E402
     Generated,
-    IMAGE_LITELLM,
-    IMAGE_OPENCODE,
-    IMAGE_SQUID,
     REMOTE_STATE_ROOT,
     REMOTE_USER,
-    SQUID_ALLOWLIST_BASE,
-    SQUID_MODEL_ENDPOINTS,
     Component,
     StackSpec,
-    VaultKey,
     allocate_port,
+    build_context,
     container_names,
     load_repo_config,
     parse_repo_config,
-    render_allowlist,
-    render_opencode_json,
-    build_context,
-    resolve_components,
-    render_squid_conf,
-    render_yaml,
     render_secret_docs,
+    render_yaml,
     required_secret_values,
+    resolve_components,
     sanitize_name,
     secret_names,
     state_dir,
@@ -190,29 +181,26 @@ def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
     return result.returncode == 0
 
 
-def ensure_images(host: str | None, infra_repo: Path) -> None:
-    """Squid and the opencode derivative are built (layer-cache makes this a
-    no-op when unchanged); litellm is pulled once. Remote: the Containerfiles
-    are shipped into the remote state dir and built there (ADR 0014)."""
-    squid_cf = (infra_repo / "ansible/roles/egress/files/squid.Containerfile").read_text()
-    opencode_cf = (infra_repo / "deploy/images/opencode.Containerfile").read_text()
-    if host is None:
-        (infra_repo / "deploy/images").mkdir(parents=True, exist_ok=True)
-        host_build_dir = None
-    images_dir = f"{REMOTE_STATE_ROOT}/images" if host else None
-    for image, containerfile in ((IMAGE_SQUID, squid_cf), (IMAGE_OPENCODE, opencode_cf)):
-        if host is None:
-            cf_path = str(state_dir() / "images" / f"{image.split('/')[-1].split(':')[0]}.Containerfile")
-            host_write(None, cf_path, containerfile)
-            host_podman(None, "build", "-q", "-t", image, "-f", cf_path,
-                        str(state_dir() / "images"))
-        else:
-            cf_path = f"{images_dir}/{image.split('/')[-1].split(':')[0]}.Containerfile"
-            host_write(host, cf_path, containerfile)
-            host_podman(host, "build", "-q", "-t", image, "-f", cf_path, images_dir)
-    if host_podman(host, "image", "exists", IMAGE_LITELLM,
-                   check=False, capture=True).returncode != 0:
-        host_podman(host, "pull", "-q", IMAGE_LITELLM)
+def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
+    """Images are component-owned (ADR 0023): build/pull exactly the selected
+    components' images. Built images use layer-cache (no-op when unchanged);
+    pull-only images are pulled once. Remote: Containerfiles are shipped into
+    the remote state dir and built there (ADR 0014)."""
+    for c in resolve_components(spec.components, spec.selections):
+        b = c.build
+        if b is None:
+            continue
+        if b.containerfile is None:
+            if host_podman(host, "image", "exists", b.image,
+                           check=False, capture=True).returncode != 0:
+                host_podman(host, "pull", "-q", b.image)
+            continue
+        cf = (infra_repo / b.containerfile).read_text()
+        base = b.image.split("/")[-1].split(":")[0]
+        images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
+        cf_path = f"{images_dir}/{base}.Containerfile"
+        host_write(host, cf_path, cf)
+        host_podman(host, "build", "-q", "-t", b.image, "-f", cf_path, images_dir)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
@@ -447,7 +435,7 @@ def cmd_up(args: argparse.Namespace) -> int:
             return 1
 
     print("==> images")
-    ensure_images(host, infra_repo)
+    ensure_images(host, infra_repo, spec)
 
     print("==> stack config")
     write_stack_config(spec, infra_repo)
