@@ -35,6 +35,7 @@ import yaml
 # import surface.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from veggies_stack import (  # noqa: E402
+    Generated,
     IMAGE_LITELLM,
     IMAGE_OPENCODE,
     IMAGE_SQUID,
@@ -43,16 +44,20 @@ from veggies_stack import (  # noqa: E402
     SQUID_ALLOWLIST_BASE,
     SQUID_MODEL_ENDPOINTS,
     StackSpec,
+    VaultKey,
     allocate_port,
     container_names,
     load_repo_config,
     parse_repo_config,
     render_allowlist,
     render_opencode_json,
+    resolve_components,
     render_squid_conf,
     render_yaml,
     render_secret_docs,
+    required_secret_values,
     sanitize_name,
+    secret_names,
     state_dir,
 )
 
@@ -243,23 +248,9 @@ def label_for_containers(host: str | None, path: str) -> None:
 
 
 def write_stack_config(spec: StackSpec, infra_repo: Path) -> None:
-    files = {
-        "squid.conf": render_squid_conf(),
-        "allowlist.txt": render_allowlist(),
-        "opencode.json": render_opencode_json(infra_repo, model=spec.model),
-    }
-    # Vendored agents + skills ship as per-stack copies (edit + `veggies up`
-    # to apply; the opencode wrapper copies them into its global config dir).
-    for sub in ("agents", "skills"):
-        src = infra_repo / "agent-config" / sub
-        if src.is_dir():
-            for f in sorted(src.rglob("*")):
-                if f.is_file():
-                    files[f"{sub}/{f.relative_to(src)}"] = f.read_text()
-    if spec.is_remote:
-        # No infra checkout on the VPS: ship the litellm config as a copy.
-        files["config.yaml"] = (
-            infra_repo / "agent-config/litellm/config.yaml").read_text()
+    files: dict[str, str] = {}
+    for c in resolve_components(spec.components):
+        files |= c.config_files(spec, infra_repo)
     for filename, content in files.items():
         host_write(spec.host, f"{spec.config_dir()}/{filename}", content)
     label_for_containers(spec.host, f"{spec.state_root()}/{spec.name}")
@@ -457,16 +448,15 @@ def cmd_up(args: argparse.Namespace) -> int:
         label_for_containers(None, str(infra_repo / "agent-config" / "litellm"))
         label_for_containers(None, repo_path)
 
-    values = {
-        "master_key": secrets_mod.token_hex(32),
-        "salt_key": secrets_mod.token_hex(32),
-        "password": secrets_mod.token_hex(12),
-        "fireworks_api_key": vault_key("fireworks_api_key"),
-    }
+    values = {}
+    for key, source in required_secret_values(spec).items():
+        values[key] = (secrets_mod.token_hex(source.nbytes)
+                       if isinstance(source, Generated)
+                       else vault_key(source.key))
 
     # Idempotent refresh: drop the old pod and secrets before replaying.
     host_podman(host, "pod", "rm", "-f", spec.pod, check=False, capture=True)
-    host_podman(host, "secret", "rm", spec.secret_litellm, spec.secret_opencode,
+    host_podman(host, "secret", "rm", *secret_names(spec),
                 check=False, capture=True)
 
     print("==> secrets (stdin only, then they live in the podman store)")

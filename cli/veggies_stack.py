@@ -209,16 +209,43 @@ def _secret_env(name: str, secret: str, key: str) -> dict:
     }
 
 
+# --- Secret declarations (ADR 0023) ----------------------------------------------
+# Components declare their secrets; cmd_up sources values generically.
+
+
+@dataclass(frozen=True)
+class Generated:
+    """Random value, generated at up-time."""
+    nbytes: int
+
+
+@dataclass(frozen=True)
+class VaultKey:
+    """Sourced from the vault (secrets/model.yml) at up-time."""
+    key: str
+
+
+@dataclass(frozen=True)
+class SecretSpec:
+    """One podman secret: veggies-<stack>-<name_suffix> with these keys."""
+    name_suffix: str
+    keys: dict[str, Generated | VaultKey]
+
+
 @dataclass(frozen=True)
 class Component:
-    """One member of a stack pod: renders a container and declares its volumes.
+    """One member of a stack pod (ADR 0023 capability seam).
 
-    volumes() may declare a volume another component also mounts (e.g.
-    stack-config); first declaration wins, duplicates are merged by name."""
+    render/volumes describe the container; secrets() declares podman secrets
+    (sourced centrally); config_files() renders the stack's config dir.
+    volumes()/config_files() keys are merged by name across components;
+    first declaration wins."""
 
     name: str
     render: Callable[[StackSpec, Path], dict]
     volumes: Callable[[StackSpec, Path], list[dict]]
+    secrets: Callable[[StackSpec], list[SecretSpec]] = lambda spec: []
+    config_files: Callable[[StackSpec, Path], dict[str, str]] = lambda spec, repo: {}
 
 
 def _opencode_container(spec: StackSpec, infra_repo: Path) -> dict:
@@ -359,10 +386,49 @@ def _squid_volumes(spec: StackSpec, infra_repo: Path) -> list[dict]:
     ]
 
 
+def _opencode_secrets(spec: StackSpec) -> list[SecretSpec]:
+    return [SecretSpec("opencode", {"password": Generated(12)})]
+
+
+def _opencode_config_files(spec: StackSpec, infra_repo: Path) -> dict[str, str]:
+    files = {"opencode.json": render_opencode_json(infra_repo, model=spec.model)}
+    # Vendored agents + skills ship as per-stack copies (edit + `veggies up`
+    # to apply; the opencode wrapper copies them into its global config dir).
+    for sub in ("agents", "skills"):
+        src = infra_repo / "agent-config" / sub
+        if src.is_dir():
+            for f in sorted(src.rglob("*")):
+                if f.is_file():
+                    files[f"{sub}/{f.relative_to(src)}"] = f.read_text()
+    return files
+
+
+def _litellm_secrets(spec: StackSpec) -> list[SecretSpec]:
+    return [SecretSpec("litellm", {
+        "master_key": Generated(32),
+        "salt_key": Generated(32),
+        "fireworks_api_key": VaultKey("fireworks_api_key"),
+    })]
+
+
+def _litellm_config_files(spec: StackSpec, infra_repo: Path) -> dict[str, str]:
+    if not spec.is_remote:
+        return {}  # local: agent-config/litellm is live-mounted instead
+    # No infra checkout on the VPS: ship the litellm config as a copy.
+    return {"config.yaml": (infra_repo / "agent-config/litellm/config.yaml").read_text()}
+
+
+def _squid_config_files(spec: StackSpec, infra_repo: Path) -> dict[str, str]:
+    return {"squid.conf": render_squid_conf(), "allowlist.txt": render_allowlist()}
+
+
 CORE = [
-    Component("opencode", _opencode_container, _opencode_volumes),
-    Component("litellm", _litellm_container, _litellm_volumes),
-    Component("squid", _squid_container, _squid_volumes),
+    Component("opencode", _opencode_container, _opencode_volumes,
+              _opencode_secrets, _opencode_config_files),
+    Component("litellm", _litellm_container, _litellm_volumes,
+              _litellm_secrets, _litellm_config_files),
+    Component("squid", _squid_container, _squid_volumes,
+              config_files=_squid_config_files),
 ]
 COMPONENT_NAMES = {c.name for c in CORE}
 
@@ -475,27 +541,46 @@ def _b64(value: str) -> str:
     return base64.b64encode(value.encode()).decode()
 
 
-def render_secret_docs(spec: StackSpec, values: dict[str, str]) -> list[dict]:
-    """K8s Secret docs for one stack. Only ever passed to kube play via stdin
-    at up-time - never written to disk (ADR 0013)."""
+def required_secret_values(
+    spec: StackSpec, components: list[Component] | None = None
+) -> dict[str, Generated | VaultKey]:
+    """Flat key -> source map for every declared secret (keys must be unique
+    across the stack's components)."""
+    out: dict[str, Generated | VaultKey] = {}
+    for c in (components if components is not None else resolve_components(spec.components)):
+        for s in c.secrets(spec):
+            for key, source in s.keys.items():
+                if key in out:
+                    raise ValueError(f"secret key collision across components: {key}")
+                out[key] = source
+    return out
+
+
+def secret_names(spec: StackSpec, components: list[Component] | None = None) -> list[str]:
+    """All podman secret names for the stack (declaration-derived)."""
     return [
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {"name": spec.secret_litellm},
-            "data": {
-                "master_key": _b64(values["master_key"]),
-                "salt_key": _b64(values["salt_key"]),
-                "fireworks_api_key": _b64(values["fireworks_api_key"]),
-            },
-        },
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {"name": spec.secret_opencode},
-            "data": {"password": _b64(values["password"])},
-        },
+        f"{spec.pod}-{s.name_suffix}"
+        for c in (components if components is not None else resolve_components(spec.components))
+        for s in c.secrets(spec)
     ]
+
+
+def render_secret_docs(
+    spec: StackSpec, values: dict[str, str], components: list[Component] | None = None
+) -> list[dict]:
+    """K8s Secret docs for one stack, from component declarations. Only ever
+    passed to kube play via stdin at up-time - never written to disk
+    (ADR 0013). Name-sorted for determinism."""
+    docs = []
+    for c in (components if components is not None else resolve_components(spec.components)):
+        for s in c.secrets(spec):
+            docs.append({
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": f"{spec.pod}-{s.name_suffix}"},
+                "data": {k: _b64(values[k]) for k in s.keys},
+            })
+    return sorted(docs, key=lambda d: d["metadata"]["name"])
 
 
 def container_names(spec: StackSpec, components: list[Component] | None = None) -> list[str]:

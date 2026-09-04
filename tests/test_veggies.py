@@ -359,6 +359,21 @@ def test_probe_api_failure_returns_none(monkeypatch):
     assert veggies.probe_api("veggies", 4096, "pw", "/config") is None
 
 
+def test_required_secret_values_generic(spec):
+    sources = veggies.required_secret_values(spec)
+    assert isinstance(sources["master_key"], veggies.VaultKey) is False
+    assert isinstance(sources["master_key"], veggies.Generated)
+    assert isinstance(sources["fireworks_api_key"], veggies.VaultKey)
+    assert veggies.Generated(12).nbytes == 12
+
+
+def test_secret_names_match_declarations(spec):
+    assert veggies.secret_names(spec) == [
+        "veggies-demo-opencode", "veggies-demo-litellm"] or \
+        sorted(veggies.secret_names(spec)) == [
+            "veggies-demo-litellm", "veggies-demo-opencode"]
+
+
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
     old = tmp_path / "garden"
     new = tmp_path / "veggies"
