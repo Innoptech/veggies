@@ -27,3 +27,4 @@ file. Never edit a decided ADR - write a new one that supersedes it.
 | [0020](0020-cloud-substrate-module.md) | Cloud substrate module (GCP / other) | proposed | A1 |
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed | A1 |
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | proposed | A1 |
+| [0023](0023-capability-model-dependency-reversal.md) | Capability model: contracts, not tools | accepted | C1 |
