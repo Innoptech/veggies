@@ -51,6 +51,7 @@ from veggies_stack import (  # noqa: E402
     parse_repo_config,
     render_allowlist,
     render_opencode_json,
+    build_context,
     resolve_components,
     render_squid_conf,
     render_yaml,
@@ -248,9 +249,10 @@ def label_for_containers(host: str | None, path: str) -> None:
 
 
 def write_stack_config(spec: StackSpec, infra_repo: Path) -> None:
+    ctx = build_context(spec, infra_repo)
     files: dict[str, str] = {}
-    for c in resolve_components(spec.components):
-        files |= c.config_files(spec, infra_repo)
+    for c in ctx.components:
+        files |= c.config_files(ctx)
     for filename, content in files.items():
         host_write(spec.host, f"{spec.config_dir()}/{filename}", content)
     label_for_containers(spec.host, f"{spec.state_root()}/{spec.name}")

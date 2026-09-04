@@ -158,7 +158,7 @@ def test_repo_is_the_only_code_mount(spec):
 
 
 def test_opencode_json_stack_variant(spec):
-    rendered = json.loads(veggies.render_opencode_json(INFRA_REPO))
+    rendered = json.loads(veggies.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
     litellm = rendered["provider"]["litellm"]
     assert litellm["options"]["baseURL"] == "http://127.0.0.1:4000/v1"
     assert litellm["options"]["apiKey"] == "{env:LITELLM_MASTER_KEY}"
@@ -267,13 +267,21 @@ def test_core_registry_is_the_default_stack():
 
 def test_render_pod_composes_components(spec):
     docs = veggies.render_yaml(spec, INFRA_REPO)
-    subset = [c for c in veggies_stack.CORE if c.name != "squid"]
-    no_squid = veggies_stack.render_pod(spec, INFRA_REPO, components=subset)
-    pod = [d for d in no_squid if d["kind"] == "Pod"][0]
-    assert [c["name"] for c in pod["spec"]["containers"]] == ["opencode", "litellm"]
+    subset = [c for c in veggies_stack.CORE if c.name != "opencode"]
+    no_harness = veggies_stack.render_pod(spec, INFRA_REPO, components=subset)
+    pod = [d for d in no_harness if d["kind"] == "Pod"][0]
+    assert [c["name"] for c in pod["spec"]["containers"]] == ["litellm", "squid"]
     vol_names = {v["name"] for v in pod["spec"]["volumes"]}
-    assert "stack-config" not in vol_names  # owned by the squid component
+    assert "opencode-home" not in vol_names  # owned by the opencode component
     assert docs  # full render unchanged
+
+
+def test_requires_validation(spec):
+    # opencode requires model-router + egress; without squid the stack is
+    # incomplete and the error says so (ADR 0023).
+    lonely = [c for c in veggies_stack.CORE if c.name == "opencode"]
+    with pytest.raises(ValueError, match="requires 'model-router'"):
+        veggies_stack.render_pod(spec, INFRA_REPO, components=lonely)
 
 
 def test_parse_repo_config_schema_v0():
@@ -302,16 +310,16 @@ def test_load_repo_config_missing_is_empty(tmp_path):
 
 
 def test_model_override_lands_in_opencode_json():
-    out = json.loads(veggies.render_opencode_json(INFRA_REPO, model="devstral"))
+    out = json.loads(veggies.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1", model="devstral"))
     assert out["model"] == "litellm/devstral"
-    default = json.loads(veggies.render_opencode_json(INFRA_REPO))
+    default = json.loads(veggies.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
     assert "model" in default  # vendored default untouched when no override
 
 
 def test_spec_components_flow_into_render(spec):
-    spec.components = ["opencode", "litellm"]
+    spec.components = ["litellm", "squid"]  # requirement-complete subset
     pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO) if d["kind"] == "Pod"][0]
-    assert [c["name"] for c in pod["spec"]["containers"]] == ["opencode", "litellm"]
+    assert [c["name"] for c in pod["spec"]["containers"]] == ["litellm", "squid"]
     with pytest.raises(ValueError, match="unknown components"):
         veggies_stack.render_pod(
             veggies.StackSpec(name="x", repo="/r", components=["bogus"]), INFRA_REPO)
