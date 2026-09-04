@@ -1,0 +1,12 @@
+# Managed by Ansible (infra repo, base role). Minimal forensic trail (ADR 0010):
+# auth config, account databases, sudoers, container config.
+-w /etc/ssh/sshd_config -p wa -k auth-config
+-w /etc/ssh/sshd_config.d -p wa -k auth-config
+-w /etc/sudoers -p wa -k privilege-config
+-w /etc/sudoers.d -p wa -k privilege-config
+-w /etc/passwd -p wa -k accounts
+-w /etc/group -p wa -k accounts
+-w /etc/shadow -p wa -k accounts
+-w /etc/gshadow -p wa -k accounts
+-w /etc/containers -p wa -k container-config
+-w /etc/firewalld -p wa -k firewall-config

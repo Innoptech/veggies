@@ -1,0 +1,15 @@
+---
+- name: Install audit watch rules
+  ansible.builtin.template:
+    src: audit_infra.rules.j2
+    dest: /etc/audit/rules.d/infra.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Reload audit rules
+
+- name: Ensure auditd is enabled and running
+  ansible.builtin.service:
+    name: auditd
+    enabled: true
+    state: started

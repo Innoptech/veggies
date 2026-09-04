@@ -1,0 +1,67 @@
+---
+# Verified 2026-09-03 against a Fedora 44 container + the official installer:
+# the repo is rpm_any (EL9 builds install cleanly on Fedora 44), and the
+# nftables bouncer ships from the same repo. Do NOT use fedora/$releasever
+# paths - those are empty stubs on packagecloud.
+- name: Add the crowdsec repository
+  ansible.builtin.yum_repository:
+    name: crowdsec_crowdsec
+    description: CrowdSec stable
+    baseurl: https://packagecloud.io/crowdsec/crowdsec/rpm_any/rpm_any/$basearch
+    gpgkey:
+      - https://packagecloud.io/crowdsec/crowdsec/gpgkey
+      - https://packagecloud.io/crowdsec/crowdsec/gpgkey/crowdsec-crowdsec-EDE2C695EC9A5A5C.pub.gpg
+      - https://packagecloud.io/crowdsec/crowdsec/gpgkey/crowdsec-crowdsec-C822EDD6B39954A1.pub.gpg
+      - https://packagecloud.io/crowdsec/crowdsec/gpgkey/crowdsec-crowdsec-FED78314A2468CCF.pub.gpg
+    gpgcheck: true
+    repo_gpgcheck: true
+    sslverify: true
+    metadata_expire: 300
+    enabled: true
+
+- name: Install crowdsec and the nftables bouncer
+  ansible.builtin.dnf:
+    name:
+      - crowdsec
+      - crowdsec-firewall-bouncer-nftables
+    state: present
+
+- name: Enable (and where possible start) crowdsec services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: "{{ 'started' if crowdsec_start_services else 'stopped' }}"
+  loop:
+    - crowdsec
+    - crowdsec-firewall-bouncer
+
+- name: Update the hub
+  ansible.builtin.command:
+    cmd: /usr/bin/cscli hub update
+  register: crowdsec_hub_update
+  changed_when: crowdsec_hub_update.stdout is search("updat", ignorecase=true)
+  when: crowdsec_setup_hub
+
+- name: List installed collections
+  ansible.builtin.command:
+    cmd: /usr/bin/cscli collections list -o json
+  register: crowdsec_collections_list
+  changed_when: false
+  when: crowdsec_setup_hub
+
+- name: Install missing collections
+  ansible.builtin.command:
+    cmd: /usr/bin/cscli collections install {{ item }}
+  changed_when: true # guarded by the when-missing condition
+  # TODO(verify): exact JSON shape of `cscli collections list -o json`
+  when:
+    - crowdsec_setup_hub
+    - item not in ((crowdsec_collections_list.stdout | from_json).collections | default([]) | map(attribute="name") | list)
+  loop: "{{ crowdsec_collections }}"
+
+- name: Enroll in the CrowdSec console (optional)
+  ansible.builtin.command:
+    cmd: /usr/bin/cscli console enroll -e context {{ crowdsec_enroll_key }}
+  when: crowdsec_enroll_key | length > 0
+  no_log: true
+  changed_when: true # TODO(verify): make idempotent via `cscli console status`

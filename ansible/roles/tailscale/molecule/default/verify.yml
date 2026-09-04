@@ -1,0 +1,32 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Repository file installed
+      ansible.builtin.stat:
+        path: /etc/yum.repos.d/tailscale-stable.repo
+      register: tailscale_repo_file
+      failed_when: not tailscale_repo_file.stat.exists
+
+    - name: Package installed
+      ansible.builtin.assert:
+        that: "'tailscale' in ansible_facts.packages"
+
+    - name: Tailscaled enabled and running
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services["tailscaled.service"].status == "enabled"
+          - ansible_facts.services["tailscaled.service"].state == "running" # service_facts reports SubState
+
+    - name: Tailscale CLI works
+      ansible.builtin.command:
+        cmd: /usr/bin/tailscale version
+      changed_when: false

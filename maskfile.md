@@ -23,7 +23,6 @@ echo "Done. Now create ~/.config/infra/vault-password (chmod 600) - see README."
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 pre-commit run --all-files
 ```
 
@@ -115,12 +114,20 @@ tflint --recursive
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 if [ -d ansible/roles ] && [ -n "$(ls -A ansible/roles)" ]; then
   ansible-lint
 else
   echo "No roles yet (roles arrive in phase 4); nothing to lint."
 fi
+```
+
+## molecule-images
+
+> Build the shared systemd-enabled Fedora 44 test image (idempotent).
+
+```bash
+set -euo pipefail
+podman build -t localhost/fedora44-systemd:latest -f ansible/molecule/fedora44-systemd.Containerfile ansible/molecule
 ```
 
 ## molecule-test (role)
@@ -129,8 +136,10 @@ fi
 
 ```bash
 set -euo pipefail
+# NOTE: no ANSIBLE_CONFIG here - ansible.cfg's relative roles_path would
+# shadow molecule's own role-path injection.
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
+mask molecule-images
 [ -d "ansible/roles/$role/molecule" ] || { echo "No molecule scenario for role '$role'"; exit 1; }
 cd "ansible/roles/$role"
 molecule test
@@ -143,14 +152,14 @@ molecule test
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
+mask molecule-images
 found=0
 for d in ansible/roles/*/; do
   [ -d "$d/molecule" ] || continue
   found=1
   (cd "$d" && molecule test)
 done
-[ "$found" -eq 1 ] || echo "No roles with molecule scenarios yet (phase 4+)."
+[ "$found" -eq 1 ] || echo "No roles with molecule scenarios yet."
 ```
 
 ## vault-edit (file)
@@ -160,7 +169,6 @@ done
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 ansible-vault edit "$file"
 ```
 
@@ -171,7 +179,6 @@ ansible-vault edit "$file"
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 ansible-vault view "$file"
 ```
 
@@ -182,7 +189,6 @@ ansible-vault view "$file"
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 ansible-vault rekey secrets/*.yml
 ```
 
@@ -202,9 +208,8 @@ scripts/check_vault_encrypted.sh
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 [ -f ansible/playbooks/site.yml ] || { echo "ansible/playbooks/site.yml arrives in phase 4"; exit 1; }
-cd ansible && ansible-playbook playbooks/site.yml --limit garden
+ansible-playbook ansible/playbooks/site.yml --limit garden
 ```
 
 ## bootstrap
@@ -214,7 +219,6 @@ cd ansible && ansible-playbook playbooks/site.yml --limit garden
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 [ -f ansible/playbooks/bootstrap.yml ] || { echo "ansible/playbooks/bootstrap.yml arrives in phase 4"; exit 1; }
-cd ansible && ansible-playbook playbooks/bootstrap.yml --limit garden
+ansible-playbook ansible/playbooks/bootstrap.yml --limit garden
 ```

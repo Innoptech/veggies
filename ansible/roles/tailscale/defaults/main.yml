@@ -1,0 +1,11 @@
+---
+# From the vault (secrets/infra.yml) at real converges. Empty = do not join
+# (molecule default: install only, no tailnet).
+tailscale_auth_key: ""
+
+# From group_vars/all.yml:
+# tailscale_tag: "tag:agent-host"
+# tailscale_hostname: "garden"
+
+tailscale_ssh: true # Tailscale SSH on the tailnet (sshd stays as fallback)
+tailscale_extra_args: "" # additional `tailscale up` arguments, if ever needed

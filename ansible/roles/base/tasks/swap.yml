@@ -1,0 +1,39 @@
+---
+- name: Check for existing swapfile
+  ansible.builtin.stat:
+    path: /swapfile
+  register: base_swapfile_stat
+
+- name: Create swapfile
+  ansible.builtin.command:
+    cmd: /usr/sbin/fallocate -l {{ base_swap_size_mb }}M /swapfile
+  when: not base_swapfile_stat.stat.exists
+  changed_when: true
+
+- name: Set swapfile permissions
+  ansible.builtin.file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Check whether swapfile is formatted
+  ansible.builtin.command:
+    cmd: /usr/sbin/blkid -o value -s TYPE /swapfile
+  register: base_swapfile_type
+  changed_when: false
+  failed_when: false
+
+- name: Format swapfile
+  ansible.builtin.command:
+    cmd: /usr/sbin/mkswap /swapfile
+  when: base_swapfile_type.stdout != "swap"
+  changed_when: true
+
+- name: Enable swapfile in fstab and now
+  ansible.posix.mount:
+    src: /swapfile
+    path: none
+    fstype: swap
+    opts: sw
+    state: mounted

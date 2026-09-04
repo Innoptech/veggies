@@ -1,0 +1,57 @@
+---
+# TODO(verify): repo path for Fedora 44 at converge time.
+- name: Add the tailscale repository
+  ansible.builtin.yum_repository:
+    name: tailscale-stable
+    description: Tailscale stable
+    baseurl: https://pkgs.tailscale.com/stable/fedora/$releasever/$basearch
+    gpgkey: https://pkgs.tailscale.com/stable/fedora/repo.gpg
+    gpgcheck: true
+    repo_gpgcheck: true
+    enabled: true
+
+- name: Install tailscale
+  ansible.builtin.dnf:
+    name: tailscale
+    state: present
+
+- name: Enable and start tailscaled
+  ansible.builtin.service:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Check tailscale state
+  ansible.builtin.command:
+    cmd: /usr/bin/tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  failed_when: false # not logged in yet -> non-zero exit; that is fine
+  when: tailscale_auth_key | length > 0
+
+- name: Join the tailnet
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/tailscale
+      - up
+      - "--auth-key={{ tailscale_auth_key }}"
+      - "--advertise-tags={{ tailscale_tag }}"
+      - "--hostname={{ tailscale_hostname }}"
+      - "{{ '--ssh' if tailscale_ssh else '' }}"
+      - "{{ tailscale_extra_args }}"
+  no_log: true # the auth key must never appear in logs or diffs
+  changed_when: true
+  when:
+    - tailscale_auth_key | length > 0
+    - (tailscale_status.stdout | from_json).BackendState != "Running"
+
+- name: Bind tailscale0 to the trusted firewalld zone
+  ansible.posix.firewalld:
+    interface: tailscale0
+    zone: trusted
+    state: enabled
+    permanent: true
+    immediate: true
+  when:
+    - tailscale_auth_key | length > 0
+    - (tailscale_status.stdout | from_json).BackendState == "Running"

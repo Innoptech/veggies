@@ -1,0 +1,25 @@
+---
+- name: Ensure firewalld is enabled and running
+  ansible.builtin.service:
+    name: firewalld
+    enabled: true
+    state: started
+
+# Default-deny posture: strip the stock services, then add back only what the
+# current phase allows. tailscale0 itself is bound to the trusted zone by the
+# tailscale role.
+- name: Remove stock public services (dhcpv6-client)
+  ansible.posix.firewalld:
+    service: dhcpv6-client
+    state: disabled
+    permanent: true
+    immediate: true
+    zone: public
+
+- name: Public SSH only during the bootstrap window (base_public_ssh)
+  ansible.posix.firewalld:
+    service: ssh
+    state: "{{ 'enabled' if base_public_ssh else 'disabled' }}"
+    permanent: true
+    immediate: true
+    zone: public

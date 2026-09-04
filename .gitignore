@@ -34,6 +34,11 @@ __pycache__/
 .cache/
 **/.molecule/
 ansible/*.retry
+# galaxy install target - vendored collections, never committed
+# (no inline comments in .gitignore - they break the pattern!)
+ansible/collections/
+# ansible-lint pre-commit hook drops its galaxy lock here
+.ansible/
 
 # --- OS / editors -----------------------------------------------------------------
 .DS_Store

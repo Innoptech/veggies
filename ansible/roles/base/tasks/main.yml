@@ -1,0 +1,30 @@
+---
+- name: Packages
+  ansible.builtin.include_tasks: packages.yml
+  tags: base_packages
+
+- name: Users
+  ansible.builtin.include_tasks: users.yml
+  tags: base_users
+
+- name: Sshd hardening
+  ansible.builtin.include_tasks: sshd.yml
+  tags: base_sshd
+
+- name: Firewall
+  ansible.builtin.include_tasks: firewall.yml
+  tags: base_firewall
+
+- name: System configuration (sysctl, journald, dnf-automatic, chrony)
+  ansible.builtin.include_tasks: sysconfig.yml
+  tags: base_sysconfig
+
+- name: Auditd
+  ansible.builtin.include_tasks: auditd.yml
+  when: base_manage_auditd
+  tags: base_auditd
+
+- name: Swap
+  ansible.builtin.include_tasks: swap.yml
+  when: base_manage_swap
+  tags: base_swap

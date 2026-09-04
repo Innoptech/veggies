@@ -4,12 +4,15 @@ extends: default
 # rendered; the rendered output is what actionlint checks in project repos.
 ignore: |
   terraform/**/templates/
+  ansible/collections/
+  .ansible/
 rules:
   line-length:
     max: 160
     level: warning
   truthy:
     allowed-values: ["true", "false"]
+    check-keys: false # GitHub Actions requires the `on:` key
   comments:
     min-spaces-from-content: 1
   # The four settings below are required by ansible-lint's yaml rule when a

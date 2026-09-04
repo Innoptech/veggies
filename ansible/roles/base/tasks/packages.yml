@@ -1,0 +1,16 @@
+---
+- name: Install base packages
+  ansible.builtin.dnf:
+    name:
+      - firewalld
+      - dnf-automatic
+      - chrony
+      - audit
+      - openssh-server
+      - policycoreutils-python-utils # SELinux tooling under Enforcing
+      - tmux # agent-attach target
+      - git # opencode config checkout
+      - jq
+      - tar
+    state: present
+  tags: base_packages

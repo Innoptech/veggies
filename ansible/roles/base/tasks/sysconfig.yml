@@ -1,0 +1,59 @@
+---
+- name: Install sysctl drop-in
+  ansible.builtin.template:
+    src: sysctl_infra.conf.j2
+    dest: /etc/sysctl.d/90-infra.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: base_sysctl_dropin
+
+- name: Apply sysctls
+  ansible.builtin.command:
+    cmd: /usr/sbin/sysctl --system
+  changed_when: true
+  when: base_apply_sysctls and base_sysctl_dropin is changed
+
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Limit journald disk usage
+  ansible.builtin.template:
+    src: journald_limits.conf.j2
+    dest: /etc/systemd/journald.conf.d/50-infra.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-journald
+
+- name: Configure dnf-automatic (security updates, applied)
+  community.general.ini_file:
+    path: /etc/dnf/automatic.conf
+    section: commands
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    mode: "0644"
+  loop:
+    - { option: upgrade_type, value: security }
+    - { option: apply_updates, value: "yes" }
+  loop_control:
+    label: "{{ item.option }}"
+
+- name: Enable dnf-automatic timer
+  # Fedora 44: the dnf-automatic package wraps dnf5; the real unit is
+  # dnf5-automatic.timer (dnf-automatic.timer is only an alias).
+  ansible.builtin.service:
+    name: dnf5-automatic.timer
+    enabled: true
+    state: started
+
+- name: Ensure chronyd is enabled (and running where a clock can be disciplined)
+  ansible.builtin.service:
+    name: chronyd
+    enabled: true
+    state: "{{ 'started' if base_start_chrony else 'stopped' }}"

@@ -1,0 +1,14 @@
+# Managed by Ansible (infra repo, base role). Local edits will be overwritten.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+X11Forwarding no
+PermitTunnel no
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+# Local forwarding stays enabled on purpose: it is how the human reaches
+# `opencode serve` (127.0.0.1) and the litellm admin UI over SSH.
+AllowTcpForwarding local
+AllowAgentForwarding no

@@ -1,0 +1,20 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    # A container cannot swapon, set most sysctls, or run auditd - the tasks
+    # are still written for bare metal and gated by these variables.
+    base_manage_swap: false
+    base_apply_sysctls: false
+    base_manage_auditd: false
+    base_start_chrony: false # a container cannot discipline the host clock
+    admin_user: fedora
+    admin_ssh_public_keys: []
+  pre_tasks:
+    - name: Create the admin user the OVH image would normally provide
+      ansible.builtin.user:
+        name: fedora
+        shell: /bin/bash
+  roles:
+    - role: base

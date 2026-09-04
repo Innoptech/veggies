@@ -1,0 +1,41 @@
+---
+- name: Ensure admin user is in the wheel group
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    groups: [wheel]
+    append: true
+    shell: /bin/bash
+
+- name: Install admin ssh public keys
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ item }}"
+  loop: "{{ admin_ssh_public_keys }}"
+  loop_control:
+    label: "{{ item[:32] }}..." # never log full keys
+  when: admin_ssh_public_keys | length > 0
+
+- name: Create service users for rootless quadlets
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /usr/sbin/nologin
+    home: "/home/{{ item }}"
+    create_home: true
+    # NOT system: true - Fedora's useradd -r skips subuid/subgid allocation,
+    # and rootless podman cannot run without those ranges.
+  loop: "{{ base_service_users }}"
+
+- name: Enable lingering so user managers (and quadlets) start at boot
+  ansible.builtin.stat:
+    path: "/var/lib/systemd/linger/{{ item }}"
+  register: base_linger_marker
+  loop: "{{ base_service_users + [admin_user] }}"
+
+- name: Enable linger where missing
+  ansible.builtin.command:
+    cmd: /usr/bin/loginctl enable-linger {{ item.item }}
+  when: not item.stat.exists
+  loop: "{{ base_linger_marker.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: true

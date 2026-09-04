@@ -1,0 +1,46 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Repository file installed
+      ansible.builtin.stat:
+        path: /etc/yum.repos.d/crowdsec_crowdsec.repo
+      register: crowdsec_repo_file
+      failed_when: not crowdsec_repo_file.stat.exists
+
+    - name: Packages installed
+      ansible.builtin.assert:
+        that:
+          - item in ansible_facts.packages
+        fail_msg: "package {{ item }} is not installed"
+      loop:
+        - crowdsec
+        - crowdsec-firewall-bouncer-nftables
+
+    - name: CrowdSec configuration exists
+      ansible.builtin.stat:
+        path: /etc/crowdsec/config.yaml
+      register: crowdsec_main_config
+      failed_when: not crowdsec_main_config.stat.exists
+
+    - name: Bouncer configuration exists
+      ansible.builtin.stat:
+        path: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+      register: crowdsec_bouncer_config
+      failed_when: not crowdsec_bouncer_config.stat.exists
+
+    - name: Services enabled
+      ansible.builtin.assert:
+        that: ansible_facts.services[item + ".service"].status == "enabled"
+        fail_msg: "service {{ item }} is not enabled"
+      loop:
+        - crowdsec
+        - crowdsec-firewall-bouncer

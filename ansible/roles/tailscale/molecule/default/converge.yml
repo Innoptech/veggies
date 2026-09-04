@@ -1,0 +1,8 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    tailscale_auth_key: "" # no tailnet in tests: install + service only
+  roles:
+    - role: tailscale

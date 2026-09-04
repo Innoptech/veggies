@@ -1,0 +1,22 @@
+---
+- name: Restart sshd
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+
+- name: Restart systemd-journald
+  ansible.builtin.service:
+    name: systemd-journald
+    state: restarted
+
+- name: Apply sysctls
+  ansible.builtin.command:
+    cmd: /usr/sbin/sysctl --system
+  changed_when: true
+
+- name: Reload audit rules
+  # TODO(verify): auditd ignores `systemctl restart` by design; the legacy
+  # service wrapper is the supported path on Fedora.
+  ansible.builtin.command:
+    cmd: /usr/sbin/service auditd restart
+  changed_when: true # noqa: command-instead-of-module - auditd has no module and refuses systemctl restart

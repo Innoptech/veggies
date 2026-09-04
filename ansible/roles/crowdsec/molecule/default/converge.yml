@@ -1,0 +1,9 @@
+---
+- name: Converge
+  hosts: instance
+  become: true
+  vars:
+    crowdsec_setup_hub: false # hub traffic in CI containers is slow and flaky
+    crowdsec_start_services: false # the bouncer needs real nftables access
+  roles:
+    - role: crowdsec

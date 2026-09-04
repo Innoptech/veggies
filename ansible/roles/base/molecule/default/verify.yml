@@ -1,0 +1,92 @@
+---
+- name: Verify
+  hosts: instance
+  become: true
+  gather_facts: false
+  vars:
+    base_verify_service_users: [gh-runner, egress-proxy]
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Sshd drop-in exists and validates
+      ansible.builtin.command:
+        cmd: /usr/sbin/sshd -t -f /etc/ssh/sshd_config.d/50-infra.conf
+      changed_when: false
+
+    - name: Password auth is off and root login is off
+      ansible.builtin.command:
+        cmd: grep -E '^(PasswordAuthentication|PermitRootLogin)' /etc/ssh/sshd_config.d/50-infra.conf
+      register: base_sshd_directives
+      changed_when: false
+      failed_when: >
+        'PasswordAuthentication no' not in base_sshd_directives.stdout
+        or 'PermitRootLogin no' not in base_sshd_directives.stdout
+
+    - name: Firewalld is active
+      ansible.builtin.assert:
+        that: ansible_facts.services["firewalld.service"].state == "running" # service_facts reports SubState
+
+    - name: Query public ssh in the permanent config
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --zone=public --query-service=ssh
+      register: base_public_ssh_query
+      changed_when: false
+      failed_when: false
+
+    - name: Public ssh removed in steady state
+      ansible.builtin.assert:
+        that: base_public_ssh_query.rc != 0
+        fail_msg: "ssh must not be a public-zone service in steady state"
+
+    - name: Read the account database
+      ansible.builtin.getent:
+        database: passwd
+      register: base_passwd_db
+
+    - name: Assert service users
+      ansible.builtin.assert:
+        that:
+          - item in base_passwd_db.ansible_facts.getent_passwd
+          - "'nologin' in base_passwd_db.ansible_facts.getent_passwd[item][5]" # [pw,uid,gid,gecos,home,shell]
+        fail_msg: "service user {{ item }} missing or has a login shell"
+      loop: "{{ base_verify_service_users }}"
+
+    - name: Linger markers present
+      ansible.builtin.stat:
+        path: "/var/lib/systemd/linger/{{ item }}"
+      register: base_linger
+      loop: "{{ base_verify_service_users + ['fedora'] }}"
+
+    - name: Assert linger markers
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "linger not enabled for {{ item.item }}"
+      loop: "{{ base_linger.results }}"
+
+    - name: Read subuid allocations
+      ansible.builtin.slurp:
+        src: /etc/subuid
+      register: base_subuid
+
+    - name: Assert subuid ranges
+      ansible.builtin.assert:
+        that: item + ":" in (base_subuid.content | b64decode)
+        fail_msg: "no subuid range for {{ item }} (useradd subid support missing?)"
+      loop: "{{ base_verify_service_users }}"
+
+    - name: Dnf-automatic timer enabled (timers are not in service_facts)
+      ansible.builtin.stat:
+        path: /etc/systemd/system/timers.target.wants/dnf5-automatic.timer
+      register: base_dnf_automatic_timer
+      failed_when: not base_dnf_automatic_timer.stat.exists
+
+    - name: Chronyd enabled
+      ansible.builtin.assert:
+        that: ansible_facts.services["chronyd.service"].status == "enabled"
+
+    - name: Journald limits installed
+      ansible.builtin.stat:
+        path: /etc/systemd/journald.conf.d/50-infra.conf
+      register: base_journald_conf
+      failed_when: not base_journald_conf.stat.exists

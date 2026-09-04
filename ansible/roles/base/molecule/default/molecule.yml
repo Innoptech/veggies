@@ -1,0 +1,27 @@
+---
+# Collections come from the shared ansible/requirements.yml via the
+# collections.yml symlink in this directory (molecule's default filename).
+dependency:
+  name: galaxy
+driver:
+  name: podman
+platforms:
+  - name: instance
+    image: localhost/fedora44-systemd:latest
+    # Already ansible-compatible (python3+sudo baked in); the driver must NOT
+    # build its own layer on top. Built by `mask molecule-images` / CI.
+    pre_build_image: true
+    command: /usr/sbin/init
+    # No tmpfs key: podman detects the init command and enables its systemd
+    # mode (tmpfs on /run and /tmp, cgroup setup) automatically. The driver's
+    # tmpfs pass-through conflicts with containers.podman>=1.16's dict type.
+    privileged: true
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      # Molecule 26 does not inject the role's parent dir anymore; without
+      # this, `role: base` is not found from the ephemeral directory.
+      roles_path: ${MOLECULE_PROJECT_DIRECTORY}/..
+verifier:
+  name: ansible

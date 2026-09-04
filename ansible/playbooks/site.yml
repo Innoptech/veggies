@@ -1,0 +1,19 @@
+---
+# Steady-state converge. Role order matters: network access (tailscale) before
+# anything that pulls; proxy (egress) before agents that must be constrained.
+# base_public_ssh stays false here - site.yml never re-opens public SSH.
+- name: Converge garden
+  hosts: garden
+  become: true
+  vars_files:
+    - ../secrets/infra.yml
+    - ../secrets/github.yml
+    - ../secrets/model.yml
+  roles:
+    - role: base
+    - role: crowdsec
+    - role: tailscale
+    # phase 5: podman, github_runner
+    # phase 6: opencode (incl. litellm)
+    # phase 7: egress
+    # phase 8: backup

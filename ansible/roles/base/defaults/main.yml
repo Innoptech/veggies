@@ -1,0 +1,21 @@
+---
+# Steady state is the SAFE state: no public SSH (ADR 0003). bootstrap.yml
+# overrides this to true for the bootstrap window only.
+base_public_ssh: false
+
+# Container/test gates (molecule sets these false - a container cannot swapon,
+# set most sysctls, run auditd, or discipline the host clock):
+base_manage_swap: true
+base_swap_size_mb: 2048
+base_apply_sysctls: true
+base_manage_auditd: true
+base_start_chrony: true
+
+# Service accounts for rootless quadlets (ADR 0009). The admin user (fedora)
+# is not in this list - it exists already from the OVH image.
+base_service_users:
+  - gh-runner
+  - egress-proxy
+
+base_journald_system_max_use: 500M
+base_journald_runtime_max_use: 200M

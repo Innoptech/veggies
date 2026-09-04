@@ -79,7 +79,21 @@ jobs:
 
   molecule:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [base, crowdsec, tailscale] # keep in sync with ansible/roles/
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Placeholder
-        run: echo "Per-role Molecule jobs (podman driver) are added from phase 4."
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements-dev.txt
+      # TODO(verify): podman is preinstalled on ubuntu-latest GHA images.
+      # If a job ever fails on `podman: command not found`, add:
+      #   sudo apt-get update && sudo apt-get install -y podman
+      - name: Build the shared test image
+        run: podman build -t localhost/fedora44-systemd:latest -f ansible/molecule/fedora44-systemd.Containerfile ansible/molecule
+      - name: molecule test (${{ matrix.role }})
+        working-directory: ansible/roles/${{ matrix.role }}
+        run: molecule test

@@ -1,0 +1,14 @@
+---
+# Hub operations (cscli hub update / collections install) need network access
+# to hub.crowdsec.net. Molecule sets this false; real hosts keep it true.
+crowdsec_setup_hub: true
+
+crowdsec_collections:
+  - crowdsecurity/linux
+  - crowdsecurity/sshd
+
+# Service start gate for containers (the bouncer needs real nftables access).
+crowdsec_start_services: true
+
+# Optional CrowdSec console enrollment (an external account). Empty = local only.
+crowdsec_enroll_key: "" # TODO(you): optional
