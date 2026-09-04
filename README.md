@@ -42,16 +42,21 @@ veggies --host veggies up --clone https://github.com/you/repo.git  # on the VPS
 ### veggies.yml (per-repo customization, ADR 0016)
 
 A repo can declare its stack with an optional `veggies.yml` at its root —
-versioned with the repo it describes. Schema v0:
+versioned with the repo it describes. Schema v1 (ADR 0023):
 
 ```yaml
 model: kimi-k3          # litellm alias; becomes the stack's default model
-components: [opencode, litellm, squid]  # default: all three (the core stack)
+harness: opencode       # capability selection: WHICH implementation
+model_router: litellm   #   provides each capability (only impls today)
+egress: squid
+# or, v0 style (exclusive with capability keys):
+# components: [opencode, litellm, squid]
 ```
 
+Capabilities (harness / model-router / egress, with `orchestrator` reserved
+for ADR 0017) are the contract; the registry maps them to implementations.
 Precedence: `--model` flag > veggies.yml > vendored default. Unknown keys
-warn and are ignored (so future schema versions degrade gracefully); invalid
-values abort with an error.
+warn and are ignored; invalid values abort with an error.
 - Boot persistence locally needs linger once: `sudo loginctl enable-linger
   $USER` (the CLI warns you).
 

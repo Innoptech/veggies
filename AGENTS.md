@@ -23,10 +23,12 @@ reviews PRs; agents implement. These rules are not negotiable:
 8. **Task runner**: `maskfile.md` (mask 0.11.x). CI does not use mask - it
    invokes tools directly.
 9. **veggies CLI** (`cli/veggies.py` + `cli/veggies_stack.py`, ADR
-   0013/0014/0016): repo-scoped agent stacks. The CLI is the ONLY owner of
-   stack definition - ansible roles prepare hosts and nothing more (ADR
-   0016). Stack composition is a Component registry (`CORE`); per-repo
-   `veggies.yml` (schema v0: model, components) customizes.
+   0013/0014/0016/0023): repo-scoped agent stacks. The CLI is the ONLY owner
+   of stack definition - ansible roles prepare hosts and nothing more (ADR
+   0016). Components depend on capability contracts (`cli/capabilities.py`)
+   and the PodContext, never on each other; implementations live in
+   `cli/components/`, selected via the REGISTRY and per-repo `veggies.yml`
+   (schema v1: model, components or capability keys).
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket
