@@ -80,15 +80,14 @@ def _pod(spec):
     return next(d for d in _docs(spec) if d["kind"] == "Pod")
 
 
-def test_render_has_pvcs_and_one_pod(spec):
+def test_render_has_pvc_and_one_pod(spec):
     docs = _docs(spec)
-    assert [d["kind"] for d in docs] == [
-        "PersistentVolumeClaim",
-        "PersistentVolumeClaim",
-        "Pod",
-    ]
+    assert [d["kind"] for d in docs] == ["PersistentVolumeClaim", "Pod"]
     assert docs[0]["metadata"]["name"] == "garden-demo-opencode"
-    assert docs[1]["metadata"]["name"] == "garden-demo-litellm"
+    # litellm is deliberately DB-less (ADR 0011: in-memory only); the proxy
+    # dropped sqlite support, so no litellm-data volume exists.
+    names = [v["name"] for v in docs[1]["spec"]["volumes"]]
+    assert "litellm-data" not in names
 
 
 def test_render_containers_and_pins(spec):
@@ -124,8 +123,19 @@ def test_all_containers_hardened(spec):
         assert sc["readOnlyRootFilesystem"] is True
         assert sc["allowPrivilegeEscalation"] is False
         assert sc["capabilities"]["drop"] == ["ALL"]
+        # squid must keep setuid/setgid to drop to the proxy user
+        if container["name"] == "squid":
+            assert sc["capabilities"]["add"] == ["SETUID", "SETGID"]
         assert container["resources"]["limits"]["memory"].endswith("Mi")
         assert "livenessProbe" in container
+
+
+def test_no_subpath_mounts(spec):
+    """subPath file mounts bypass SELinux relabeling (EACCES crash loop,
+    2026-09-04). Directory mounts only, forever."""
+    for container in _pod(spec)["spec"]["containers"]:
+        for mount in container["volumeMounts"]:
+            assert "subPath" not in mount, (container["name"], mount)
 
 
 def test_secrets_are_namespaced_per_stack(spec):
@@ -189,6 +199,49 @@ def test_model_endpoints_match_group_vars_example():
 
 def test_squid_containerfile_reused():
     assert (ROOT / "ansible/roles/egress/files/squid.Containerfile").exists()
+
+
+# --- runtime helpers (pure parts) -----------------------------------------------
+
+
+def test_render_secret_docs_base64(spec):
+    docs = garden.render_secret_docs(spec, {
+        "master_key": "mk", "salt_key": "sk",
+        "fireworks_api_key": "fw", "password": "pw",
+    })
+    assert {d["metadata"]["name"] for d in docs} == {
+        "garden-demo-litellm", "garden-demo-opencode"
+    }
+    litellm = docs[0]["data"]
+    assert litellm["master_key"] == "bWs="  # base64("mk")
+    import base64
+    assert base64.b64decode(litellm["fireworks_api_key"]).decode() == "fw"
+
+
+def test_container_names_prefixed(spec):
+    assert garden.container_names(spec) == [
+        "garden-demo-opencode", "garden-demo-litellm", "garden-demo-squid"
+    ]
+
+
+def test_safe_rmtree_refuses_outside_paths(tmp_path):
+    with pytest.raises(ValueError):
+        garden.safe_rmtree(tmp_path, Path("/etc/someone-elses-repo"))
+    inside = tmp_path / "stack/config"
+    inside.mkdir(parents=True)
+    garden.safe_rmtree(tmp_path, inside)
+    assert not inside.exists()
+
+
+def test_state_records_password(tmp_path):
+    state = garden.State(root=tmp_path)
+    state.add(garden.StackSpec(name="a", repo="/x"), password="s3cret")
+    assert state.get("a")["password"] == "s3cret"
+
+
+def test_opencode_containerfile_pin_format():
+    text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
+    assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
 
 
 # --- golden file ----------------------------------------------------------------

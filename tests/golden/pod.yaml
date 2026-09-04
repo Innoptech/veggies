@@ -10,17 +10,6 @@ spec:
       storage: 1Gi
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: garden-demo-litellm
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
-apiVersion: v1
 kind: Pod
 metadata:
   labels:
@@ -50,14 +39,23 @@ spec:
       value: http://127.0.0.1:3128
     - name: HTTPS_PROXY
       value: http://127.0.0.1:3128
+    - name: http_proxy
+      value: http://127.0.0.1:3128
+    - name: https_proxy
+      value: http://127.0.0.1:3128
     - name: NO_PROXY
       value: 127.0.0.1,localhost
-    image: ghcr.io/anomalyco/opencode:v1.18.27
+    - name: no_proxy
+      value: 127.0.0.1,localhost
+    image: localhost/garden-opencode:1.18.27
     livenessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - nc -z 127.0.0.1 4096 || exit 1
       initialDelaySeconds: 10
       periodSeconds: 30
-      tcpSocket:
-        port: 4096
     name: opencode
     ports:
     - containerPort: 4096
@@ -75,7 +73,7 @@ spec:
     volumeMounts:
     - mountPath: /workspace
       name: repo
-    - mountPath: /config
+    - mountPath: /root/.config/opencode
       name: stack-config
       readOnly: true
     - mountPath: /root
@@ -85,7 +83,7 @@ spec:
     workingDir: /workspace
   - args:
     - --config
-    - /app/config.yaml
+    - /agent-config/config.yaml
     - --port
     - '4000'
     - --host
@@ -106,13 +104,14 @@ spec:
         secretKeyRef:
           key: fireworks_api_key
           name: garden-demo-litellm
-    - name: DATABASE_URL
-      value: sqlite:////data/litellm.db
     image: ghcr.io/berriai/litellm:v1.99.1
     livenessProbe:
-      httpGet:
-        path: /health/liveliness
-        port: 4000
+      exec:
+        command:
+        - sh
+        - -c
+        - python3 -c "import socket; socket.create_connection(('127.0.0.1', 4000),
+          3)" || exit 1
       initialDelaySeconds: 15
       periodSeconds: 30
     name: litellm
@@ -121,34 +120,40 @@ spec:
         memory: 768Mi
     securityContext: *id001
     volumeMounts:
-    - mountPath: /app/config.yaml
-      name: litellm-config
+    - mountPath: /agent-config
+      name: agent-config
       readOnly: true
-      subPath: config.yaml
-    - mountPath: /data
-      name: litellm-data
     - mountPath: /tmp
       name: tmp
-  - image: localhost/squid:latest
+  - args:
+    - -f
+    - /stack-config/squid.conf
+    image: localhost/squid:latest
     livenessProbe:
+      exec:
+        command:
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/3128 || exit 1
       initialDelaySeconds: 5
       periodSeconds: 30
-      tcpSocket:
-        port: 3128
     name: squid
     resources:
       limits:
         memory: 128Mi
-    securityContext: *id001
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        add:
+        - SETUID
+        - SETGID
+        drop:
+        - ALL
+      readOnlyRootFilesystem: true
     volumeMounts:
-    - mountPath: /etc/squid/squid.conf
+    - mountPath: /stack-config
       name: stack-config
       readOnly: true
-      subPath: squid.conf
-    - mountPath: /etc/squid/allowlist.txt
-      name: stack-config
-      readOnly: true
-      subPath: allowlist.txt
     - mountPath: /run
       name: run
     - mountPath: /tmp
@@ -166,13 +171,10 @@ spec:
   - hostPath:
       path: /home/josee/Innoptech/veggie/agent-config/litellm
       type: Directory
-    name: litellm-config
+    name: agent-config
   - name: opencode-home
     persistentVolumeClaim:
       claimName: garden-demo-opencode
-  - name: litellm-data
-    persistentVolumeClaim:
-      claimName: garden-demo-litellm
   - emptyDir: {}
     name: tmp
   - emptyDir: {}

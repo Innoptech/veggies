@@ -14,9 +14,11 @@ http_access deny !allowed_src
 http_access allow allowed_sites
 http_access deny all
 
-# No caching - this is an egress filter, freshness matters.
+# No caching - this is an egress filter, freshness matters. Ubuntu's squid
+# has no null store module; `cache deny all` alone disables caching.
 cache deny all
-cache_dir null /var/spool/squid-null
+# Foreground under systemd: no pid file (verified against squid 6.14).
+pid_filename none
 
 access_log stdio:/proc/self/fd/1
 logfile_rotate 0

@@ -8,11 +8,24 @@ Usage: vault_get.py secrets/infra.yml tailscale_oauth_secret
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
+
+
+def _ansible_vault() -> str:
+    """Prefer the venv sibling of the running interpreter (the garden shim
+    invokes us via the venv python without putting the venv on PATH)."""
+    sibling = Path(sys.executable).parent / "ansible-vault"
+    if sibling.exists():
+        return str(sibling)
+    found = shutil.which("ansible-vault")
+    if found:
+        return found
+    raise FileNotFoundError("ansible-vault not on PATH and not beside the interpreter")
 
 
 def main() -> int:
@@ -24,7 +37,7 @@ def main() -> int:
 
     out = subprocess.run(
         [
-            "ansible-vault",
+            _ansible_vault(),
             "view",
             "--vault-password-file",
             str(Path(args.password_file).expanduser()),
