@@ -128,14 +128,23 @@ def redact(text: str) -> str:
 
 def vault_key(key: str, vault_file: str = VAULT_MODEL) -> str:
     script = Path(__file__).parent.parent / "scripts/vault_get.py"
-    value = subprocess.run(
-        [sys.executable, str(script), vault_file, key,
-         "--password-file", VAULT_PASSWORD_FILE],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).parent.parent,
-    ).stdout.strip()
+    try:
+        value = subprocess.run(
+            [sys.executable, str(script), vault_file, key,
+             "--password-file", VAULT_PASSWORD_FILE],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        # The actionable message is on vault_get's stderr (missing/wrong
+        # password file, missing key, ...); str(exc) alone is just
+        # "returned non-zero exit status 1".
+        detail = " | ".join((exc.stderr or "").strip().splitlines())
+        raise ValueError(redact(
+            f"vault lookup failed for {key!r} in {vault_file}: "
+            + (detail or f"exit {exc.returncode}"))) from None
     if value:
         _SECRET_STRINGS.add(value)
     return value
@@ -503,6 +512,14 @@ def cmd_up(args: argparse.Namespace) -> int:
             print("aborted")
             return 1
 
+    # Resolve secrets first: a missing/wrong vault password must fail in a
+    # second, not after a full image build (fresh-machine onboarding).
+    values = {}
+    for key, source in required_secret_values(spec).items():
+        values[key] = (secrets_mod.token_hex(source.nbytes)
+                       if isinstance(source, Generated)
+                       else vault_key(source.key))
+
     print("==> images")
     ensure_images(host, infra_repo, spec)
 
@@ -512,12 +529,6 @@ def cmd_up(args: argparse.Namespace) -> int:
         # Everything a container bind-mounts must carry container_file_t.
         label_for_containers(None, str(infra_repo / "agent-config" / "litellm"))
         label_for_containers(None, repo_path)
-
-    values = {}
-    for key, source in required_secret_values(spec).items():
-        values[key] = (secrets_mod.token_hex(source.nbytes)
-                       if isinstance(source, Generated)
-                       else vault_key(source.key))
 
     # Idempotent refresh: drop the old pod and secrets before replaying.
     host_podman(host, "pod", "rm", "-f", spec.pod, check=False, capture=True)

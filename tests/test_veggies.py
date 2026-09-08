@@ -572,6 +572,29 @@ def test_remote_clone_non_github_never_probes(monkeypatch):
                    "clone", "https://gitlab.com/x/y.git", "/c/x"]
 
 
+def test_vault_key_surfaces_stderr(monkeypatch):
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(
+            1, ["vault_get.py"], stderr="some noise\n"
+            "vault password file missing or empty: /nope - create it")
+    monkeypatch.setattr(veggies.subprocess, "run", boom)
+    with pytest.raises(ValueError, match="password file missing or empty"):
+        veggies.vault_key("fireworks_api_key")
+
+
+def test_vault_key_redacts_secrets_in_stderr(monkeypatch):
+    veggies._SECRET_STRINGS.add("s3cret-value")
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(
+            1, ["vault_get.py"], stderr="decryption failed for s3cret-value")
+    monkeypatch.setattr(veggies.subprocess, "run", boom)
+    with pytest.raises(ValueError) as err:
+        veggies.vault_key("fireworks_api_key")
+    assert "s3cret-value" not in str(err.value)
+    assert "***" in str(err.value)
+    veggies._SECRET_STRINGS.discard("s3cret-value")
+
+
 def test_error_redaction_scrubs_vault_values(monkeypatch):
     monkeypatch.setattr(veggies, "host_run",
                         lambda *a, **k: subprocess.CompletedProcess(a, 1))

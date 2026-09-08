@@ -35,18 +35,35 @@ def main() -> int:
     parser.add_argument("--password-file", default="~/.config/infra/vault-password")
     args = parser.parse_args()
 
-    out = subprocess.run(
-        [
-            _ansible_vault(),
-            "view",
-            "--vault-password-file",
-            str(Path(args.password_file).expanduser()),
-            args.file,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    password_file = Path(args.password_file).expanduser()
+    if not password_file.is_file() or not password_file.read_text().strip():
+        print(f"vault password file missing or empty: {password_file} - create "
+              "it with the repo's vault password on one line, chmod 600 "
+              "(ask the operator; see README quickstart)", file=sys.stderr)
+        return 1
+    try:
+        out = subprocess.run(
+            [
+                _ansible_vault(),
+                "view",
+                "--vault-password-file",
+                str(password_file),
+                args.file,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except FileNotFoundError as exc:  # ansible-vault itself is missing
+        print(str(exc), file=sys.stderr)
+        return 1
+    except subprocess.CalledProcessError as exc:
+        # ansible-vault's stderr says why (wrong password, not a vault
+        # file, ...) - print it whole; the message line is not always last
+        # (newer ansible appends an "Origin:" line after it).
+        print((exc.stderr or "").strip() or f"ansible-vault exited {exc.returncode}",
+              file=sys.stderr)
+        return 1
     data = yaml.safe_load(out)
     if args.key not in data:
         print(f"key {args.key!r} not in {args.file}", file=sys.stderr)
