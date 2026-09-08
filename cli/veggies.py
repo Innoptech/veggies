@@ -192,7 +192,8 @@ def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.Complete
                        "env", f"HOME=/home/{REMOTE_USER}",
                        f"XDG_RUNTIME_DIR=/run/user/{_REMOTE_UID[host]}",
                        *args])
-    return run(["ssh", host, remote], **kwargs)
+    # cd out of the admin's 0700 home first: podman chdirs to $cwd.
+    return run(["ssh", host, "cd / && " + remote], **kwargs)
 
 
 def host_podman(host: str | None, *args: str, **kwargs) -> subprocess.CompletedProcess:

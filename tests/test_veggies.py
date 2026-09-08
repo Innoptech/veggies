@@ -507,7 +507,7 @@ def test_host_run_wraps_ssh_sudo(monkeypatch):
     # argv becomes ONE shlex-quoted string (ssh re-joins for the remote shell)
     assert calls[2][0:2] == ["ssh", "veggies"]
     payload = calls[2][2]
-    assert payload.startswith("sudo -n -u stacks env HOME=/home/stacks "
+    assert payload.startswith("cd / && sudo -n -u stacks env HOME=/home/stacks "
                               "XDG_RUNTIME_DIR=/run/user/ ")
     assert shlex.split(payload)[-3:] == ["sh", "-c", "a && b > '/p q'"]  # round-trips
 
