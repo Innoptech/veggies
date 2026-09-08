@@ -1,4 +1,8 @@
 ---
+# Master switch (ADR 0024): false while the org-approved fine-grained PAT is
+# pending - registration needs the GitHub API.
+github_runner_enabled: true
+
 # Runner identity and shape (sized for 6 vCPU / 12 GB).
 github_runner_user: gh-runner
 github_runner_scope: repo # repo | org (org requires a GitHub organization)

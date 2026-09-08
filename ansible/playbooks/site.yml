@@ -21,5 +21,6 @@
     - role: podman
     - role: egress # before anything that must build/pull as a restricted user
     - role: github_runner
+      when: github_runner_enabled | default(true) | bool
     - role: backup
       when: backup_enabled | default(true) | bool

@@ -20,6 +20,8 @@ tailscale_tag: "tag:agent-host" # TODO(you): ACL tag for this node
 tailscale_hostname: veggies
 
 # --- GitHub runner -----------------------------------------------------
+github_runner_enabled: true # false only to converge the rest while no GitHub token exists
+
 github_owner: "YOUR_ORG_OR_USER" # TODO(you)
 github_repos: [] # TODO(you): e.g. ["veggie", "data-pipelines"]
 github_runner_scope: repo # repo | org (org needs a GitHub organization)
