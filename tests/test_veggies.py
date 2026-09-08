@@ -572,6 +572,17 @@ def test_remote_clone_non_github_never_probes(monkeypatch):
                    "clone", "https://gitlab.com/x/y.git", "/c/x"]
 
 
+def test_warn_if_root(monkeypatch, capsys):
+    monkeypatch.setattr(veggies.os, "geteuid", lambda: 0)
+    veggies.warn_if_root(None)
+    assert "root" in capsys.readouterr().err
+    veggies.warn_if_root("veggies")  # remote stacks don't run local podman
+    assert capsys.readouterr().err == ""
+    monkeypatch.setattr(veggies.os, "geteuid", lambda: 1000)
+    veggies.warn_if_root(None)
+    assert capsys.readouterr().err == ""
+
+
 def test_vault_key_surfaces_stderr(monkeypatch):
     def boom(*a, **k):
         raise subprocess.CalledProcessError(

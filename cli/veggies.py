@@ -459,10 +459,20 @@ def cmd_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def warn_if_root(host: str | None) -> None:
+    """Stacks assume a rootless user (systemd --user, linger, rootless
+    podman); root mostly works but is off-label - say so, don't block."""
+    if host is None and hasattr(os, "geteuid") and os.geteuid() == 0:
+        print("!! running as root: stacks assume a rootless user "
+              "(systemd --user, linger) - untested, use a normal account",
+              file=sys.stderr)
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
     state = State()
     host = args.host
+    warn_if_root(host)
 
     name = args.name or stack_name_from(args.repo)
     if host and not args.clone:
