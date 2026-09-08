@@ -1,21 +1,87 @@
 ---
+# Disk swapfile, only when the host has no swap at all (the OVH Fedora image
+# ships an 8G zram device, which is finer than a small disk file). btrfs
+# swapfiles additionally need NOCOW + preallocation, done below.
 - name: Check for existing swapfile
   ansible.builtin.stat:
     path: /swapfile
   register: base_swapfile_stat
 
-- name: Create swapfile
+- name: Check for active swap
   ansible.builtin.command:
-    cmd: /usr/sbin/fallocate -l {{ base_swap_size_mb }}M /swapfile
-  when: not base_swapfile_stat.stat.exists
-  changed_when: true
+    cmd: /usr/sbin/swapon --show=name --noheadings
+  register: base_swap_active
+  changed_when: false
 
-- name: Set swapfile permissions
+- name: Remove a stale unused swapfile
+  ansible.builtin.file:
+    path: /swapfile
+    state: absent
+  when:
+    - base_swap_active.stdout != ""
+    - base_swapfile_stat.stat.exists
+
+- name: Note when swap is already provided
+  ansible.builtin.debug:
+    msg: "swap already active ({{ base_swap_active.stdout_lines | join(' ') }}); no disk swapfile"
+  when: base_swap_active.stdout != ""
+
+- name: Root filesystem type (btrfs swapfiles need NOCOW)
+  ansible.builtin.command:
+    cmd: /usr/bin/findmnt -n -o FSTYPE /
+  register: base_root_fstype
+  changed_when: false
+  when: base_swap_active.stdout == ""
+
+- name: Check NOCOW attribute on an existing swapfile
+  ansible.builtin.command:
+    cmd: /usr/bin/lsattr -d /swapfile
+  register: base_swapfile_attrs
+  changed_when: false
+  when:
+    - base_swap_active.stdout == ""
+    - base_root_fstype.stdout == "btrfs"
+    - base_swapfile_stat.stat.exists
+
+- name: Recreate a CoW swapfile (btrfs refuses it)
+  ansible.builtin.file:
+    path: /swapfile
+    state: absent
+  when:
+    - base_swap_active.stdout == ""
+    - base_root_fstype.stdout == "btrfs"
+    - base_swapfile_stat.stat.exists
+    - "'C' not in base_swapfile_attrs.stdout.split()[0]"
+  register: base_swapfile_removed
+
+- name: Create an empty swapfile
   ansible.builtin.file:
     path: /swapfile
     owner: root
     group: root
     mode: "0600"
+    state: touch
+  when:
+    - base_swap_active.stdout == ""
+    - not base_swapfile_stat.stat.exists or (base_swapfile_removed.changed | default(false))
+  register: base_swapfile_created
+
+- name: Set NOCOW before allocation (btrfs requirement)
+  ansible.builtin.command:
+    cmd: /usr/bin/chattr +C /swapfile
+  when:
+    - base_swap_active.stdout == ""
+    - base_root_fstype.stdout == "btrfs"
+    - base_swapfile_created.changed | default(false)
+  changed_when: true
+
+- name: Allocate the swapfile
+  ansible.builtin.command:
+    cmd: /usr/sbin/fallocate -l {{ base_swap_size_mb }}M /swapfile
+  when:
+    - base_swap_active.stdout == ""
+    - base_swapfile_created.changed | default(false)
+  changed_when: true
 
 - name: Check whether swapfile is formatted
   ansible.builtin.command:
@@ -23,11 +89,14 @@
   register: base_swapfile_type
   changed_when: false
   failed_when: false
+  when: base_swap_active.stdout == ""
 
 - name: Format swapfile
   ansible.builtin.command:
     cmd: /usr/sbin/mkswap /swapfile
-  when: base_swapfile_type.stdout != "swap"
+  when:
+    - base_swap_active.stdout == ""
+    - base_swapfile_type.stdout != "swap"
   changed_when: true
 
 - name: Enable swapfile in fstab and now
@@ -37,3 +106,4 @@
     fstype: swap
     opts: sw
     state: mounted
+  when: base_swap_active.stdout == ""

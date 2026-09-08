@@ -26,14 +26,61 @@
       - crowdsec-firewall-bouncer-nftables
     state: present
 
-- name: Enable (and where possible start) crowdsec services
+- name: Enable and start the crowdsec engine (LAPI first - the bouncer needs it)
   ansible.builtin.service:
-    name: "{{ item }}"
+    name: crowdsec
     enabled: true
     state: "{{ 'started' if crowdsec_start_services else 'stopped' }}"
-  loop:
-    - crowdsec
-    - crowdsec-firewall-bouncer
+
+# The bouncer authenticates to LAPI with a key that `cscli bouncers add`
+# shows exactly once. Registered on first converge; afterwards the bouncer
+# exists and the on-disk config (which we never overwrite) keeps the key.
+# Recovery from a lost/mismatched key: `cscli bouncers delete
+# firewall-bouncer`, package-remove the bouncer config, re-run converge.
+- name: List registered bouncers
+  ansible.builtin.command:
+    cmd: /usr/bin/cscli bouncers list -o json
+  register: crowdsec_bouncers_list
+  changed_when: false
+  when: crowdsec_start_services
+
+- name: Register the firewall bouncer (key is shown exactly once)
+  ansible.builtin.command:
+    cmd: /usr/bin/cscli bouncers add firewall-bouncer -o raw
+  register: crowdsec_bouncer_key
+  changed_when: true
+  no_log: true # the API key must never appear in logs or diffs
+  when:
+    - crowdsec_start_services
+    - "'firewall-bouncer' not in (((crowdsec_bouncers_list.stdout | from_json) or []) | map(attribute='name') | list)"
+
+- name: Install the bouncer API key
+  ansible.builtin.lineinfile:
+    path: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+    regexp: "^api_key:"
+    line: "api_key: {{ crowdsec_bouncer_key.stdout }}"
+    owner: root
+    group: root
+    mode: "0640"
+  no_log: true # contains the API key
+  when:
+    - crowdsec_start_services
+    - crowdsec_bouncer_key is changed
+  register: crowdsec_bouncer_conf
+
+- name: Restart the bouncer when its key changed
+  ansible.builtin.service:
+    name: crowdsec-firewall-bouncer
+    state: restarted
+  when:
+    - crowdsec_start_services
+    - crowdsec_bouncer_conf is changed
+
+- name: Enable and start the firewall bouncer
+  ansible.builtin.service:
+    name: crowdsec-firewall-bouncer
+    enabled: true
+    state: "{{ 'started' if crowdsec_start_services else 'stopped' }}"
 
 - name: Update the hub
   ansible.builtin.command:
