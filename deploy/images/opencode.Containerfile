@@ -3,4 +3,13 @@
 # Base pinned by tag AND digest; bump both together.
 FROM ghcr.io/anomalyco/opencode:1.18.27@sha256:1eedcb5d4439130e35f5cf76d87c786c4eeb12dc7afebd79663f6c8341fa8505
 
+# Build-time proxy args: on the VPS the stacks user is direct-egress-denied,
+# so image builds must ride the filtering proxy. buildah exposes ARGs to RUN
+# steps as env (both cases: apk/pip read lowercase, curl reads either).
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG http_proxy=""
+ARG https_proxy=""
+ARG NO_PROXY=""
+
 RUN apk add --no-cache git openssh-client

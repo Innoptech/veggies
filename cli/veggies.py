@@ -258,7 +258,12 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
         images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
         cf_path = f"{images_dir}/{base}.Containerfile"
         host_write(host, cf_path, cf)
-        hp("build", "-q", "-t", b.image, "-f", cf_path, images_dir)
+        build_args = []
+        if host is not None:  # stacks is direct-egress-denied: RUN steps too
+            for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+                build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
+            build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
+        hp("build", "-q", "-t", b.image, "-f", cf_path, *build_args, images_dir)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
