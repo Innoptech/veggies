@@ -528,7 +528,7 @@ def test_remote_clone_private_repo_gets_token(monkeypatch):
     monkeypatch.setattr(veggies, "host_run", fake_host_run)
     monkeypatch.setattr(veggies, "vault_key", lambda *a, **k: "tok123")
     cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/private.git", "/c/x")
-    assert cmd[1:3] == ["-c", "http.extraHeader=Authorization: Bearer tok123"]
+    assert cmd[2:4] == ["-c", "http.extraHeader=Authorization: Bearer tok123"]
     assert cmd[-2:] == ["https://github.com/Innoptech/private.git", "/c/x"]
 
 
