@@ -150,6 +150,7 @@
       # no args: in the new API (the module does not rebuild on extra_args
       # changes - fine: the version pin changes name:tag anyway)
       extra_args: >-
+        --network=host
         --build-arg RUNNER_VERSION={{ github_runner_version }}
         --build-arg RUNNER_SHA256={{ github_runner_sha256 }}
         --build-arg HTTPS_PROXY={{ github_runner_build_proxy }}

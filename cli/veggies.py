@@ -259,7 +259,12 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
         cf_path = f"{images_dir}/{base}.Containerfile"
         host_write(host, cf_path, cf)
         build_args = []
-        if host is not None:  # stacks is direct-egress-denied: RUN steps too
+        if host is not None:
+            # RUN steps get their own netns: 127.0.0.1 would be the build
+            # container itself. --network=host makes the proxy's loopback
+            # reachable; packets still carry the (denied) stacks uid, so the
+            # proxy remains the only path.
+            build_args += ["--network=host"]
             for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
                 build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
             build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
