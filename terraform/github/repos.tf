@@ -23,8 +23,8 @@ resource "github_branch_protection" "main" {
   }
 
   required_pull_request_reviews {
-    required_approving_review_count = 1
-    require_code_owner_reviews      = true # <-- the bot can never satisfy this: it is not in CODEOWNERS
+    required_approving_review_count = try(var.review_overrides[each.key].approvals, 1)
+    require_code_owner_reviews      = try(var.review_overrides[each.key].code_owners, true) # <-- the bot can never satisfy this: it is not in CODEOWNERS
     dismiss_stale_reviews           = true
     require_last_push_approval      = true
   }

@@ -1,4 +1,8 @@
 ---
+# Master switch (ADR 0024): false = the playbooks skip this role and keep
+# public SSH open. Overridden in group_vars/all.yml, not here.
+tailscale_enabled: true
+
 # From the vault (secrets/infra.yml) at real converges. Empty = do not join
 # (molecule default: install only, no tailnet).
 tailscale_auth_key: ""

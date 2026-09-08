@@ -74,6 +74,14 @@ SSH again: OVH console -> `firewall-cmd --permanent --zone=public
 (`mask converge` re-asserts the closed state because `base_public_ssh`
 defaults to false).
 
+If tailscale is deferred (`tailscale_enabled: false`, ADR 0024): the
+bootstrap gate and close-out are skipped by design - public SSH stays open
+(key-only, CrowdSec-guarded) and `~/.ssh/config` keeps the public IP. Remote
+stack attach then works over SSH forwarding: `ssh -L 4096:127.0.0.1:4096
+veggies` + attach to `http://127.0.0.1:4096`. Do NOT set
+`base_public_ssh: false` until a tailnet is live - converge would lock you
+out.
+
 If tailscale breaks on the host: OVH console (web shell) ->
 `tailscale status`, `journalctl -u tailscaled`, re-run with a fresh auth key:
 `mask vault-edit secrets/infra.yml` + `mask converge`.
@@ -191,7 +199,7 @@ Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
 `veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`.
 Remote: `veggies --host veggies up --clone <git-url>` then attach over the
-tailnet. Per-repo customization: `veggies.yml` (schema v1: `model`,
+tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
 `components`, capability keys; ADR 0016/0023).
 
 Reference:

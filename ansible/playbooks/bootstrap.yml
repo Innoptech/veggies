@@ -18,17 +18,24 @@
     - role: base
     - role: crowdsec
     - role: tailscale
+      when: tailscale_enabled | default(true) | bool
 
 - name: Verify tailnet reachability (gate - do not tag, do not skip)
   hosts: veggies
   become: true
   gather_facts: false
   tasks:
+    - name: Say why the gate is skipped
+      ansible.builtin.debug:
+        msg: "tailscale_enabled=false: skipping the tailnet gate; public SSH intentionally stays open (ADR 0024)."
+      when: not (tailscale_enabled | default(true) | bool)
+
     - name: Read tailscale status
       ansible.builtin.command:
         cmd: /usr/bin/tailscale status --json
       register: bootstrap_ts_status
       changed_when: false
+      when: tailscale_enabled | default(true) | bool
 
     - name: Fail loudly unless the node is Running in the tailnet
       ansible.builtin.assert:
@@ -36,12 +43,14 @@
           - (bootstrap_ts_status.stdout | from_json).BackendState == "Running"
           - (bootstrap_ts_status.stdout | from_json).Self.Online
         fail_msg: "tailscale is not Running/Online - refusing to close public SSH. Fix this first."
+      when: tailscale_enabled | default(true) | bool
 
     - name: Record the tailnet IPv4
       ansible.builtin.set_fact:
         veggies_ts_ip: >-
           {{ (bootstrap_ts_status.stdout | from_json).Self.TailscaleIPs
              | select('match', '^100\.') | first }}
+      when: tailscale_enabled | default(true) | bool
 
     - name: Prove SSH over the tailnet from the operator machine
       ansible.builtin.command:
@@ -53,6 +62,7 @@
       failed_when: bootstrap_ts_ssh.rc != 0
       register: bootstrap_ts_ssh
       # If this fails the play stops here and public SSH stays open.
+      when: tailscale_enabled | default(true) | bool
 
 - name: Close public SSH
   hosts: veggies
@@ -65,13 +75,21 @@
         permanent: true
         immediate: true
         zone: public
+      when: tailscale_enabled | default(true) | bool
 
     - name: Mark bootstrap complete
       ansible.builtin.copy:
         dest: /etc/infra-bootstrap-done
         content: "bootstrap completed; public ssh closed\n"
         mode: "0644"
+      when: tailscale_enabled | default(true) | bool
 
     - name: Next step for the operator
       ansible.builtin.debug:
         msg: "Public SSH is closed. Update ~/.ssh/config 'Host veggies' to the tailnet name, then run: mask converge"
+      when: tailscale_enabled | default(true) | bool
+
+    - name: Next step for the operator (tailscale deferred)
+      ansible.builtin.debug:
+        msg: "tailscale_enabled=false: public SSH stays open (ADR 0024). Keep ~/.ssh/config 'Host veggies' on the public IP, then run: mask converge"
+      when: not (tailscale_enabled | default(true) | bool)

@@ -1,4 +1,7 @@
 ---
+# Master switch (ADR 0024): false until backup_repo + restic creds are real.
+backup_enabled: true
+
 backup_paths:
   - /home/stacks/.local/state/veggies # stack metadata
   - /home/gh-runner/.config

@@ -1,7 +1,8 @@
 ---
 # Steady-state converge. Role order matters: network access (tailscale) before
 # anything that pulls; proxy (egress) before agents that must be constrained.
-# base_public_ssh stays false here - site.yml never re-opens public SSH.
+# base_public_ssh comes from group_vars: false once tailnet-only access is
+# live, true during the ADR 0024 interim. site.yml never re-opens it itself.
 - name: Converge veggies
   hosts: veggies
   become: true
@@ -16,7 +17,9 @@
     - role: base
     - role: crowdsec
     - role: tailscale
+      when: tailscale_enabled | default(true) | bool
     - role: podman
     - role: egress # before anything that must build/pull as a restricted user
     - role: github_runner
     - role: backup
+      when: backup_enabled | default(true) | bool

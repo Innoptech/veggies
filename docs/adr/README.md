@@ -32,6 +32,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed |
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | proposed |
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: contracts, not tools | accepted |
+| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted |
 
 ## Deviation ledger (vs the original brief)
 
@@ -46,3 +47,6 @@ changes, and keep this index's titles and statuses in sync.
 | Docker daemon | rootless Podman + Quadlet, per-user | ADR 0009 |
 | (no model router) | per-stack LiteLLM in the pod | ADR 0011/0013 |
 | Agent config only in project repos | + vendored baseline `agent-config/` with Superpowers pinned | ADR 0012 |
+| Tailscale-only access | Hardened public SSH (no Innoptech tailnet yet) | ADR 0003/0024 |
+| Backups from day one | backup role gated off until a bucket exists | ADR 0024 |
+| Human review + code owners on every repo | infra repo merges need checks only (solo author) | ADR 0007/0024 |

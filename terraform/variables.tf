@@ -29,6 +29,15 @@ variable "required_checks_overrides" {
   default     = {}
 }
 
+variable "review_overrides" {
+  type = map(object({
+    approvals   = number
+    code_owners = bool
+  }))
+  description = "Per-repo review-policy override, passed to the github module (see github/variables.tf)."
+  default     = {}
+}
+
 variable "actions_secrets" {
   type        = map(map(string))
   description = "Actions secrets per repo: { repo = { NAME = value } }. Fed from the ansible vault, never from tfvars."

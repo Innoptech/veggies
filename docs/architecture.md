@@ -13,12 +13,12 @@ state) lives in ADR 0002/0020.
 | IaC | OpenTofu 1.12; `terraform/github/` is live, `terraform/ovh/` is a gated scaffold |
 | Config mgmt | Ansible 2.21, roles + `site.yml`, Molecule (podman) per role |
 | Containers | Rootless Podman + Quadlet; system users `fedora` / `gh-runner` / `egress-proxy` / `stacks` |
-| Network | Tailscale-only SSH; public SSH closed at bootstrap |
+| Network | Public SSH, key-only + CrowdSec-guarded (Tailscale-only deferred - ADR 0024) |
 | Egress | squid proxy + per-UID nftables; agents reach an allowlist only |
 | Models | per-stack LiteLLM in the pod; the Fireworks key is held only by the proxy (podman secret); agents get revocable virtual keys |
 | Secrets | ansible-vault files committed encrypted to git |
 | State | local, gitignored, restic-backed-up |
-| Backups | restic to OVH Object Storage |
+| Backups | restic to OVH Object Storage (deferred until a bucket exists - ADR 0024) |
 
 ## Stacks
 

@@ -78,6 +78,7 @@ tofu validate
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"
 eval "$(python scripts/tfvars_from_vault.py secrets/github.yml secrets/model.yml secrets/infra.yml)"
+export GITHUB_TOKEN="${TF_VAR_github_token:-}" # the github provider's auth
 cd terraform && tofu plan
 ```
 
@@ -94,6 +95,7 @@ read -r answer
 [ "$answer" = "apply" ] || { echo "Aborted."; exit 1; }
 export PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"
 eval "$(python scripts/tfvars_from_vault.py secrets/github.yml secrets/model.yml secrets/infra.yml)"
+export GITHUB_TOKEN="${TF_VAR_github_token:-}" # the github provider's auth
 cd terraform && tofu apply
 ```
 

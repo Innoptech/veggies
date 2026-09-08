@@ -68,6 +68,15 @@ variable "label_paths" {
   default     = ["**/sql/**", "**/migrations/**", "**/pipelines/**", "**/models/**", "docs/adr/**"]
 }
 
+variable "review_overrides" {
+  type = map(object({
+    approvals   = number
+    code_owners = bool
+  }))
+  description = "Per-repo review-policy override: { repo = { approvals = n, code_owners = bool } }. Absent = strict default (1 approval + code-owner review). Relax only with a recorded ADR (0024 covers the solo-author infra repo)."
+  default     = {}
+}
+
 variable "manage_label_workflow" {
   type        = bool
   description = "When true, commit the labeller workflow to a branch per repo (open the PR by hand; direct pushes to the protected branch would violate this very policy)."

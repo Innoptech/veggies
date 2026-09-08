@@ -2,7 +2,8 @@
 
 Infrastructure-as-code and configuration management for **veggies**: an
 always-on OVHcloud VPS hosting autonomous coding agents (opencode) and
-ephemeral self-hosted GitHub Actions runners, reachable only over Tailscale.
+ephemeral self-hosted GitHub Actions runners, reachable over hardened,
+key-only SSH (Tailscale-only access is deferred - ADR 0024).
 Everything about the machine - access, secrets, network policy, merge policy -
 is reviewable code in this repo.
 
