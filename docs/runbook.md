@@ -198,7 +198,7 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
 `veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`.
-Remote: `veggies --host veggies up --clone <git-url>` then attach over the
+Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over the
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
 `components`, capability keys; ADR 0016/0023).
 
