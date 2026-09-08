@@ -1,6 +1,6 @@
 # egress
 
-Egress allowlist for agent workloads (ADR 0006). Two cooperating mechanisms:
+Egress allowlist for agent workloads. Two cooperating mechanisms:
 
 1. **squid** filtering forward proxy (rootless quadlet under `egress-proxy`,
    published on `0.0.0.0:3128`): domain allowlist (squid `dstdomain`), source

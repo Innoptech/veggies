@@ -1,5 +1,5 @@
 # Protected environment per repo: infra-apply (and anything equally sensitive)
-# cannot run without the human's approval. ADR 0007.
+# cannot run without the human's approval.
 
 data "github_user" "admin" {
   count    = var.admin_login != "" ? 1 : 0

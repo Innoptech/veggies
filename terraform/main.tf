@@ -1,5 +1,5 @@
-# Root module. The GitHub policy is live (phase 2); the OVH compute module is a
-# gated scaffold that is never applied (phase 3, ADRs 0002/0008).
+# Root module. The GitHub policy is live; the OVH compute module is a gated
+# scaffold that is never applied (see ovh/README.md).
 
 module "github" {
   source = "./github"

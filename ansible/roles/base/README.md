@@ -8,14 +8,13 @@ Foundation hardening for `veggies` (Fedora 44, SELinux kept Enforcing).
   git, SELinux python tooling.
 - `fedora` (admin): wheel group, your ssh keys (`admin_ssh_public_keys`).
 - Service users `gh-runner` / `egress-proxy` (nologin, linger enabled,
-  subuid/subgid allocated) for the rootless quadlets (ADR 0009).
+  subuid/subgid allocated) for the rootless quadlets.
 - sshd drop-in `50-infra.conf`: key-only, no root, no X11/tunnel, local tcp
   forwarding only (validated with `sshd -t` before activation).
 - firewalld: default-deny posture; public `ssh` only when
-  `base_public_ssh=true` (bootstrap window - the steady state is closed,
-  ADR 0003).
+  `base_public_ssh=true` (bootstrap window - the steady state is closed).
 - dnf-automatic (security updates applied), chronyd, journald size limits,
-  sysctl drop-in, swapfile, auditd watches (ADR 0010).
+  sysctl drop-in, swapfile, auditd watches.
 
 ## Variables
 

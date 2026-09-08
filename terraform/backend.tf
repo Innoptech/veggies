@@ -1,6 +1,6 @@
-# State: LOCAL for now (ADR 0008).
+# State: LOCAL for now.
 # terraform.tfstate stays on the operator machine, is gitignored, and is
-# covered by the restic backups from phase 8. No remote backend is configured
+# covered by the restic backups. No remote backend is configured
 # on purpose; the absence of a `backend` block IS the local backend.
 #
 # Migration target (recorded in ADR 0002/0008): OVH S3-compatible object

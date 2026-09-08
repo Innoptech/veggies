@@ -2,7 +2,7 @@
 # NON-SECRET values only - secrets come from the ansible vault at apply time
 # (mask tofu-plan / mask tofu-apply export TF_VAR_* into the process env).
 
-# --- GitHub policy module (phase 2) ---------------------------------------------
+# --- GitHub policy module ---------------------------------------------
 github_owner    = "YOUR_ORG_OR_USER" # TODO(you)
 github_repos    = ["REPLACE_ME"]     # TODO(you): e.g. ["veggie", "data-pipelines"]
 admin_login     = "YOUR_LOGIN"       # TODO(you): the human reviewer
@@ -22,6 +22,6 @@ required_checks = ["pre-commit"]     # TODO(you): must match the repos' CI check
 # (merge the PR yourself - direct pushes would bypass this very policy):
 # manage_label_workflow = true
 
-# --- OVH Public Cloud scaffold (phase 3; gated, never applied) --------------------
+# --- OVH Public Cloud scaffold (gated, never applied) --------------------
 # enable_ovh      = false         # do NOT enable before the ADR 0002 migration plan
 # openstack_cloud = "ovh"         # entry in ~/.config/openstack/clouds.yaml

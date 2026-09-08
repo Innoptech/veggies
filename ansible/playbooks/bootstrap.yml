@@ -1,6 +1,6 @@
 ---
-# One-time bootstrap of a fresh VPS over its public IP (ADR 0008 variant of
-# ADR 0003: there is no security group on a VPS - the close-out is firewalld).
+# One-time bootstrap of a fresh VPS over its public IP. A VPS has no
+# security group - the close-out (firewalld drops public ssh) happens here.
 #
 #   mask bootstrap
 #

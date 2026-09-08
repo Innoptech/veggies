@@ -117,7 +117,7 @@ export PATH="$PWD/.venv/bin:$PATH"
 if [ -d ansible/roles ] && [ -n "$(ls -A ansible/roles)" ]; then
   ansible-lint
 else
-  echo "No roles yet (roles arrive in phase 4); nothing to lint."
+  echo "No roles yet; nothing to lint."
 fi
 ```
 
@@ -203,29 +203,29 @@ scripts/check_vault_encrypted.sh
 
 ## converge
 
-> Full Ansible run against veggies (playbooks arrive in phase 4).
+> Full Ansible run against veggies.
 
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-[ -f ansible/playbooks/site.yml ] || { echo "ansible/playbooks/site.yml arrives in phase 4"; exit 1; }
+[ -f ansible/playbooks/site.yml ] || { echo "ansible/playbooks/site.yml missing"; exit 1; }
 ansible-playbook ansible/playbooks/site.yml --limit veggies
 ```
 
 ## bootstrap
 
-> First-run playbook over the public IP (phase 4). Ends by closing public SSH.
+> First-run playbook over the public IP. Ends by closing public SSH.
 
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$PATH"
-[ -f ansible/playbooks/bootstrap.yml ] || { echo "ansible/playbooks/bootstrap.yml arrives in phase 4"; exit 1; }
+[ -f ansible/playbooks/bootstrap.yml ] || { echo "ansible/playbooks/bootstrap.yml missing"; exit 1; }
 ansible-playbook ansible/playbooks/bootstrap.yml --limit veggies
 ```
 
 ## veggies-install
 
-> Install the `veggies` CLI (ADR 0013) into ~/.local/bin (wrapper around the
+> Install the `veggies` CLI into ~/.local/bin (wrapper around the
 > repo venv). This shim - not mask - is the interface, because mask parses
 > subcommand flags as its own.
 

@@ -1,6 +1,6 @@
 ---
 backup_paths:
-  - /home/stacks/.local/state/veggies # stack metadata (ADR 0016)
+  - /home/stacks/.local/state/veggies # stack metadata
   - /home/gh-runner/.config
   - /home/egress-proxy/.config
   - /srv

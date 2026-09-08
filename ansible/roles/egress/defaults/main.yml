@@ -1,9 +1,9 @@
 ---
-# Users whose outbound traffic is forced through the proxy (ADR 0006):
+# Users whose outbound traffic is forced through the proxy:
 # everything except 127.0.0.1/gateway squid is logged+dropped.
 egress_denied_users:
   - gh-runner
-  - stacks # veggies CLI stacks (ADR 0014)
+  - stacks # veggies CLI stacks
 egress_proxy_user: egress-proxy
 
 egress_squid_port: 3128

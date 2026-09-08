@@ -86,7 +86,7 @@ def test_render_has_pvc_and_one_pod(spec):
     docs = _docs(spec)
     assert [d["kind"] for d in docs] == ["PersistentVolumeClaim", "Pod"]
     assert docs[0]["metadata"]["name"] == "veggies-demo-opencode"
-    # litellm is deliberately DB-less (ADR 0011: in-memory only); the proxy
+    # litellm is deliberately DB-less (in-memory only); the proxy
     # dropped sqlite support, so no litellm-data volume exists.
     names = [v["name"] for v in docs[1]["spec"]["volumes"]]
     assert "litellm-data" not in names
@@ -239,7 +239,7 @@ def test_opencode_containerfile_pin_format():
     assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
 
 
-# --- persistence (phase 12) -----------------------------------------------------
+# --- persistence -----------------------------------------------------
 
 
 def test_quadlet_references_pod_yaml_only(spec, tmp_path):
@@ -278,7 +278,7 @@ def test_render_pod_composes_components(spec):
 
 def test_requires_validation(spec):
     # opencode requires model-router + egress; without squid the stack is
-    # incomplete and the error says so (ADR 0023).
+    # incomplete and the error says so.
     lonely = [c for c in veggies_stack.CORE if c.name == "opencode"]
     with pytest.raises(ValueError, match="requires 'model-router'"):
         veggies_stack.render_pod(spec, INFRA_REPO, components=lonely)
@@ -354,7 +354,7 @@ def test_harness_probes_and_attach_contract(spec):
 
 def test_stub_harness_proves_the_seam(spec, tmp_path):
     """A harness the CLI has never heard of assembles through the generic
-    path (ADR 0023): the seam, not the implementation list, is the contract."""
+    path: the seam, not the implementation list, is the contract."""
     stub = veggies_stack.Component(
         name="stub",
         provides="harness",
@@ -465,7 +465,7 @@ def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
-# --- remote mode (ADR 0014) ------------------------------------------------------
+# --- remote mode ------------------------------------------------------
 
 
 def test_remote_spec_paths(spec):

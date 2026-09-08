@@ -10,7 +10,7 @@ resource "openstack_compute_keypair_v2" "admin" {
 }
 
 # Security group: Tailscale UDP + TEMPORARY ssh from the operator's current IP.
-# The SSH rule's source is emptied by bootstrap close-out (ADR 0003): after the
+# The SSH rule's source is emptied by bootstrap close-out: after the
 # tailnet is verified, admin_cidr becomes null and public SSH disappears.
 resource "openstack_networking_secgroup_v2" "veggies" {
   name        = var.instance_name

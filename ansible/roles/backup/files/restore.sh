@@ -5,8 +5,8 @@
 #   restore.sh /path/to/restic.env
 #
 # The env file carries RESTIC_PASSWORD, AWS_* and RESTIC_REPOSITORY (on a
-# converged host it is /etc/restic/restic.env). Exercised by the phase 9
-# rebuild checklist.
+# converged host it is /etc/restic/restic.env). Exercised by the rebuild
+# checklist (docs/runbook.md section 1).
 set -euo pipefail
 
 ENV_FILE="${1:-/etc/restic/restic.env}"

@@ -1,6 +1,6 @@
 # podman
 
-Rootless Podman wiring for the quadlet users (ADR 0009). No docker-ce, no
+Rootless Podman wiring for the quadlet users. No docker-ce, no
 docker daemon, no `podman-docker` shim on the host.
 
 ## What it changes

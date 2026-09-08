@@ -1,4 +1,4 @@
-# Branch protection and labels for every governed repo (ADR 0007).
+# Branch protection and labels for every governed repo.
 
 data "github_repository" "this" {
   for_each = toset(var.repos)

@@ -1,5 +1,5 @@
 ---
-# Runner identity and shape (sized for 6 vCPU / 12 GB; ADR 0008).
+# Runner identity and shape (sized for 6 vCPU / 12 GB).
 github_runner_user: gh-runner
 github_runner_scope: repo # repo | org (org requires a GitHub organization)
 github_runner_count: 2 # per repo when scope=repo, total when scope=org
@@ -8,7 +8,7 @@ github_runner_cpu_quota: "250%"
 github_runner_labels: [self-hosted, linux, x64, veggies]
 github_runner_work_root: /srv/gh-runner
 github_runner_image: "localhost/gh-runner:{{ github_runner_version }}"
-# Builds/pulls by the gh-runner user go through the filtering proxy (ADR 0006).
+# Builds/pulls by the gh-runner user go through the filtering proxy.
 github_runner_build_proxy: "http://127.0.0.1:3128"
 
 # actions/runner release - verified 2026-09-03 (release notes SHA-256).

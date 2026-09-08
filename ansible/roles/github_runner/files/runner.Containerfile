@@ -1,11 +1,11 @@
-# Ephemeral GitHub Actions runner on Ubuntu 24.04 (ADR 0005/0009).
+# Ephemeral GitHub Actions runner on Ubuntu 24.04.
 # Ubuntu userland on purpose: workflow parity with GitHub-hosted runners.
 FROM docker.io/library/ubuntu:24.04
 
 ARG RUNNER_VERSION
 ARG RUNNER_SHA256
 # Build-time proxy args: on veggies the gh-runner user may only egress via the
-# filtering proxy (ADR 0006), so RUN steps get these from the build task.
+# filtering proxy, so RUN steps get these from the build task.
 ARG HTTPS_PROXY=""
 ARG HTTP_PROXY=""
 ARG NO_PROXY=""

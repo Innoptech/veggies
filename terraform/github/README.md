@@ -1,4 +1,4 @@
-# terraform/github - GitHub policy as code (ADR 0007)
+# terraform/github - GitHub policy as code
 
 Makes the merge policy of every governed repo reviewable code instead of
 clicked settings. The core guarantee: **an agent can open PRs but can never
@@ -29,6 +29,6 @@ names the project repos' CI actually reports).
   forever and blocks every merge. This is why the labeller is not a required
   check.
 - Actions secret values are stored in the (local, gitignored, backed-up) tofu
-  state. See ADR 0008 for the state story.
+  state. State is local; see ../backend.tf for the story.
 - Each project repo needs a `CODEOWNERS` file naming the human, or
   `require_code_owner_reviews` has nothing to bind to.

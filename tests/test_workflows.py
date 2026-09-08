@@ -1,4 +1,4 @@
-"""Workflow schema v0 core tests (ADR 0017) - pure, no IO."""
+"""Workflow schema v0 core tests - pure, no IO."""
 
 import sys
 from pathlib import Path

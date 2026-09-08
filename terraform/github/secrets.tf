@@ -3,7 +3,7 @@
 # (mask tofu-plan / tofu-apply) - plaintext never lives in this repo.
 #
 # NOTE: secret values are stored in the tofu state. State is local, gitignored
-# and restic-backed-up (ADR 0008); keep it that way until the S3 backend lands.
+# and restic-backed-up; keep it that way until the S3 backend lands.
 # TODO(verify): evaluate the provider's write-only secret attributes to keep
 # values out of state entirely.
 

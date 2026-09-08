@@ -1,6 +1,6 @@
 # crowdsec
 
-CrowdSec security engine + nftables firewall bouncer (ADR 0010). Replaces
+CrowdSec security engine + nftables firewall bouncer. Replaces
 fail2ban: one log-parsing/brute-force system, with community blocklists.
 
 ## What it changes
@@ -18,7 +18,7 @@ are container/Molecule gates - do not change them on real hosts.
 
 ## Be careful
 
-- Honest scope note: once public SSH is closed (ADR 0003), the public attack
+- Honest scope note: once public SSH is closed, the public attack
   surface is ~zero. CrowdSec's value here is the bootstrap window, future
   exposed services, and visibility (metrics/decisions in `cscli`).
 - The bouncer enforces via nftables; it coexists with firewalld (firewalld
@@ -26,4 +26,4 @@ are container/Molecule gates - do not change them on real hosts.
   table names if a conflict ever appears.
 - Hub updates and collection installs reach `hub.crowdsec.net` from the HOST
   (unrestricted by design - the egress allowlist constrains agent users only,
-  ADR 0006).
+  the egress allowlist).

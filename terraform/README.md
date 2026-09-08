@@ -2,17 +2,16 @@
 
 One root module (this directory) composing child modules:
 
-| Path      | Phase | Status        | Contents |
-|-----------|-------|---------------|----------|
-| `./`      | 1     | active        | versions, providers, variables, local-state note |
-| `github/` | 2     | active        | branch protection, required checks, environments, Actions secrets, runner group (ADR 0007) |
-| `ovh/`    | 3     | **scaffold**  | Public Cloud instance/SG/volume/cloud-init - gated by `var.enable_ovh`, **never applied** until the ADR 0002 migration (today's host `veggies` is a manually-rented VPS, ADR 0008) |
+| Path      | Status        | Contents |
+|-----------|---------------|----------|
+| `./`      | active        | versions, providers, variables, local-state note |
+| `github/` | active        | branch protection, required checks, environments, Actions secrets, runner group |
+| `ovh/`    | **scaffold**  | Public Cloud instance/SG/volume/cloud-init - gated by `var.enable_ovh`, **never applied** until the migration plan is executed (today's host `veggies` is a manually-rented VPS) |
 
 ## State
 
-Local by decision (ADR 0008): `terraform.tfstate` is gitignored and covered by
-the restic backups from phase 8. `backend.tf` documents the OVH S3-compatible
-migration target.
+Local by decision: `terraform.tfstate` is gitignored and covered by the
+restic backups. `backend.tf` documents the OVH S3-compatible migration target.
 
 ## Secrets flow
 

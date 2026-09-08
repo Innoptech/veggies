@@ -1,5 +1,5 @@
 #!/usr/sbin/nft -f
-# Managed by Ansible (infra repo, egress role). ADR 0006.
+# Managed by Ansible (infra repo, egress role).
 # A dedicated table - firewalld owns its own tables and never touches this one.
 table inet infra-egress
 flush table inet infra-egress

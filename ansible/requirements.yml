@@ -6,5 +6,5 @@ collections:
   - name: community.general
     version: ">=9.0.0" # TODO(verify): tighten floor at first converge
   - name: containers.podman
-    version: ">=1.8.1" # quadlets and rootless containers (ADR 0009)
-# NOTE: community.docker is deliberately absent - Docker is not installed (ADR 0009).
+    version: ">=1.8.1" # quadlets and rootless containers
+# NOTE: community.docker is deliberately absent - Docker is not installed.
