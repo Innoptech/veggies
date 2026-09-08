@@ -502,8 +502,11 @@ def test_host_run_wraps_ssh_sudo(monkeypatch):
     veggies.host_run(None, ["true"])
     veggies.host_run("veggies", ["podman", "pod", "ps"])
     assert calls[0] == ["true"]
-    assert calls[1][:5] == ["ssh", "veggies", "sudo", "-n", "-iu"]
-    assert "stacks" in calls[1]
+    assert calls[1] == ["ssh", "veggies", "sudo", "-n", "-u", "stacks", "id", "-u"]
+    assert calls[2][:7] == ["ssh", "veggies", "sudo", "-n", "-u", "stacks", "env"]
+    assert f"HOME=/home/{veggies.REMOTE_USER}" in calls[2]
+    assert "XDG_RUNTIME_DIR=/run/user/" in calls[2][8]
+    assert calls[2][-3:] == ["podman", "pod", "ps"]
 
 
 def test_remote_clone_public_repo_gets_no_token(monkeypatch):
@@ -540,6 +543,17 @@ def test_remote_clone_non_github_never_probes(monkeypatch):
     cmd = veggies.remote_clone_cmd("veggies", "https://gitlab.com/x/y.git", "/c/x")
     assert cmd == ["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
                    "clone", "https://gitlab.com/x/y.git", "/c/x"]
+
+
+def test_error_redaction_scrubs_vault_values(monkeypatch):
+    monkeypatch.setattr(veggies, "host_run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 1))
+    monkeypatch.setattr(veggies.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": "tok123\n"})())
+    veggies.vault_key("github_token", "secrets/github.yml")
+    err = 'Command [\'git\', \'-c\', \'http.extraHeader=Authorization: Bearer tok123\'] failed'
+    assert veggies.redact(err) == err.replace("tok123", "***")
+    assert "tok123" in err  # sanity: the raw text did contain it
 
 
 def test_stack_url_local_and_remote():

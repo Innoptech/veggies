@@ -114,9 +114,20 @@ class State:
 # --- Vault access (isolated; used by `up` and `secrets`) ---------------------
 
 
+_SECRET_STRINGS: set[str] = set()  # every vault value, for error redaction
+
+
+def redact(text: str) -> str:
+    """Scrub known secrets from text we may print (exceptions carry argv)."""
+    for secret in _SECRET_STRINGS:
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
 def vault_key(key: str, vault_file: str = VAULT_MODEL) -> str:
     script = Path(__file__).parent.parent / "scripts/vault_get.py"
-    return subprocess.run(
+    value = subprocess.run(
         [sys.executable, str(script), vault_file, key,
          "--password-file", VAULT_PASSWORD_FILE],
         check=True,
@@ -124,6 +135,9 @@ def vault_key(key: str, vault_file: str = VAULT_MODEL) -> str:
         text=True,
         cwd=Path(__file__).parent.parent,
     ).stdout.strip()
+    if value:
+        _SECRET_STRINGS.add(value)
+    return value
 
 
 # --- Runtime (podman, images, health) -------------------------------------------
@@ -155,12 +169,25 @@ def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
     return cmd + [repo_url, clone_dir]
 
 
+_REMOTE_UID: dict[str, str] = {}
+
+
 def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Run a command on the stack's host. Remote = ssh + passwordless sudo
-    into the stacks user; stdin (kube YAML, secrets) pipes through."""
+    to the stacks user; stdin (kube YAML, secrets) pipes through. NOT
+    `sudo -i`: a login shell re-joins argv and mangles quoted payloads
+    (verified 2026-09-08: sh -c chains broke, secrets could leak to logs).
+    env sets HOME/XDG explicitly so nologin service users work."""
     if host is None:
         return run(args, **kwargs)
-    return run(["ssh", host, "sudo", "-n", "-iu", REMOTE_USER, *args], **kwargs)
+    if host not in _REMOTE_UID:
+        _REMOTE_UID[host] = run(
+            ["ssh", host, "sudo", "-n", "-u", REMOTE_USER, "id", "-u"],
+            capture=True).stdout.strip()
+    return run(["ssh", host, "sudo", "-n", "-u", REMOTE_USER,
+                "env", f"HOME=/home/{REMOTE_USER}",
+                f"XDG_RUNTIME_DIR=/run/user/{_REMOTE_UID[host]}",
+                *args], **kwargs)
 
 
 def host_podman(host: str | None, *args: str, **kwargs) -> subprocess.CompletedProcess:
@@ -925,7 +952,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except (ValueError, FileNotFoundError, subprocess.CalledProcessError) as exc:
-        print(f"veggies: error: {exc}", file=sys.stderr)
+        print(f"veggies: error: {redact(str(exc))}", file=sys.stderr)
         return 1
 
 
