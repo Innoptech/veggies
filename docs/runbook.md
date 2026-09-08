@@ -202,6 +202,19 @@ Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over th
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
 `components`, capability keys; ADR 0016/0023).
 
+### Teammate onboarding (stack user, not operator)
+
+```bash
+git clone <this-repo> && cd veggie && mask setup
+# get the vault password from the operator (out-of-band), then:
+$EDITOR ~/.config/infra/vault-password && chmod 600 ~/.config/infra/vault-password
+mask veggies-install
+cd ~/code/your-repo && veggies up     # as a normal user - root is untested
+```
+
+One vault password unlocks every `secrets/*.yml`; there is no per-teammate
+credential. Model usage by stacks bills to the operator's provider key.
+
 Reference:
 
 - Only the opencode port is published (127.0.0.1 locally, tailnet-only on the
@@ -255,3 +268,11 @@ Troubleshooting:
   stacks user exists only after `mask converge` (base role).
 - Rotate a stack's keys: `veggies down <name> --purge && veggies up ...`
   (fresh random master key + fresh copy of the vault's Fireworks key).
+- `vault lookup failed ... password file missing or empty`: create
+  `~/.config/infra/vault-password` (one line, chmod 600) - the password
+  comes from the operator, out-of-band. `... decryption failed` = wrong
+  password in that file.
+- `cannot derive a stack name from '<path>'`: the resolved repo dir (or URL
+  basename) has no valid DNS-1123 characters; pass `--name`.
+- `!! running as root`: warning only - stacks assume a rootless user
+  (systemd --user, linger); use a normal account.

@@ -13,6 +13,7 @@ is reviewable code in this repo.
 git clone <this-repo> && cd veggie   # repo dir name may differ; this is the repo root
 mask setup                           # venv + pinned tools + pre-commit hooks
 $EDITOR ~/.config/infra/vault-password && chmod 600 ~/.config/infra/vault-password
+# ^ one line, required for `veggies up` - ask the operator for the password (out-of-band)
 ```
 
 Tool versions are pinned in `requirements-dev.txt` and the tool tarballs
