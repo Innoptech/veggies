@@ -25,6 +25,8 @@ SQUID_ALLOWLIST_BASE = [
     "files.pythonhosted.org",
     "archive.ubuntu.com",
     "security.ubuntu.com",
+    "dl-cdn.alpinelinux.org",  # alpine package index (opencode/orchestrator builds)
+    "production.cloudfront.docker.com",  # docker hub blob CDN (seen live 2026-09-08)
     "ghcr.io",
     "registry-1.docker.io",
     "auth.docker.io",
