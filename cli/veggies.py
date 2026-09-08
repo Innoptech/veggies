@@ -36,6 +36,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from veggies_stack import (  # noqa: E402
     Generated,
+    REMOTE_PROXY,
     REMOTE_STATE_ROOT,
     REMOTE_USER,
     Component,
@@ -141,10 +142,12 @@ def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
     token via extraHeader (it rides the VPS process list briefly - see
     docs/threat-model.md); public repos must NOT - an org-blocked or
     limited-scope token fails even public clones (verified 2026-09-08), so
-    probe anonymously first."""
-    cmd = ["git", "clone"]
+    probe anonymously first. All traffic via the substrate proxy: the stacks
+    user is direct-egress-denied."""
+    cmd = ["git", "-c", f"http.proxy={REMOTE_PROXY}", "clone"]
     if repo_url.startswith("https://github.com/"):
-        public = host_run(host, ["git", "ls-remote", repo_url, "HEAD"],
+        public = host_run(host, ["git", "-c", f"http.proxy={REMOTE_PROXY}",
+                                 "ls-remote", repo_url, "HEAD"],
                           check=False).returncode == 0
         if not public:
             token = vault_key("github_token", VAULT_GITHUB)
@@ -206,17 +209,23 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
         b = c.build
         if b is None:
             continue
+        def hp(*a, **k):  # remote podman needs the substrate proxy (stacks is egress-denied)
+            if host is None:
+                return host_podman(None, *a, **k)
+            return host_run(host, ["env", f"HTTPS_PROXY={REMOTE_PROXY}",
+                                   f"HTTP_PROXY={REMOTE_PROXY}",
+                                   "podman", *a], **k)
         if b.containerfile is None:
-            if host_podman(host, "image", "exists", b.image,
-                           check=False, capture=True).returncode != 0:
-                host_podman(host, "pull", "-q", b.image)
+            if hp("image", "exists", b.image,
+                  check=False, capture=True).returncode != 0:
+                hp("pull", "-q", b.image)
             continue
         cf = (infra_repo / b.containerfile).read_text()
         base = b.image.split("/")[-1].split(":")[0]
         images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
         cf_path = f"{images_dir}/{base}.Containerfile"
         host_write(host, cf_path, cf)
-        host_podman(host, "build", "-q", "-t", b.image, "-f", cf_path, images_dir)
+        hp("build", "-q", "-t", b.image, "-f", cf_path, images_dir)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:

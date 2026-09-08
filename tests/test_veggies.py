@@ -517,8 +517,10 @@ def test_remote_clone_public_repo_gets_no_token(monkeypatch):
     monkeypatch.setattr(veggies, "vault_key",
                         lambda *a, **k: pytest.fail("token read for a public repo"))
     cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/veggies.git", "/c/x")
-    assert cmd == ["git", "clone", "https://github.com/Innoptech/veggies.git", "/c/x"]
-    assert calls == [["git", "ls-remote", "https://github.com/Innoptech/veggies.git", "HEAD"]]
+    assert cmd == ["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
+                   "clone", "https://github.com/Innoptech/veggies.git", "/c/x"]
+    assert calls == [["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
+                      "ls-remote", "https://github.com/Innoptech/veggies.git", "HEAD"]]
 
 
 def test_remote_clone_private_repo_gets_token(monkeypatch):
@@ -528,7 +530,7 @@ def test_remote_clone_private_repo_gets_token(monkeypatch):
     monkeypatch.setattr(veggies, "host_run", fake_host_run)
     monkeypatch.setattr(veggies, "vault_key", lambda *a, **k: "tok123")
     cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/private.git", "/c/x")
-    assert cmd[2:4] == ["-c", "http.extraHeader=Authorization: Bearer tok123"]
+    assert cmd[3:5] == ["-c", "http.extraHeader=Authorization: Bearer tok123"]
     assert cmd[-2:] == ["https://github.com/Innoptech/private.git", "/c/x"]
 
 
@@ -536,7 +538,8 @@ def test_remote_clone_non_github_never_probes(monkeypatch):
     monkeypatch.setattr(veggies, "host_run",
                         lambda *a, **k: pytest.fail("no probe for non-github URLs"))
     cmd = veggies.remote_clone_cmd("veggies", "https://gitlab.com/x/y.git", "/c/x")
-    assert cmd == ["git", "clone", "https://gitlab.com/x/y.git", "/c/x"]
+    assert cmd == ["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
+                   "clone", "https://gitlab.com/x/y.git", "/c/x"]
 
 
 def test_stack_url_local_and_remote():

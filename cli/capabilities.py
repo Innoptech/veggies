@@ -18,6 +18,11 @@ OPENCODE_PORT_BASE = 4096  # host ports allocated from here, first free
 
 # Remote mode: everything runs as this user over ssh+sudo.
 REMOTE_USER = "stacks"
+# The substrate's filtering proxy (ansible egress role, egress_squid_port).
+# The stacks user is direct-egress-denied by nftables, so host-side network
+# operations (git clone, image pull/build) must go through it; pasta NATs
+# those connections to the host IP, which the role adds to the source ACL.
+REMOTE_PROXY = "http://127.0.0.1:3128"
 REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/veggies"
 
 # Shared securityContext for every component unless it opts out with cause.

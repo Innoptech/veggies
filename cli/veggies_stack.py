@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # cli/ on path
 from capabilities import (  # noqa: E402  (re-exported for cli/veggies.py)
     HARDENED,
     OPENCODE_PORT_BASE,
+    REMOTE_PROXY,
     REMOTE_STATE_ROOT,
     REMOTE_USER,
     Component,
