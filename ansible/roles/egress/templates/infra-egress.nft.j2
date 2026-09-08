@@ -13,8 +13,10 @@ table inet infra-egress {
 
 {% for uid in egress_denied_uids %}
     # {{ egress_denied_users[loop.index0] }} may reach exactly two local
-    # services: the filtering proxy and the model gateway.
-    meta skuid {{ uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }} } tcp dport {{ egress_squid_port }} counter accept
+    # services: the filtering proxy and the model gateway. The host's own
+    # public IP is required too: pasta forwards container->host proxy
+    # connections to it (verified 2026-09-08 - else in-pod proxy use drops).
+    meta skuid {{ uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }}, {{ ansible_facts.default_ipv4.address }} } tcp dport {{ egress_squid_port }} counter accept
 
     # Everything else from {{ egress_denied_users[loop.index0] }}: logged and dropped.
     meta skuid {{ uid }} log prefix "infra-egress-deny: " counter drop
