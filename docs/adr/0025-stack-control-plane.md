@@ -79,6 +79,60 @@ Option C is only reconsidered if A proves insufficient for daily driving.
   public endpoint - NOT part of the spike; a separate decision if B is
   adopted.
 
+## Spike results (2026-09-08, on the VPS beside the selftest stack)
+
+Setup that worked: Agent Canvas 1.16.0 running as a rootless podman
+container of the `stacks` user (image layer adds `podman-remote-static`
+v5.8.4 - matches the host daemon - and remaps the image user to uid 1003;
+`--userns=keep-id`, host podman socket mounted, `label=disable` for the
+spike). Host-level npm install was removed; the container is the only
+artifact. UI published on 127.0.0.1:8000, reached via `ssh -L` - no new
+public surface. Running it directly on the host as `stacks` was a dead
+end: the egress nftables rules (ADR 0006) drop stacks->loopback except to
+the proxy, so its microservices cannot talk to each other; inside a
+container their loopback is their own netns. Egress from the container
+still goes through the squid allowlist (proxy env to
+`host.containers.internal:3128`).
+
+Scorecard (machine-verifiable rows verified over SSH; UX rows need a
+human in the browser):
+
+1. Multi-session supervision - PASS by construction (conversation list;
+   multi-backend). NOTE: ACP-spawned sessions do NOT appear in opencode's
+   own `/session` list - Canvas conversations and serve-native sessions
+   are separate worlds (each with its own UI).
+2. Message mid-run / reroute - PASS: conversation created via REST with
+   `agent_settings{agent_kind:acp, acp_command:["podman","exec","-i","-w",
+   "/workspace","veggies-selftest-opencode","opencode","acp"]}`; ACP
+   initialize OK (OpenCode 1.18.27, caps incl. fork/list/resume);
+   prompt round-trip 6.0s; `agent_final_response` returned the exact
+   requested string ("ACP-OK"). Model path: pod litellm -> Fireworks.
+   Interrupt/pause/fork endpoints exist.
+3. Permission prompts - mechanism exists (`/events/respond_to_confirmation`,
+   confirmation policies; ACP requestPermission flows to Canvas). Visual
+   check: USER.
+4. Diff review - UI has it; visual check: USER.
+5. Automations - service up (scheduler + git-sync loops logged); creating
+   one not exercised; inbound webhooks remain out of posture (ADR 0024).
+6. Topology robustness - PASS: ACP command targets the container NAME;
+   quadlet recreates containers with the same name, so pod restarts are
+   safe. In-pod ACP inherits the pod's model/egress config - no keys on
+   the host.
+7. Footprint - canvas-spike ~790MB RSS idle (node ingress + static +
+   python agent server + automation). Affordable on the 12G VPS; would
+   want a memory limit in a quadlet.
+8. Delta over Option A - real: unified multi-conversation UI, automations
+   engine, ACP agent flexibility. But Option A (opencode web) covers
+   per-stack watch/attach with zero deps.
+
+Security notes for the spike: `label=disable` on the canvas container
+(SELinux unconfined; a real deployment needs a policy or a socket-proxy
+sidecar); the mounted podman socket lets Canvas drive every stack
+container as `stacks` (same trust domain, but a wide blast radius);
+session API key is a random local token visible in /proc cmdlines
+(loopback-only services). Host prerequisites installed by hand for the
+spike: `nodejs22`, `uv` (dnf) - ansible-codified only if adopted.
+
 ## Links
 
 - ADR 0017 (orchestrator; OpenHands rejection for the *runtime* layer)
