@@ -14,7 +14,8 @@ reviews PRs; agents implement. These rules are not negotiable:
    Terraform change needs `tofu fmt`, `validate`, and `tflint` clean.
 4. **Commits**: conventional-commit messages, small and single-purpose.
 5. **Decisions**: read `docs/adr/README.md` first. A new decision gets a new
-   ADR; never edit a decided ADR. Keep the README deviation ledger in sync.
+   ADR; never edit a decided ADR. Keep the deviation ledger in
+   `docs/adr/README.md` in sync.
 6. **Placeholders**: `TODO(you)` = human supplies the value; never invent one.
    `TODO(verify)` = uncertain upstream detail; check docs before relying on it,
    and say so in the phase summary.
@@ -38,3 +39,8 @@ reviews PRs; agents implement. These rules are not negotiable:
    it whenever the renderer changes. Never add subPath mounts or tcpSocket
    probes (both verified broken here; see code comments). The vault is read
    only via `scripts/vault_get.py`; secrets travel over stdin only.
+10. **Docs**: `docs/` are living docs - edit them freely as reality changes
+    (architecture.md = the system today, runbook.md = how to operate it).
+    README stays short: pitch, quickstart, pointers - anything operational
+    belongs in the runbook. ADRs are append-only history; cite them in code
+    comments only for non-obvious verified whys, never as decoration.
