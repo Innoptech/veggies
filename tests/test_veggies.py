@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -503,6 +504,39 @@ def test_host_run_wraps_ssh_sudo(monkeypatch):
     assert calls[0] == ["true"]
     assert calls[1][:5] == ["ssh", "veggies", "sudo", "-n", "-iu"]
     assert "stacks" in calls[1]
+
+
+def test_remote_clone_public_repo_gets_no_token(monkeypatch):
+    calls = []
+
+    def fake_host_run(host, args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(veggies, "host_run", fake_host_run)
+    monkeypatch.setattr(veggies, "vault_key",
+                        lambda *a, **k: pytest.fail("token read for a public repo"))
+    cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/veggies.git", "/c/x")
+    assert cmd == ["git", "clone", "https://github.com/Innoptech/veggies.git", "/c/x"]
+    assert calls == [["git", "ls-remote", "https://github.com/Innoptech/veggies.git", "HEAD"]]
+
+
+def test_remote_clone_private_repo_gets_token(monkeypatch):
+    def fake_host_run(host, args, **kwargs):
+        return subprocess.CompletedProcess(args, 1)  # anonymous probe fails
+
+    monkeypatch.setattr(veggies, "host_run", fake_host_run)
+    monkeypatch.setattr(veggies, "vault_key", lambda *a, **k: "tok123")
+    cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/private.git", "/c/x")
+    assert cmd[1:3] == ["-c", "http.extraHeader=Authorization: Bearer tok123"]
+    assert cmd[-2:] == ["https://github.com/Innoptech/private.git", "/c/x"]
+
+
+def test_remote_clone_non_github_never_probes(monkeypatch):
+    monkeypatch.setattr(veggies, "host_run",
+                        lambda *a, **k: pytest.fail("no probe for non-github URLs"))
+    cmd = veggies.remote_clone_cmd("veggies", "https://gitlab.com/x/y.git", "/c/x")
+    assert cmd == ["git", "clone", "https://gitlab.com/x/y.git", "/c/x"]
 
 
 def test_stack_url_local_and_remote():

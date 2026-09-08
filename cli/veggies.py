@@ -136,6 +136,22 @@ def run(cmd: list[str], *, input_text: str | None = None, check: bool = True,
     )
 
 
+def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
+    """git-clone command for the VPS. Private github.com repos get the vault
+    token via extraHeader (it rides the VPS process list briefly - see
+    docs/threat-model.md); public repos must NOT - an org-blocked or
+    limited-scope token fails even public clones (verified 2026-09-08), so
+    probe anonymously first."""
+    cmd = ["git", "clone"]
+    if repo_url.startswith("https://github.com/"):
+        public = host_run(host, ["git", "ls-remote", repo_url, "HEAD"],
+                          check=False).returncode == 0
+        if not public:
+            token = vault_key("github_token", VAULT_GITHUB)
+            cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
+    return cmd + [repo_url, clone_dir]
+
+
 def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Run a command on the stack's host. Remote = ssh + passwordless sudo
     into the stacks user; stdin (kube YAML, secrets) pipes through."""
@@ -388,15 +404,7 @@ def cmd_up(args: argparse.Namespace) -> int:
         if host:
             clone_dir = f"{REMOTE_STATE_ROOT}/clones/{name}"
             if not host_exists(host, clone_dir, kind="d"):
-                clone_cmd = ["git", "clone"]
-                if args.repo.startswith("https://github.com/"):
-                    # Token rides the process list on the VPS briefly - see
-                    # docs/threat-model.md. ssh URLs need no token.
-                    token = vault_key("github_token", VAULT_GITHUB)
-                    clone_cmd += ["-c",
-                                  f"http.extraHeader=Authorization: Bearer {token}"]
-                clone_cmd += [args.repo, clone_dir]
-                host_run(host, clone_cmd)
+                host_run(host, remote_clone_cmd(host, args.repo, clone_dir))
         else:
             clone_path = state.root / "clones" / name
             if not clone_path.exists():
