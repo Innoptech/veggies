@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import shlex
 import os
 import re
 import secrets as secrets_mod
@@ -174,20 +175,24 @@ _REMOTE_UID: dict[str, str] = {}
 
 def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Run a command on the stack's host. Remote = ssh + passwordless sudo
-    to the stacks user; stdin (kube YAML, secrets) pipes through. NOT
-    `sudo -i`: a login shell re-joins argv and mangles quoted payloads
-    (verified 2026-09-08: sh -c chains broke, secrets could leak to logs).
-    env sets HOME/XDG explicitly so nologin service users work."""
+    to the stacks user; stdin (kube YAML, secrets) pipes through. ssh
+    re-joins argv with spaces for the remote login shell, so everything is
+    shlex.quoted into ONE string - quoted payloads (sh -c 'a && b') survive
+    exactly (verified 2026-09-08: unquoted, the && chain ran as fedora and
+    died on /home/stacks traversal). env sets HOME/XDG so nologin service
+    users work (no `sudo -i`: it re-parses through the login shell too)."""
     if host is None:
         return run(args, **kwargs)
     if host not in _REMOTE_UID:
         _REMOTE_UID[host] = run(
             ["ssh", host, "sudo", "-n", "-u", REMOTE_USER, "id", "-u"],
             capture=True).stdout.strip()
-    return run(["ssh", host, "sudo", "-n", "-u", REMOTE_USER,
-                "env", f"HOME=/home/{REMOTE_USER}",
-                f"XDG_RUNTIME_DIR=/run/user/{_REMOTE_UID[host]}",
-                *args], **kwargs)
+    remote = " ".join(shlex.quote(a) for a in
+                      ["sudo", "-n", "-u", REMOTE_USER,
+                       "env", f"HOME=/home/{REMOTE_USER}",
+                       f"XDG_RUNTIME_DIR=/run/user/{_REMOTE_UID[host]}",
+                       *args])
+    return run(["ssh", host, remote], **kwargs)
 
 
 def host_podman(host: str | None, *args: str, **kwargs) -> subprocess.CompletedProcess:

@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import shlex
 import stat
 import subprocess
 import sys
@@ -500,13 +501,15 @@ def test_host_run_wraps_ssh_sudo(monkeypatch):
 
     monkeypatch.setattr(veggies, "run", fake_run)
     veggies.host_run(None, ["true"])
-    veggies.host_run("veggies", ["podman", "pod", "ps"])
+    veggies.host_run("veggies", ["sh", "-c", "a && b > '/p q'"])
     assert calls[0] == ["true"]
     assert calls[1] == ["ssh", "veggies", "sudo", "-n", "-u", "stacks", "id", "-u"]
-    assert calls[2][:7] == ["ssh", "veggies", "sudo", "-n", "-u", "stacks", "env"]
-    assert f"HOME=/home/{veggies.REMOTE_USER}" in calls[2]
-    assert "XDG_RUNTIME_DIR=/run/user/" in calls[2][8]
-    assert calls[2][-3:] == ["podman", "pod", "ps"]
+    # argv becomes ONE shlex-quoted string (ssh re-joins for the remote shell)
+    assert calls[2][0:2] == ["ssh", "veggies"]
+    payload = calls[2][2]
+    assert payload.startswith("sudo -n -u stacks env HOME=/home/stacks "
+                              "XDG_RUNTIME_DIR=/run/user/ ")
+    assert shlex.split(payload)[-3:] == ["sh", "-c", "a && b > '/p q'"]  # round-trips
 
 
 def test_remote_clone_public_repo_gets_no_token(monkeypatch):
