@@ -119,18 +119,41 @@
     label: "{{ item.path | basename }}"
   notify: Daemon-reload the gh-runner user manager
 
+- name: Create the runner build context directory
+  ansible.builtin.file:
+    path: "/home/{{ github_runner_user }}/runner-build"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0750"
+  when: github_runner_build_image
+
+- name: Stage the runner build context on the host
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/home/{{ github_runner_user }}/runner-build/{{ item }}"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0644"
+  loop:
+    - runner.Containerfile
+    - runner-entrypoint.sh
+  when: github_runner_build_image
+
 - name: Build the runner image as the service user
   containers.podman.podman_image:
     name: localhost/gh-runner
     tag: "{{ github_runner_version }}"
+    path: "/home/{{ github_runner_user }}/runner-build" # remote context (builds run on the VPS)
     build:
-      file: runner.Containerfile
-      path: "{{ role_path }}/files"
-      args:
-        RUNNER_VERSION: "{{ github_runner_version }}"
-        RUNNER_SHA256: "{{ github_runner_sha256 }}"
-        HTTPS_PROXY: "{{ github_runner_build_proxy }}"
-        HTTP_PROXY: "{{ github_runner_build_proxy }}"
+      file: "/home/{{ github_runner_user }}/runner-build/runner.Containerfile"
+      # no args: in the new API (the module does not rebuild on extra_args
+      # changes - fine: the version pin changes name:tag anyway)
+      extra_args: >-
+        --build-arg RUNNER_VERSION={{ github_runner_version }}
+        --build-arg RUNNER_SHA256={{ github_runner_sha256 }}
+        --build-arg HTTPS_PROXY={{ github_runner_build_proxy }}
+        --build-arg HTTP_PROXY={{ github_runner_build_proxy }}
     state: build
   become: true
   become_user: "{{ github_runner_user }}"
@@ -141,6 +164,38 @@
     HTTPS_PROXY: "{{ github_runner_build_proxy }}"
     HTTP_PROXY: "{{ github_runner_build_proxy }}"
   when: github_runner_build_image
+
+- name: Apply pending quadlet daemon-reloads before starting
+  ansible.builtin.meta: flush_handlers
+
+# Same lost-handler guard as the egress role: a quadlet installed in an
+# earlier failed run has no pending notification - reload if unknown.
+- name: Check whether the user manager knows the runner template yet
+  ansible.builtin.command:  # noqa command-instead-of-module - no module queries user-scope units
+    cmd: /usr/bin/systemctl --user cat gh-runner@.service
+  register: github_runner_unit
+  changed_when: false
+  failed_when: false
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ github_runner_uid }}"
+  when:
+    - github_runner_start
+    - github_runner_register
+
+- name: Daemon-reload the user manager when the unit is unknown
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ github_runner_uid }}"
+  when:
+    - github_runner_start
+    - github_runner_register
+    - github_runner_unit.rc != 0
 
 - name: Start runner units
   ansible.builtin.systemd:

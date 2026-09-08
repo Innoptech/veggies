@@ -2,9 +2,9 @@
 # Install: ansible-galaxy collection install -r requirements.yml
 collections:
   - name: ansible.posix
-    version: ">=1.4.0" # firewalld, sysctl (molecule podman driver dep)
+    version: "==2.2.2" # firewalld, sysctl (molecule podman driver dep)
   - name: community.general
-    version: ">=9.0.0" # TODO(verify): tighten floor at first converge
+    version: "==13.3.0" # verified at first converge (2026-09-08)
   - name: containers.podman
-    version: ">=1.8.1" # quadlets and rootless containers
+    version: "==1.20.2" # 1.20 removed build.path/build.args - role tasks use the new API
 # NOTE: community.docker is deliberately absent - Docker is not installed.

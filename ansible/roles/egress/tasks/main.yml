@@ -43,6 +43,14 @@
     group: "{{ egress_proxy_user }}"
     mode: "0750"
 
+# pasta source-NATs host->published-port connections to the host's PUBLIC IP
+# (verified in the squid log 2026-09-08: host curl appears as 51.161.10.231).
+# Host-side proxy users (fetch_runner_token, podman build) would 403 without
+# this. Safe: firewalld default-deny already blocks inbound 3128 from outside.
+- name: Allow the host itself to use the proxy
+  ansible.builtin.set_fact:
+    egress_squid_acl_src: "{{ egress_squid_acl_src + [ansible_facts.default_ipv4.address + '/32'] }}"
+
 - name: Install squid.conf
   ansible.builtin.template:
     src: squid.conf.j2
@@ -70,18 +78,65 @@
     mode: "0640"
   notify: Daemon-reload the egress-proxy user manager
 
+- name: Create the squid build context directory
+  ansible.builtin.file:
+    path: "/home/{{ egress_proxy_user }}/squid-build"
+    state: directory
+    owner: "{{ egress_proxy_user }}"
+    group: "{{ egress_proxy_user }}"
+    mode: "0750"
+  when: egress_build_image
+
+- name: Stage the squid build context on the host
+  ansible.builtin.copy:
+    src: squid.Containerfile
+    dest: "/home/{{ egress_proxy_user }}/squid-build/Containerfile"
+    owner: "{{ egress_proxy_user }}"
+    group: "{{ egress_proxy_user }}"
+    mode: "0644"
+  when: egress_build_image
+
 - name: Build the squid image as the proxy user
   containers.podman.podman_image:
     name: "{{ egress_squid_image }}"
+    path: "/home/{{ egress_proxy_user }}/squid-build" # remote context (builds run on the VPS)
     build:
-      file: squid.Containerfile
-      path: "{{ role_path }}/files"
+      file: "/home/{{ egress_proxy_user }}/squid-build/Containerfile"
     state: build
   become: true
   become_user: "{{ egress_proxy_user }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
   when: egress_build_image
+
+- name: Apply pending quadlet daemon-reloads before starting
+  ansible.builtin.meta: flush_handlers
+
+# A quadlet installed in an earlier, failed run has no pending handler
+# notification - check the unit is known and reload if not (self-healing).
+- name: Check whether the user manager knows the quadlet unit yet
+  ansible.builtin.command:  # noqa command-instead-of-module - no module queries user-scope units
+    cmd: /usr/bin/systemctl --user cat squid.service
+  register: egress_squid_unit
+  changed_when: false
+  failed_when: false
+  become: true
+  become_user: "{{ egress_proxy_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+  when: egress_start_proxy
+
+- name: Daemon-reload the user manager when the unit is unknown
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ egress_proxy_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[egress_proxy_user][2] }}"
+  when:
+    - egress_start_proxy
+    - egress_squid_unit.rc != 0
 
 - name: Ensure the proxy user's systemd manager is running
   ansible.builtin.systemd:

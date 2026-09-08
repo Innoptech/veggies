@@ -31,8 +31,9 @@ egress_allowlist_base:
   - production.cloudflare.docker.com # docker hub CDN
 
 # Source ACL for the proxy: loopback, link-local (container gateway), tailnet,
-# and RFC1918. The domain allowlist above is the real boundary; this limits
-# who may even attempt to use the proxy.
+# and RFC1918. The role appends the host's own public IPv4 /32 at converge
+# (pasta NAT; see tasks). The domain allowlist is the real boundary; this
+# limits who may even attempt to use the proxy.
 egress_squid_acl_src:
   - 127.0.0.0/8
   - 169.254.0.0/16
