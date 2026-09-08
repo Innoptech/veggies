@@ -573,7 +573,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     print(f"\nstack up: {url}  (user: opencode, password: {values['password']})")
     if host:
-        print("remote attach: ssh -L {0}:127.0.0.1:{0} <host> then attach "               "to http://127.0.0.1:{0} (tailnet deferred - ADR 0024)".format(port))
+        print("remote attach: ssh -L {0}:127.0.0.1:{0} <host> then open "               "http://127.0.0.1:{0} in a browser (web UI) or `opencode attach` "               "(tailnet deferred - ADR 0024)".format(port))
     if not args.no_attach and sys.stdin.isatty() and shutil.which("opencode"):
         os.execvp("opencode", ["opencode", "attach", url,
                                "--username", "opencode",

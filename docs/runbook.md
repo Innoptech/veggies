@@ -202,6 +202,13 @@ Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over th
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
 `components`, capability keys; ADR 0016/0023).
 
+Browser attach (verified 2026-09-08): the published port serves opencode's
+official web UI - sessions list, live multi-session view, permissions; it
+shares state with any attached TUI. Local: open `http://127.0.0.1:<port>`.
+Remote: `ssh -L <port>:127.0.0.1:<port> veggies`, then open the same URL.
+The basic-auth password is printed at `up` and stored in
+`~/.local/state/veggies/state.json`.
+
 ### Teammate onboarding (stack user, not operator)
 
 ```bash
