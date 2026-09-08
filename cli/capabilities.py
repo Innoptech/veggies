@@ -1,4 +1,4 @@
-"""Capability contracts for veggies stacks (ADR 0023).
+"""Capability contracts for veggies stacks.
 
 The stack depends on these contracts; components (cli/components/*) depend
 on them and on the PodContext they receive at render time - never on each
@@ -16,7 +16,7 @@ from pathlib import Path
 
 OPENCODE_PORT_BASE = 4096  # host ports allocated from here, first free
 
-# Remote mode (ADR 0014): everything runs as this user over ssh+sudo.
+# Remote mode: everything runs as this user over ssh+sudo.
 REMOTE_USER = "stacks"
 REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/veggies"
 
@@ -37,10 +37,10 @@ class StackSpec:
     repo: str  # absolute path (mount) or clone URL (clone)
     mode: str = "mount"  # mount | clone
     port: int = OPENCODE_PORT_BASE
-    host: str | None = None  # None = local; else ssh host alias (ADR 0014)
+    host: str | None = None  # None = local; else ssh host alias
     model: str | None = None  # litellm alias, from veggies.yml or --model
     components: list[str] | None = None  # component names (v0); None = defaults
-    selections: dict[str, str] | None = None  # capability -> impl (v1, ADR 0023)
+    selections: dict[str, str] | None = None  # capability -> impl (v1)
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     )
@@ -136,7 +136,7 @@ def secret_env(name: str, secret: str, key: str) -> dict:
 
 @dataclass(frozen=True)
 class ServiceRef:
-    """What a provided capability looks like to its consumers (ADR 0023)."""
+    """What a provided capability looks like to its consumers."""
     capability: str
     base_url: str
     secret: str | None = None  # podman secret holding its credentials
@@ -163,7 +163,7 @@ class StatusProbe:
 class BuildSpec:
     """How the runtime materializes this component's image at up-time:
     built from a Containerfile (path relative to the infra repo) or pulled
-    as-is (containerfile=None). Components own their images (ADR 0023);
+    as-is (containerfile=None). Components own their images;
     `ensure_images` builds/pulls exactly the selected components' images."""
     image: str
     containerfile: str | None = None  # relative to infra repo; None = pull only
@@ -173,7 +173,7 @@ class BuildSpec:
 class PodContext:
     """Wiring handed to every component at render time: spec, repo, and
     service discovery. Components read dependencies from here - never from
-    each other's modules (ADR 0023)."""
+    each other's modules."""
     spec: StackSpec
     infra_repo: Path
     providers: dict  # capability -> Component
@@ -190,7 +190,7 @@ class PodContext:
 
 @dataclass(frozen=True)
 class Component:
-    """One member of a stack pod (ADR 0023 capability seam).
+    """One member of a stack pod (the capability seam).
 
     provides/requires declare the capability wiring; render/volumes describe
     the container via the PodContext; secrets() declares podman secrets

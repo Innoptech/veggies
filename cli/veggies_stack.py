@@ -1,4 +1,4 @@
-"""veggies stack assembly: registry, repo config, pod composition (ADR 0023).
+"""veggies stack assembly: registry, repo config, pod composition.
 
 Contracts live in cli/capabilities.py; implementations in cli/components/*.
 This module owns the registry (capability -> implementations), veggies.yml
@@ -47,19 +47,19 @@ render_squid_conf = squid.render_squid_conf
 render_opencode_json = opencode.render_opencode_json
 
 
-# --- Registry (ADR 0023) -----------------------------------------------------------
+# --- Registry -----------------------------------------------------------
 
 REGISTRY: dict[str, dict[str, Component]] = {
     "harness": {"opencode": opencode.COMPONENT},
     "model-router": {"litellm": litellm.COMPONENT},
     "egress": {"squid": squid.COMPONENT},
-    "orchestrator": {"builtin": orchestrator.COMPONENT},  # opt-in (ADR 0017)
+    "orchestrator": {"builtin": orchestrator.COMPONENT},  # opt-in
 }
 # Iteration order of DEFAULT_SELECTION pins the container order (golden-stable).
 DEFAULT_SELECTION = {"harness": "opencode", "model-router": "litellm", "egress": "squid"}
 # veggies.yml capability keys -> capability name. "orchestrator" is
 # selectable in the file so it fails with the polite reserved-capability
-# error (ADR 0023 / proposed ADR 0017) instead of an "unknown key" warning.
+# error instead of an "unknown key" warning.
 CAPABILITY_KEYS = {"harness": "harness", "model_router": "model-router",
                    "egress": "egress", "orchestrator": "orchestrator"}
 
@@ -70,7 +70,7 @@ COMPONENT_NAMES = {c.name for c in CORE}
 def resolve_components(
     names: list[str] | None = None, selections: dict[str, str] | None = None
 ) -> list[Component]:
-    """veggies.yml wiring (ADR 0023). v0 `components:` picks by component name
+    """veggies.yml wiring. v0 `components:` picks by component name
     (and is exclusive with capability keys); otherwise capability selections
     over DEFAULT_SELECTION."""
     if names is not None and selections:
@@ -91,7 +91,7 @@ def resolve_components(
                              f"(known: {', '.join(sorted(REGISTRY))})")
         if not REGISTRY[cap]:
             raise ValueError(f"capability {cap!r} is reserved but has no "
-                             "implementation yet (proposed ADRs 0017-0019)")
+                             "implementation yet")
         if impl not in REGISTRY[cap]:
             raise ValueError(f"unknown {cap} implementation {impl!r} "
                              f"(available: {', '.join(sorted(REGISTRY[cap]))})")
@@ -155,7 +155,7 @@ VOLUME_ORDER = ["repo", "stack-config", "agent-config", "opencode-home", "stack-
 def build_context(
     spec: StackSpec, infra_repo: Path, components: list[Component] | None = None
 ) -> PodContext:
-    """Resolve components and their capability wiring (ADR 0023)."""
+    """Resolve components and their capability wiring."""
     if components is None:
         components = resolve_components(spec.components, spec.selections)
     providers = {}
@@ -176,7 +176,7 @@ def render_pod(
     spec: StackSpec, infra_repo: Path, components: list[Component] | None = None
 ) -> list[dict]:
     """The multi-document kube YAML (PVCs + Pod) for one stack. All hostPath
-    values are paths on the host the stack runs on (ADR 0014)."""
+    values are paths on the host the stack runs on."""
     ctx = build_context(spec, infra_repo, components)
     containers = [c.render(ctx) for c in ctx.components]
     vols: dict[str, dict] = {}
@@ -264,8 +264,8 @@ def render_secret_docs(
     spec: StackSpec, values: dict[str, str], components: list[Component] | None = None
 ) -> list[dict]:
     """K8s Secret docs for one stack, from component declarations. Only ever
-    passed to kube play via stdin at up-time - never written to disk
-    (ADR 0013). Name-sorted for determinism."""
+    passed to kube play via stdin at up-time - never written to disk.
+    Name-sorted for determinism."""
     docs = []
     for c in (components if components is not None
               else resolve_components(spec.components, spec.selections)):

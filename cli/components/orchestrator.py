@@ -1,5 +1,4 @@
-"""orchestrator capability: adaptive pipelines over the harness API
-(ADR 0017/0023).
+"""orchestrator capability: adaptive pipelines over the harness API.
 
 Drives the harness via ctx.service("harness") (base_url + secret +
 secret_key); code ships via config_files (restart = update, no rebuild).

@@ -1,9 +1,9 @@
 """Workflow schema v0 core: validation, DAG ordering, prompt rendering,
-drafter prompt (ADR 0017).
+drafter prompt.
 
 Pure functions only: no IO, no HTTP, no sqlite - pytest-covered from
 tests/test_workflows.py. Shipped into the orchestrator container via the
-component's config_files (ADR 0023) and imported by server.py there.
+component's config_files and imported by server.py there.
 """
 
 from __future__ import annotations
@@ -158,7 +158,7 @@ def plan_order(steps: list[dict]) -> list[list[str]]:
 
 def render_prompt(template: str, context: dict) -> str:
     """Jinja2 strict-undefined: a typo'd placeholder fails at load/render
-    time, never silently mid-run (ADR 0017)."""
+    time, never silently mid-run."""
     try:
         return _JINJA.from_string(template).render(**context)
     except UndefinedError as e:
@@ -228,7 +228,7 @@ step (roster permitting) for anything non-trivial.
 
 
 def build_drafter_prompt(task: str, roster: list[dict], pipeline: str | None = None) -> str:
-    """The prompt sent to the drafter agent (ADR 0017: generation subsumes
+    """The prompt sent to the drafter agent (generation subsumes
     planner selection). roster: live GET /agent entries (name+description)."""
     lines = ["You are the veggies workflow drafter. Produce ONE workflow in a "
              "single ```yaml fenced block and nothing else.",

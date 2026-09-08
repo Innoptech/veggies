@@ -1,6 +1,6 @@
-"""model-router capability: LiteLLM gateway (ADR 0011/0023).
+"""model-router capability: LiteLLM gateway.
 
-Sole owner of the image pin since ADR 0016. Exposes an OpenAI-compatible
+Sole owner of the image pin. Exposes an OpenAI-compatible
 endpoint pod-internally; holds the real provider keys so nothing else in
 the pod ever sees them."""
 
@@ -42,7 +42,7 @@ def _render(ctx: PodContext) -> dict:
             secret_env("LITELLM_SALT_KEY", spec.secret_litellm, "salt_key"),
             secret_env("FIREWORKS_API_KEY", spec.secret_litellm, "fireworks_api_key"),
             # litellm calls providers through the egress proxy too: on the
-            # VPS the per-UID nftables rules drop anything else (ADR 0006).
+            # VPS the per-UID nftables rules drop anything else.
         ] + [{"name": k, "value": v} for k, v in ctx.service("egress").env.items()],
         "volumeMounts": [
             {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},

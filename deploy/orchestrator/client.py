@@ -1,4 +1,4 @@
-"""veggies orchestrator in-pod client (ADR 0017).
+"""veggies orchestrator in-pod client.
 
 The CLI reaches the orchestrator via `podman exec ... python3
 orchestrator-client.py <cmd>` - uniform local/remote, no published port.

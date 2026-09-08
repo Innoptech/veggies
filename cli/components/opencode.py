@@ -1,4 +1,4 @@
-"""harness capability: opencode serve (ADR 0013/0023).
+"""harness capability: opencode serve.
 
 The user-facing component: publishes the only host port, owns the workspace
 and home volumes, and describes how `veggies status`/`veggies attach` talk
@@ -40,7 +40,7 @@ def _service_ref(spec: StackSpec) -> ServiceRef:
 def render_opencode_json(infra_repo: Path, router_base_url: str,
                          model: str | None = None) -> str:
     """Stack variant of agent-config/opencode.json: router address injected
-    by the caller (ADR 0023) and the master key via env (secretKeyRef)
+    by the caller and the master key via env (secretKeyRef)
     instead of an auth.json file."""
     src = json.loads((infra_repo / "agent-config/opencode.json").read_text())
     provider = src["provider"]["litellm"]

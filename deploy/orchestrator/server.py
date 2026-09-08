@@ -1,4 +1,4 @@
-"""veggies orchestrator server (ADR 0017). Runs inside the pod, drives the
+"""veggies orchestrator server. Runs inside the pod, drives the
 harness over its loopback HTTP API. Boring stdlib + yaml + jinja2 (core.py).
 
 Endpoints (127.0.0.1:4400, pod-internal):

@@ -1,4 +1,4 @@
-"""egress capability: squid forward proxy (ADR 0023).
+"""egress capability: squid forward proxy.
 
 Owns the proxy contract other components consume via ctx.service("egress"):
 base_url + env dict (both case variants; busybox tools only honor the
@@ -46,7 +46,7 @@ def render_allowlist() -> str:
 
 def render_squid_conf() -> str:
     src = " ".join(SQUID_ACL_SRC)
-    return f"""# Rendered by veggies (ADR 0013) - mirrors ansible/roles/egress/templates/squid.conf.j2.
+    return f"""# Rendered by veggies - mirrors ansible/roles/egress/templates/squid.conf.j2.
 http_port {_SQUID_PORT}
 
 acl allowed_src src {src}
