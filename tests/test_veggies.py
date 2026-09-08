@@ -52,6 +52,18 @@ def test_sanitize_name_rejects_garbage():
         veggies.sanitize_name("!!!")
 
 
+def test_stack_name_from_dot_uses_cwd_basename(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "My Cool Repo"
+    repo_dir.mkdir()
+    monkeypatch.chdir(repo_dir)
+    assert veggies.stack_name_from(".") == "my-cool-repo"
+
+
+def test_stack_name_from_urls_pass_through():
+    assert veggies.stack_name_from("https://github.com/org/foo.git") == "foo"
+    assert veggies.stack_name_from("git@github.com:org/bar.git") == "bar"
+
+
 def test_allocate_port_first_free():
     assert veggies.allocate_port(set()) == 4096
     assert veggies.allocate_port({4096, 4097}) == 4098

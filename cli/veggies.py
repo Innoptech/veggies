@@ -398,6 +398,15 @@ def ensure_watchdog(host: str | None) -> None:
 # --- Commands ------------------------------------------------------------------
 
 
+def stack_name_from(repo_arg: str) -> str:
+    """Stack name from the --repo arg. URLs sanitize as-is; local paths
+    resolve first - bare `veggies up` passes '.', and the name must come
+    from the cwd's basename, not the literal string."""
+    if "://" in repo_arg or repo_arg.startswith("git@"):
+        return sanitize_name(repo_arg)
+    return sanitize_name(str(Path(repo_arg).expanduser().resolve()))
+
+
 def stack_url(record: dict) -> str:
     """Attach URL: loopback locally, the tailnet name for remote stacks."""
     host = record["host"] or "127.0.0.1"
@@ -417,7 +426,7 @@ def discover_repo_config(host: str | None, repo_path: str) -> tuple[dict, list[s
 
 def cmd_render(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
-    name = args.name or sanitize_name(args.repo)
+    name = args.name or stack_name_from(args.repo)
     if args.clone and args.host:
         repo = f"{REMOTE_STATE_ROOT}/clones/{name}"  # matches cmd_up
     elif args.clone:
@@ -446,7 +455,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     state = State()
     host = args.host
 
-    name = args.name or sanitize_name(args.repo)
+    name = args.name or stack_name_from(args.repo)
     if host and not args.clone:
         raise ValueError(
             "remote stacks are clone-mode: pass --clone with a git URL "
