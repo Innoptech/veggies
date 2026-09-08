@@ -3,6 +3,24 @@
 Operational procedures for the agent host. Tested where a test is possible;
 the rebuild checklist (section 1) is the acceptance test for the whole repo.
 
+## Common tasks
+
+`mask help` shows everything. The frequent ones:
+
+| Task | Does |
+|------|------|
+| `mask ci` | everything CI runs, locally |
+| `mask precommit` | all pre-commit hooks (gitleaks, yamllint, actionlint, tofu fmt, vault check) |
+| `mask tofu-plan` / `mask tofu-apply` | plan is read-only; apply requires typing `apply` (live-account mutation) |
+| `mask vault-edit secrets/model.yml` | create/edit encrypted secrets |
+| `mask vault-check` | fail if any secrets file is plaintext |
+| `mask molecule-test <role>` / `mask molecule-all` | role tests |
+| `mask converge` / `mask bootstrap` | Ansible against veggies |
+
+Prerequisites: mask 0.11.x, tofu 1.12.6, python 3.14, podman 5.8.x
+(workstation and veggies are both Fedora 44); the pinned Python tooling is in
+`requirements-dev.txt` (`mask setup`).
+
 ## 1. Rebuild-from-zero checklist (the acceptance test)
 
 Execute this on a second VPS (or a reinstalled veggies) to prove the repo
@@ -20,6 +38,7 @@ Prepare the repo locally:
 - [ ] `cp ansible/inventory/group_vars/all.yml.example ansible/inventory/group_vars/all.yml` and fill every `TODO(you)`.
 - [ ] `cp terraform/terraform.tfvars.example terraform/terraform.tfvars` and fill it.
 - [ ] Vault files filled: `mask vault-edit secrets/model.yml`, `secrets/github.yml`, `secrets/infra.yml`.
+- [ ] VPS disk size noted in `all.yml` (informs backup cleanup thresholds).
 - [ ] `mask ci` is green.
 
 Bootstrap:
@@ -60,6 +79,17 @@ If tailscale breaks on the host: OVH console (web shell) ->
 `mask vault-edit secrets/infra.yml` + `mask converge`.
 
 ## 3. Secrets: create, edit, rotate
+
+Three domain files, all committed **encrypted** (pre-commit + CI enforce):
+
+| File | Holds | Consumed by |
+|------|-------|-------------|
+| `secrets/model.yml` | Fireworks key, litellm master key | injected per stack by `veggies` (podman secrets) |
+| `secrets/github.yml` | GitHub App creds or bot PAT | tofu github module, runner registration |
+| `secrets/infra.yml` | tailscale auth key, restic password + S3 creds | tailscale/backup roles |
+
+Structure templates: `secrets/*.yml.example`. Rules: never decrypt to disk;
+tofu consumes secrets via env-only export (`scripts/tfvars_from_vault.py`).
 
 ```bash
 mask vault-edit secrets/model.yml     # create/edit (ansible-vault)
@@ -159,9 +189,22 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 
 Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
-`veggies down <name> [--purge]`. Remote: `veggies --host veggies up --clone
-<git-url>` then attach over the tailnet. Per-repo customization: `veggies.yml`
-(schema v1: `model`, `components`, capability keys; ADR 0016/0023).
+`veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`.
+Remote: `veggies --host veggies up --clone <git-url>` then attach over the
+tailnet. Per-repo customization: `veggies.yml` (schema v1: `model`,
+`components`, capability keys; ADR 0016/0023).
+
+Reference:
+
+- Only the opencode port is published (127.0.0.1 locally, tailnet-only on the
+  VPS via firewalld); litellm and squid are pod-internal.
+- Mount mode bind-mounts your checkout rw and relabels it
+  `container_file_t` (harmless for your user; that's the `:z` equivalent).
+  `--clone` keeps the clone inside the veggies state dir instead.
+- Boot persistence locally needs linger once: `sudo loginctl enable-linger
+  $USER` (the CLI warns you).
+- Env overrides for scripts: `VEGGIES_REPO VEGGIES_NAME VEGGIES_HOST
+  VEGGIES_CLONE=1 VEGGIES_YES=1 VEGGIES_NO_ATTACH=1 VEGGIES_NO_INSTALL=1`.
 
 ### Workflows (ADR 0017; stack needs `orchestrator: builtin` in veggies.yml)
 

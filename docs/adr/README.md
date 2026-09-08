@@ -28,3 +28,17 @@ file. Never edit a decided ADR - write a new one that supersedes it.
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed | A1 |
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | proposed | A1 |
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: contracts, not tools | accepted | C1 |
+
+## Deviation ledger (vs the original brief)
+
+| Brief said | We do | Why / where recorded |
+|------------|-------|----------------------|
+| Ubuntu 24.04 LTS | Fedora 44 (VPS image, already ordered) | ADR 0008 |
+| Public Cloud via tofu | VPS rented manually; compute module scaffold-only | ADR 0002/0008 |
+| Remote S3 state | Local state for now; backend scaffolded | ADR 0008 |
+| sops + age | ansible-vault | ADR 0004 |
+| ufw | firewalld (Fedora-native) | ADR 0008 |
+| fail2ban | CrowdSec + nftables bouncer + auditd | ADR 0010 |
+| Docker daemon | rootless Podman + Quadlet, per-user | ADR 0009 |
+| (no model router) | per-stack LiteLLM in the pod | ADR 0011/0013 |
+| Agent config only in project repos | + vendored baseline `agent-config/` with Superpowers pinned | ADR 0012 |
