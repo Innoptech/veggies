@@ -194,6 +194,18 @@ def test_model_endpoints_match_group_vars_example():
     assert yaml.safe_load(text)["egress_model_endpoints"] == veggies_stack.SQUID_MODEL_ENDPOINTS
 
 
+def test_squid_conf_chains_only_when_remote(spec):
+    import components.squid as squid
+    assert "cache_peer" not in squid.render_squid_conf(chained=False)
+    chained = squid.render_squid_conf(chained=True)
+    assert "cache_peer host.containers.internal parent 3128" in chained
+    assert "never_direct allow all" in chained
+    remote_spec = veggies_stack.StackSpec(name="x", repo="/r/x", host="veggies")
+    files = squid.COMPONENT.config_files(
+        veggies_stack.build_context(remote_spec, ROOT))
+    assert "cache_peer" in files["squid.conf"]
+
+
 def test_squid_containerfile_reused():
     assert (ROOT / "ansible/roles/egress/files/squid.Containerfile").exists()
 

@@ -46,11 +46,23 @@ def render_allowlist() -> str:
     return "\n".join(SQUID_ALLOWLIST_BASE + SQUID_MODEL_ENDPOINTS) + "\n"
 
 
-def render_squid_conf() -> str:
+def render_squid_conf(chained: bool = False) -> str:
     src = " ".join(SQUID_ACL_SRC)
+    chain = ""
+    if chained:
+        # Remote stacks live on a substrate host whose nftables denies direct
+        # egress for the stacks user (verified 2026-09-08: everything 503s).
+        # Parent through the substrate's host-published proxy via the pasta
+        # gateway; the host's own allowlist is the boundary upstream.
+        chain = f"""
+# Chained egress: parent is the substrate proxy on the host (the stacks user
+# may not egress directly - ansible egress role's nftables).
+cache_peer host.containers.internal parent {_SQUID_PORT} 0 no-query default
+never_direct allow all
+"""
     return f"""# Rendered by veggies - mirrors ansible/roles/egress/templates/squid.conf.j2.
 http_port {_SQUID_PORT}
-
+{chain}
 acl allowed_src src {src}
 acl allowed_sites dstdomain "/stack-config/allowlist.txt"
 acl SSL_ports port 443
@@ -120,7 +132,9 @@ def _volumes(ctx: PodContext) -> list[dict]:
 
 
 def _config_files(ctx: PodContext) -> dict[str, str]:
-    return {"squid.conf": render_squid_conf(), "allowlist.txt": render_allowlist()}
+    # spec.host set = running on the substrate host = chain to its proxy.
+    return {"squid.conf": render_squid_conf(chained=ctx.spec.host is not None),
+            "allowlist.txt": render_allowlist()}
 
 
 COMPONENT = Component(
