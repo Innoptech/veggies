@@ -41,6 +41,14 @@ def patch(key: str, body: dict) -> None:
     urllib.request.urlopen(req, timeout=15)
 
 
+def post(key: str, path: str, body: dict) -> None:
+    req = urllib.request.Request(
+        f"{API}{path}", method="POST",
+        data=json.dumps(body).encode(),
+        headers={"X-Session-API-Key": key, "Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=15)
+
+
 def main() -> None:
     key = None
     for _ in range(90):  # ~3 min of startup grace
@@ -67,21 +75,26 @@ def main() -> None:
     patch(key, {"agent_settings_diff": diff})
     print(f"canvas bootstrap: ACP configured -> {target}", flush=True)
 
-    # ADR 0027: second harness. The active LLM profile points at the
-    # in-pod router, so Canvas's OpenHands-kind conversations (critic,
-    # goal loops, hooks) run natively. Agent kind stays per-conversation;
-    # we only guarantee a working LLM exists.
+    # ADR 0027: second harness. Save + activate an LLM profile pointing at
+    # the in-pod router (verified: conversations resolve their LLM from the
+    # ACTIVE PROFILE, not from agent_settings.llm; inline api_key in a
+    # conversation request is dropped). Profiles API: POST /api/profiles/
+    # {name} then /activate.
     sdk_model = os.environ.get("VEGGIES_SDK_MODEL")
     master_key = os.environ.get("LITELLM_MASTER_KEY")
     if sdk_model and master_key:
-        patch(key, {"agent_settings_diff": {"llm": {
-            "model": sdk_model,
-            "base_url": os.environ["VEGGIES_ROUTER_BASE"],
-            "api_key": master_key,
-            "usage_id": "veggies-litellm",
-        }}})
-        print(f"canvas bootstrap: LLM profile -> {sdk_model} via in-pod router",
-              flush=True)
+        post(key, "/api/profiles/veggies-litellm", {
+            "llm": {
+                "model": sdk_model,
+                "base_url": os.environ["VEGGIES_ROUTER_BASE"],
+                "api_key": master_key,
+                "usage_id": "veggies-litellm",
+            },
+            "include_secrets": True,
+        })
+        post(key, "/api/profiles/veggies-litellm/activate", {})
+        print(f"canvas bootstrap: LLM profile veggies-litellm active "
+              f"({sdk_model} via in-pod router)", flush=True)
 
 
 if __name__ == "__main__":
