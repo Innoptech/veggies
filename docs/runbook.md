@@ -227,6 +227,12 @@ inbound listeners are out of posture - ADR 0024).
 - Canvas conversations and opencode-serve sessions are SEPARATE worlds:
   canvas-spawned work does not appear in the opencode web UI's session
   list (each has its own UI; verified 2026-09-08).
+- Second harness (ADR 0027): agent profile `veggies-openhands` runs the
+  OpenHands CodeAct loop natively (choose it per conversation in the UI);
+  its critic judges via our in-pod shim (deepseek-v4 over the stack's
+  router; score appears in the conversation timeline; low scores trigger
+  iterative refinement). Shim health: `podman logs veggies-<name>-canvas |
+  grep critic-shim`.
 - The `/vscode` route answers 403 in our topology (no workspace service
   behind it for ACP conversations) - not wired; revisit if wanted.
 - Troubleshooting: canvas unhealthy at up -> `veggies logs <name> canvas`;
