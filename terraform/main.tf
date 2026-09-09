@@ -17,18 +17,16 @@ module "github" {
   manage_label_workflow     = var.manage_label_workflow
 }
 
-# Scaffold only (ADRs 0002, 0008): enable_ovh stays false while veggies is a
-# manually-rented VPS. Enabling is the reviewed migration plan, not an impulse.
-module "ovh" {
-  source = "./ovh"
-  count  = var.enable_ovh ? 1 : 0
-
-  # The openstack provider (var.openstack_cloud) is configured at this level
-  # and inherited by the module.
-  region         = var.ovh_region
-  flavor_name    = var.ovh_flavor_name
-  image_name     = var.ovh_image_name
-  ssh_public_key = var.ovh_ssh_public_key
-  admin_cidr     = var.ovh_admin_cidr
-  volume_size_gb = var.ovh_volume_size_gb
-}
+# Scaffold only (ADRs 0002, 0008): the ovh module is intentionally unwired
+# (its provider fails plan unconfigured; see providers.tf). Wire both back
+# as the reviewed migration plan, not an impulse:
+# module "ovh" {
+#   source = "./ovh"
+#   count  = var.enable_ovh ? 1 : 0
+#   region         = var.ovh_region
+#   flavor_name    = var.ovh_flavor_name
+#   image_name     = var.ovh_image_name
+#   ssh_public_key = var.ovh_ssh_public_key
+#   admin_cidr     = var.ovh_admin_cidr
+#   volume_size_gb = var.ovh_volume_size_gb
+# }
