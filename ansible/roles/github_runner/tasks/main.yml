@@ -23,6 +23,19 @@
     name: "user@{{ github_runner_uid }}"
     state: started
 
+- name: Ensure the runner user's podman socket listens (docker-compatible job steps)
+  ansible.builtin.systemd:
+    name: podman.socket
+    enabled: true
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    HOME: "/home/{{ github_runner_user }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ github_runner_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ github_runner_uid }}/bus"
+
 - name: Ensure the runner work root exists
   ansible.builtin.file:
     path: "{{ github_runner_work_root }}"
