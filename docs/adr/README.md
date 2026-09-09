@@ -25,7 +25,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0014](0014-remote-stacks-over-ssh.md) | Remote stacks over ssh; CLI owns stacks, Ansible owns the host | accepted |
 | [0015](0015-rename-garden-to-veggies.md) | Project identity renamed: garden -> veggies | accepted |
 | [0016](0016-substrate-vs-stack-boundary.md) | Ansible is the substrate; the CLI is the stack | accepted |
-| [0017](0017-agent-orchestrator-and-workflows.md) | Agent orchestrator and adaptive pipelines | accepted |
+| [0017](0017-agent-orchestrator-and-workflows.md) | Agent orchestrator and adaptive pipelines | superseded by 0026 |
 | [0018](0018-mcp-server-components.md) | MCP server components | proposed |
 | [0019](0019-agent-rosters-and-skills.md) | Agent rosters and skills: convention over machinery | accepted |
 | [0020](0020-cloud-substrate-module.md) | Cloud substrate module (GCP / other) | proposed |
@@ -34,6 +34,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: contracts, not tools | accepted |
 | [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted |
 | [0025](0025-stack-control-plane.md) | Stack control plane: supervision UI and automations (spike: Agent Canvas via ACP) | proposed |
+| [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 
 ## Deviation ledger (vs the original brief)
 
