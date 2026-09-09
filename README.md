@@ -41,7 +41,6 @@ model: kimi-k3            # litellm alias; becomes the stack's default model
 harness: opencode         # which implementation provides each capability
 model_router: litellm
 egress: squid
-# orchestrator: builtin   # opt-in: `veggies run <stack> --task "..."` workflows
 ```
 
 ## Docs
