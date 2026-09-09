@@ -7,7 +7,9 @@ PATCH restates the same settings on every boot. Runs backgrounded from
 the container wrapper; failures only mean ACP stays unconfigured (the UI
 shows the onboarding form instead).
 
-Env: VEGGIES_ACP_TARGET (harness container name), VEGGIES_MODEL.
+Env: VEGGIES_ACP_TARGET (harness container name), VEGGIES_MODEL (ACP-side
+model id), VEGGIES_SDK_MODEL + VEGGIES_ROUTER_BASE + LITELLM_MASTER_KEY
+(the second-harness LLM profile, ADR 0027).
 """
 
 import json
@@ -29,6 +31,14 @@ def session_key() -> str | None:
         if "--session-api-key" in args:
             return args[args.index("--session-api-key") + 1]
     return None
+
+
+def patch(key: str, body: dict) -> None:
+    req = urllib.request.Request(
+        f"{API}/api/settings", method="PATCH",
+        data=json.dumps(body).encode(),
+        headers={"X-Session-API-Key": key, "Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=15)
 
 
 def main() -> None:
@@ -54,12 +64,24 @@ def main() -> None:
     model = os.environ.get("VEGGIES_MODEL")
     if model:
         diff["acp_model"] = model
-    req = urllib.request.Request(
-        f"{API}/api/settings", method="PATCH",
-        data=json.dumps({"agent_settings_diff": diff}).encode(),
-        headers={"X-Session-API-Key": key, "Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=15)
+    patch(key, {"agent_settings_diff": diff})
     print(f"canvas bootstrap: ACP configured -> {target}", flush=True)
+
+    # ADR 0027: second harness. The active LLM profile points at the
+    # in-pod router, so Canvas's OpenHands-kind conversations (critic,
+    # goal loops, hooks) run natively. Agent kind stays per-conversation;
+    # we only guarantee a working LLM exists.
+    sdk_model = os.environ.get("VEGGIES_SDK_MODEL")
+    master_key = os.environ.get("LITELLM_MASTER_KEY")
+    if sdk_model and master_key:
+        patch(key, {"agent_settings_diff": {"llm": {
+            "model": sdk_model,
+            "base_url": os.environ["VEGGIES_ROUTER_BASE"],
+            "api_key": master_key,
+            "usage_id": "veggies-litellm",
+        }}})
+        print(f"canvas bootstrap: LLM profile -> {sdk_model} via in-pod router",
+              flush=True)
 
 
 if __name__ == "__main__":

@@ -454,10 +454,16 @@ def test_canvas_render(spec):
                              "hostIP": "127.0.0.1"}
     assert c["securityContext"]["seLinuxOptions"] == {"type": "spc_t"}
     assert c["securityContext"]["runAsUser"] == 0  # container root == stack user on host
-    env = {e["name"]: e["value"] for e in c["env"]}
+    env = {e["name"]: e["value"] for e in c["env"] if "value" in e}
     assert env["CONTAINER_HOST"] == "unix:///run/podman/podman.sock"
     assert env["VEGGIES_ACP_TARGET"] == "veggies-demo-opencode"
     assert env["HTTPS_PROXY"] == "http://127.0.0.1:3128"
+    assert env["VEGGIES_SDK_MODEL"] == "openai/kimi-k3"
+    assert env["VEGGIES_ROUTER_BASE"] == "http://127.0.0.1:4000/v1"
+    # ADR 0027: the master key comes from the router's podman secret
+    keyref = [e for e in c["env"] if e["name"] == "LITELLM_MASTER_KEY"][0]
+    assert keyref["valueFrom"]["secretKeyRef"] == {
+        "name": "veggies-demo-litellm", "key": "master_key"}
     vols = {v["name"]: v for v in canvas.COMPONENT.volumes(ctx)}
     assert vols["podman-runtime"]["hostPath"]["path"] == "/run/user/1000/podman"
     assert "canvas-bootstrap.py" in canvas.COMPONENT.config_files(ctx)

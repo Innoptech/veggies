@@ -23,6 +23,7 @@ from capabilities import (
     PodContext,
     StackSpec,
     StatusProbe,
+    secret_env,
 )
 
 # Derived image (upstream + podman-remote, deploy/images/canvas.Containerfile).
@@ -41,6 +42,8 @@ def _render(ctx: PodContext) -> dict:
     harness = ctx.providers.get("harness")
     if harness is None:
         raise ValueError("canvas requires a harness component in the stack")
+    router = ctx.service("model-router")
+    alias = spec.model or "kimi-k3"
     return {
         "name": "canvas",
         "image": IMAGE_CANVAS,
@@ -55,7 +58,14 @@ def _render(ctx: PodContext) -> dict:
             {"name": "HOME", "value": "/home/openhands"},
             {"name": "CONTAINER_HOST", "value": "unix:///run/podman/podman.sock"},
             {"name": "VEGGIES_ACP_TARGET", "value": f"{spec.pod}-{harness.name}"},
-            {"name": "VEGGIES_MODEL", "value": f"litellm/{spec.model or 'kimi-k3'}"},
+            {"name": "VEGGIES_MODEL", "value": f"litellm/{alias}"},
+            # ADR 0027: the second harness (OpenHands-native kind) rides the
+            # same model router; the SDK-side model string needs the openai/
+            # prefix against a proxy base_url. The key stays a podman
+            # secret -> env; bootstrap pushes it into Canvas's settings.
+            {"name": "VEGGIES_SDK_MODEL", "value": f"openai/{alias}"},
+            {"name": "VEGGIES_ROUTER_BASE", "value": router.base_url},
+            secret_env("LITELLM_MASTER_KEY", router.secret, "master_key"),
             # The canvas services' own fetches ride the in-pod egress proxy.
             {"name": "HTTPS_PROXY", "value": "http://127.0.0.1:3128"},
             {"name": "HTTP_PROXY", "value": "http://127.0.0.1:3128"},
