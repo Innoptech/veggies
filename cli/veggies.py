@@ -454,6 +454,9 @@ def cmd_render(args: argparse.Namespace) -> int:
         model=args.model or cfg.get("model"),
         components=cfg.get("components"),
         selections=cfg.get("selections"),
+        # render-only: canvas needs *a* socket dir; the local one is the
+        # honest guess (remote renders show the stacks user's at up time).
+        runtime_dir=f"/run/user/{os.geteuid()}",
     )
     sys.stdout.write(render_yaml(spec, infra_repo))
     return 0
@@ -512,6 +515,22 @@ def cmd_up(args: argparse.Namespace) -> int:
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     if spec.model:
         print(f"model:   litellm/{spec.model} (veggies.yml)")
+
+    if any(c.provides == "control-plane"
+           for c in resolve_components(spec.components, spec.selections)):
+        # canvas spawns ACP sessions through the host's rootless podman
+        # socket: it needs the runtime dir and a listening socket.
+        spec.runtime_dir = (f"/run/user/{os.geteuid()}" if host is None else
+                            "/run/user/" + host_run(host, ["id", "-u"],
+                                                    capture=True).stdout.strip())
+        r = host_systemctl(host, "enable", "--now", "podman.socket",
+                           check=False, capture=True)
+        if r.returncode != 0:
+            print("!! canvas needs the user podman socket "
+                  "(systemctl --user enable --now podman.socket)", file=sys.stderr)
+        host_run(host, ["mkdir", "-p",
+                        f"{spec.state_root()}/{spec.name}/canvas-state"])
+        label_for_containers(host, f"{spec.state_root()}/{spec.name}/canvas-state")
 
     url = f"http://{host or '127.0.0.1'}:{port}"
     if sys.stdin.isatty() and not args.yes:

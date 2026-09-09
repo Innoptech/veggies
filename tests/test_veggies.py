@@ -434,6 +434,48 @@ def test_registry_capability_keys(spec):
         veggies_stack.parse_repo_config("components: [squid]\nharness: opencode\n")
 
 
+def test_canvas_key_resolves_builtin():
+    cfg, _ = veggies_stack.parse_repo_config("canvas: builtin\n")
+    assert cfg["selections"] == {"control-plane": "builtin"}
+    with pytest.raises(ValueError, match="unknown control-plane implementation"):
+        veggies_stack.resolve_components(selections={"control-plane": "x"})
+
+
+def test_canvas_render(spec):
+    import dataclasses
+    from components import canvas
+    spec = dataclasses.replace(spec, runtime_dir="/run/user/1000",
+                               selections={"control-plane": "builtin"})
+    comps = veggies_stack.resolve_components(spec.components, spec.selections)
+    ctx = veggies_stack.build_context(spec, INFRA_REPO, comps)
+    c = canvas.COMPONENT.render(ctx)
+    assert c["ports"][0] == {"containerPort": 8000,
+                             "hostPort": spec.port + canvas.HOST_PORT_OFFSET,
+                             "hostIP": "127.0.0.1"}
+    assert c["securityContext"]["seLinuxOptions"] == {"type": "spc_t"}
+    env = {e["name"]: e["value"] for e in c["env"]}
+    assert env["CONTAINER_HOST"] == "unix:///run/podman/podman.sock"
+    assert env["VEGGIES_ACP_TARGET"] == "veggies-demo-opencode"
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:3128"
+    vols = {v["name"]: v for v in canvas.COMPONENT.volumes(ctx)}
+    assert vols["podman-runtime"]["hostPath"]["path"] == "/run/user/1000/podman"
+    assert "canvas-bootstrap.py" in canvas.COMPONENT.config_files(ctx)
+    # the pod assembles with a fourth container
+    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO, comps)
+           if d["kind"] == "Pod"][0]
+    assert [c_["name"] for c_ in pod["spec"]["containers"]] == [
+        "opencode", "litellm", "squid", "canvas"]
+
+
+def test_canvas_render_requires_runtime_dir(spec):
+    from components import canvas
+    ctx = veggies_stack.build_context(
+        spec, INFRA_REPO,
+        veggies_stack.resolve_components(None, {"control-plane": "builtin"}))
+    with pytest.raises(ValueError, match="runtime_dir"):
+        canvas.COMPONENT.render(ctx)
+
+
 def test_probe_api_remote_uses_ssh_curl(monkeypatch):
     calls = []
     class R:

@@ -35,7 +35,7 @@ from capabilities import (  # noqa: E402  (re-exported for cli/veggies.py)
     secret_env,
     state_dir,
 )
-from components import litellm, opencode, squid  # noqa: E402
+from components import canvas, litellm, opencode, squid  # noqa: E402
 
 # Re-exported for tests and cli/veggies.py (single import surface).
 IMAGE_LITELLM = litellm.IMAGE_LITELLM
@@ -54,12 +54,13 @@ REGISTRY: dict[str, dict[str, Component]] = {
     "harness": {"opencode": opencode.COMPONENT},
     "model-router": {"litellm": litellm.COMPONENT},
     "egress": {"squid": squid.COMPONENT},
+    "control-plane": {"builtin": canvas.COMPONENT},  # opt-in (ADR 0025)
 }
 # Iteration order of DEFAULT_SELECTION pins the container order (golden-stable).
 DEFAULT_SELECTION = {"harness": "opencode", "model-router": "litellm", "egress": "squid"}
 # veggies.yml capability keys -> capability name.
 CAPABILITY_KEYS = {"harness": "harness", "model_router": "model-router",
-                   "egress": "egress"}
+                   "egress": "egress", "canvas": "control-plane"}
 
 CORE = [REGISTRY[cap][impl] for cap, impl in DEFAULT_SELECTION.items()]
 COMPONENT_NAMES = {c.name for c in CORE}
