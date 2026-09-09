@@ -186,6 +186,10 @@ def test_squid_conf_matches_prod_shape():
     conf = veggies_stack.render_squid_conf()
     assert "http_access deny all" in conf
     assert "dstdomain" in conf
+    # pod-loopback bypass: clients whose proxy libs ignore no_proxy
+    # (aiohttp, canvas SDK path) must still reach in-pod services
+    assert "acl pod_local dst 127.0.0.1" in conf
+    assert "http_access allow pod_local" in conf
     allowlist = veggies_stack.render_allowlist().splitlines()
     assert "api.fireworks.ai" in allowlist
     assert allowlist[-1] == "api.fireworks.ai"  # model endpoints appended last
