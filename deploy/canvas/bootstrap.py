@@ -97,10 +97,22 @@ def main() -> None:
         post(key, "/api/agent-profiles/veggies-openhands", {
             "agent_kind": "openhands",
             "llm_profile_ref": "veggies-litellm",
+            # ADR 0027: critic = LLM-as-judge via OUR router (no third
+            # party). Judge = a different model than the author's (the
+            # adversarial-review habit). The key is inherited from the
+            # resolved LLM profile (profiles are secret-free by design).
+            "verification": {
+                "critic_enabled": True,
+                "critic_server_url": os.environ["VEGGIES_ROUTER_BASE"],
+                "critic_model_name": "deepseek-v4",
+                "enable_iterative_refinement": True,
+                "critic_threshold": 0.6,
+                "max_refinement_iterations": 2,
+            },
         })
         print(f"canvas bootstrap: LLM profile veggies-litellm + agent profile "
-              f"veggies-openhands ready ({sdk_model} via in-pod router)",
-              flush=True)
+              f"veggies-openhands ready ({sdk_model} via in-pod router, "
+              "critic on)", flush=True)
 
 
 if __name__ == "__main__":
