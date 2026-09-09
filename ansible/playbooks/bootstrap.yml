@@ -13,7 +13,8 @@
   vars:
     base_public_ssh: true # the bootstrap window, closed by the last play
   vars_files:
-    - ../secrets/infra.yml
+    # anchor at playbook_dir (bare relative vars_files silently skip; see site.yml)
+    - "{{ playbook_dir }}/../../secrets/infra.yml"
   roles:
     - role: base
     - role: crowdsec
