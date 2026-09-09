@@ -33,6 +33,8 @@ def test_parse_judgment_strict_json():
         "score": 0.9, "sentiment": "neutral", "issues": ["loop_behavior"]}
     fenced = '```json\n{"score": 0.4, "sentiment": "negative", "issues": []}\n```'
     assert shim.parse_judgment(fenced)["score"] == 0.4
+    thinking = '<think>reasoning about the trace...</think>{"score": 0.3, "issues": []}'
+    assert shim.parse_judgment(thinking)["score"] == 0.3
     with pytest.raises(ValueError):
         shim.parse_judgment("no json here")
     with pytest.raises(ValueError):

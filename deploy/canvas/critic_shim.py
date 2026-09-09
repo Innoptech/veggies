@@ -70,9 +70,11 @@ def build_judge_messages(trace_text: str) -> list[dict]:
 
 
 def parse_judgment(reply: str) -> dict:
-    """Strict JSON out of a judge reply; tolerates code fences, nothing
-    else. Garbage raises ValueError (the critic call then 502s loud)."""
-    text = re.sub(r"```(?:json)?\s*|\s*```", "", reply).strip()
+    """Strict JSON out of a judge reply; tolerates code fences and
+    reasoning-model <think> blocks, nothing else. Garbage raises
+    ValueError (the critic call then 502s loud)."""
+    text = re.sub(r"<think>.*?</think>", "", reply, flags=re.S)
+    text = re.sub(r"```(?:json)?\s*|\s*```", "", text).strip()
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
         raise ValueError("judge reply contains no JSON object")
@@ -106,7 +108,9 @@ def classify(trace_text: str, router_base: str, key: str, judge_model: str) -> d
         "model": judge_model,
         "messages": build_judge_messages(trace_text),
         "temperature": 0,
-        "max_tokens": 400,
+        # reasoning judges (deepseek-v4) burn tokens on <think> first;
+        # 400 truncated them before the JSON (verified 2026-09-09).
+        "max_tokens": 2400,
     }).encode()
     req = urllib.request.Request(
         f"{router_base}/chat/completions", data=body,
