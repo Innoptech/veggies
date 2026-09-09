@@ -66,6 +66,15 @@
     group: "{{ github_runner_user }}"
     mode: "0700"
 
+- name: Ensure the optional runtime-env drop-in exists (quadlet references it)
+  ansible.builtin.copy:
+    content: "# Optional extra env for gh-runner services (edit by hand; unmanaged)\n"
+    dest: "/home/{{ github_runner_user }}/.config/gh-runner/runtime.env"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0600"
+    force: false # never clobber an operator's hand edits
+
 - name: Install the API env file (from the vault)
   ansible.builtin.template:
     src: api.env.j2
