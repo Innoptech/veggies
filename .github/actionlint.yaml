@@ -1,0 +1,6 @@
+---
+# Custom self-hosted runner labels (ADR 0005; ansible github_runner role
+# assigns them). Without this, actionlint rejects runs-on: veggies.
+self-hosted-runner:
+  labels:
+    - veggies
