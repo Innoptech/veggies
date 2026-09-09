@@ -209,6 +209,34 @@ Remote: `ssh -L <port>:127.0.0.1:<port> veggies`, then open the same URL.
 The basic-auth password is printed at `up` and stored in
 `~/.local/state/veggies/state.json`.
 
+### Canvas (control plane; stack needs `canvas: builtin`, ADR 0025)
+
+Agent Canvas = the supervision UI: multiple conversations at once, message
+a running agent, answer permission prompts, review diffs, and automations
+(cron + git-synced definitions; event/webhook triggers stay OFF while
+inbound listeners are out of posture - ADR 0024).
+
+- UI: `http://127.0.0.1:<port+1000>/canvas` (loopback always; remote:
+  `ssh -L 5097:127.0.0.1:5097 veggies` when the stack's opencode port is
+  4097). ACP wiring self-configures at boot (`podman logs
+  veggies-<name>-canvas | grep bootstrap` should say
+  `ACP configured -> veggies-<name>-opencode`).
+- Canvas drives opencode via ACP (`podman exec ... opencode acp` over the
+  host's rootless podman socket - the canvas container is the only one
+  allowed that socket + `spc_t`; see the component docstring).
+- Canvas conversations and opencode-serve sessions are SEPARATE worlds:
+  canvas-spawned work does not appear in the opencode web UI's session
+  list (each has its own UI; verified 2026-09-08).
+- The `/vscode` route answers 403 in our topology (no workspace service
+  behind it for ACP conversations) - not wired; revisit if wanted.
+- Troubleshooting: canvas unhealthy at up -> `veggies logs <name> canvas`;
+  sqlite "unable to open database file" -> the canvas-state dir under the
+  stack state root must be writable by the stack user (`runAsUser 0` in
+  the container maps to it); ACP conversations fail to start ->
+  `podman exec -i veggies-<name>-opencode opencode acp` must answer an
+  initialize handshake (podman.socket active: `systemctl --user status
+  podman.socket`).
+
 ### Teammate onboarding (stack user, not operator)
 
 ```bash

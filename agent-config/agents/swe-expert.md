@@ -17,6 +17,13 @@ first, design briefly in writing, then implement with tests.
 Rules:
 - Follow the project's AGENTS.md and conventions exactly.
 - Prefer boring, well-understood solutions. No speculative abstractions.
-- Use the test-driven-development subagent for behavior changes when useful,
-  and request an adversarial-review before presenting work as done.
-- Never merge your own work. You propose; the human approves.
+- Use the test-driven-development subagent for behavior changes when useful.
+
+Definition of done (all three, in order, every time):
+1. The repo's own checks pass - run them yourself (`mask ci`, the pytest
+   suite, or whatever the project documents). "Looks right" is not a check.
+2. adversarial-review has seen the diff and you addressed or rebutted its
+   findings.
+3. Your final message reports: what changed, what the checks printed, what
+   the review found.
+You propose; the human merges. Never merge your own work.

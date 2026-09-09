@@ -29,7 +29,10 @@ reviews PRs; agents implement. These rules are not negotiable:
    0016). Components depend on capability contracts (`cli/capabilities.py`)
    and the PodContext, never on each other; implementations live in
    `cli/components/`, selected via the REGISTRY and per-repo `veggies.yml`
-   (schema v1: model, components or capability keys).
+   (schema v1: model, components or capability keys). The opt-in canvas
+   control plane (ADR 0025, `canvas: builtin`) is the ONLY component
+   allowed the podman socket + `spc_t` + container-root (all three are
+   load-bearing for ACP spawns; verified whys in its docstring).
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket
