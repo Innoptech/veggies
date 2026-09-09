@@ -7,9 +7,11 @@
   hosts: veggies
   become: true
   vars_files:
-    - ../secrets/infra.yml
-    - ../secrets/github.yml
-    - ../secrets/model.yml
+    # anchor at playbook_dir: bare relative paths silently resolve to
+    # nothing here (verified 2026-09-09: vars undefined, no error).
+    - "{{ playbook_dir }}/../../secrets/infra.yml"
+    - "{{ playbook_dir }}/../../secrets/github.yml"
+    - "{{ playbook_dir }}/../../secrets/model.yml"
   roles:
     # Substrate only: these roles prepare a box so `veggies`
     # stacks can run on it. No role may install/configure/observe a stack
