@@ -12,6 +12,7 @@ model id), VEGGIES_SDK_MODEL + VEGGIES_ROUTER_BASE + LITELLM_MASTER_KEY
 (the second-harness LLM profile, ADR 0027).
 """
 
+import hashlib
 import json
 import os
 import shlex
@@ -20,6 +21,23 @@ import urllib.request
 from pathlib import Path
 
 API = "http://127.0.0.1:8000"
+# The critic renderer's tokenizer config (sdk chat_template.py caches it as
+# plain JSON keyed by md5(name)); pre-seeded from the vendored copy so the
+# huggingface.co fetch never happens (ADR 0027).
+_TOKENIZER_NAME = "Qwen/Qwen3-4B-Instruct-2507"
+
+
+def seed_tokenizer_cache() -> None:
+    cache_dir = Path.home() / ".cache" / "chat_templates"
+    target = cache_dir / (hashlib.md5(_TOKENIZER_NAME.encode()).hexdigest()
+                          + "_tokenizer_config.json")
+    if target.exists():
+        return
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        Path("/stack-config/tokenizer_config.qwen3-4b.json").read_text())
+    print(f"canvas bootstrap: tokenizer cache seeded ({_TOKENIZER_NAME})",
+          flush=True)
 
 
 def session_key() -> str | None:
@@ -50,6 +68,7 @@ def post(key: str, path: str, body: dict) -> None:
 
 
 def main() -> None:
+    seed_tokenizer_cache()
     key = None
     for _ in range(90):  # ~3 min of startup grace
         try:
@@ -97,15 +116,18 @@ def main() -> None:
         post(key, "/api/agent-profiles/veggies-openhands", {
             "agent_kind": "openhands",
             "llm_profile_ref": "veggies-litellm",
-            # ADR 0027: critic is OFF by default. Verified 2026-09-09: the
-            # upstream critic's chat-template renderer fetches a Qwen
-            # tokenizer config from huggingface.co at evaluate time (blocked
-            # by the egress allowlist), i.e. it is built around their hosted
-            # critic model. Options (all deliberate, none default): allowlist
-            # huggingface.co and accept an untrained judge; or an OpenHands
-            # API key for the hosted trained critic (data leaves the pod).
+            # ADR 0027: critic ON via our in-pod shim (/classify adapter,
+            # critic_shim.py; judge = deepseek-v4 via the in-pod router).
+            # The renderer's tokenizer config is vendored (seeded by this
+            # bootstrap); nothing leaves the pod.
             "verification": {
-                "critic_enabled": False,
+                "critic_enabled": True,
+                "critic_server_url": "http://127.0.0.1:4401",
+                "critic_model_name": os.environ.get("VEGGIES_JUDGE_MODEL",
+                                                    "deepseek-v4"),
+                "enable_iterative_refinement": True,
+                "critic_threshold": 0.6,
+                "max_refinement_iterations": 2,
             },
         })
         print(f"canvas bootstrap: LLM profile veggies-litellm + agent profile "

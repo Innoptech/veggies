@@ -51,7 +51,11 @@ def _render(ctx: PodContext) -> dict:
         # the stock entrypoint runs. Container root maps to the stack user
         # on the host (default rootless userns) - that identity is what the
         # podman socket checks.
+        # Wrapper launches: the critic shim (ADR 0027: /classify adapter,
+        # pod-loopback only), the settings bootstrap, then the stock
+        # entrypoint.
         "command": ["sh", "-c",
+                    "python3 /stack-config/critic-shim.py & "
                     "python3 /stack-config/canvas-bootstrap.py & "
                     "exec tini -- /opt/agent-canvas/entrypoint.sh"],
         "env": [
@@ -65,6 +69,9 @@ def _render(ctx: PodContext) -> dict:
             # secret -> env; bootstrap pushes it into Canvas's settings.
             {"name": "VEGGIES_SDK_MODEL", "value": f"openai/{alias}"},
             {"name": "VEGGIES_ROUTER_BASE", "value": router.base_url},
+            # ADR 0027: the critic shim judges with a DIFFERENT model than
+            # the author. deepseek-v4 verified answering via the router.
+            {"name": "VEGGIES_JUDGE_MODEL", "value": "deepseek-v4"},
             secret_env("LITELLM_MASTER_KEY", router.secret, "master_key"),
             # The canvas services' own fetches ride the in-pod egress proxy.
             {"name": "HTTPS_PROXY", "value": "http://127.0.0.1:3128"},
@@ -123,8 +130,15 @@ def _volumes(ctx: PodContext) -> list[dict]:
 
 
 def _config_files(ctx: PodContext) -> dict[str, str]:
-    src = ctx.infra_repo / "deploy" / "canvas" / "bootstrap.py"
-    return {"canvas-bootstrap.py": src.read_text()}
+    src = ctx.infra_repo / "deploy" / "canvas"
+    return {
+        "canvas-bootstrap.py": (src / "bootstrap.py").read_text(),
+        "critic-shim.py": (src / "critic_shim.py").read_text(),
+        # Vendored Qwen3-4B tokenizer_config.json (Apache-2.0): the critic
+        # renderer's only external fetch; pre-seeded so it never egresses.
+        "tokenizer_config.qwen3-4b.json":
+            (src / "tokenizer_config.qwen3-4b.json").read_text(),
+    }
 
 
 def _probes(spec: StackSpec) -> list[StatusProbe]:
