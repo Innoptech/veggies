@@ -470,7 +470,10 @@ def test_canvas_render(spec):
         "name": "veggies-demo-litellm", "key": "master_key"}
     vols = {v["name"]: v for v in canvas.COMPONENT.volumes(ctx)}
     assert vols["podman-runtime"]["hostPath"]["path"] == "/run/user/1000/podman"
-    assert "canvas-bootstrap.py" in canvas.COMPONENT.config_files(ctx)
+    files = canvas.COMPONENT.config_files(ctx)
+    assert set(files) == {"canvas-bootstrap.py", "critic-shim.py",
+                          "tokenizer_config.qwen3-4b.json"}
+    assert env["VEGGIES_JUDGE_MODEL"] == "deepseek-v4"
     # the pod assembles with a fourth container
     pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO, comps)
            if d["kind"] == "Pod"][0]
