@@ -79,7 +79,14 @@ def _render(ctx: PodContext) -> dict:
             {"name": "tmp", "mountPath": "/tmp"},
         ],
         "resources": {"limits": {"memory": "1Gi"}},
-        "securityContext": {"seLinuxOptions": {"type": "spc_t"}},
+        # runAsUser 0 is NOT a privilege grab: under the default rootless
+        # userns, container root maps to the stack user on the host - the
+        # exact identity the podman socket + stack-config files check.
+        # (Running as the image's openhands uid maps to a subuid and loses
+        # both; verified live 2026-09-08.) spc_t: the socket connect is
+        # denied under container_t even relabeled (ADR 0025 spike).
+        "securityContext": {"runAsUser": 0, "runAsGroup": 0,
+                            "seLinuxOptions": {"type": "spc_t"}},
         # python3 ships in the image (used for the probe and bootstrap).
         "livenessProbe": {
             "exec": {"command": [

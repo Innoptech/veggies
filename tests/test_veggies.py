@@ -453,6 +453,7 @@ def test_canvas_render(spec):
                              "hostPort": spec.port + canvas.HOST_PORT_OFFSET,
                              "hostIP": "127.0.0.1"}
     assert c["securityContext"]["seLinuxOptions"] == {"type": "spc_t"}
+    assert c["securityContext"]["runAsUser"] == 0  # container root == stack user on host
     env = {e["name"]: e["value"] for e in c["env"]}
     assert env["CONTAINER_HOST"] == "unix:///run/podman/podman.sock"
     assert env["VEGGIES_ACP_TARGET"] == "veggies-demo-opencode"
