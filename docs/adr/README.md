@@ -33,7 +33,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | proposed |
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: contracts, not tools | accepted |
 | [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted |
-| [0025](0025-stack-control-plane.md) | Stack control plane: supervision UI and automations (spike: Agent Canvas via ACP) | proposed |
+| [0025](0025-stack-control-plane.md) | Stack control plane: Agent Canvas component driving opencode via ACP | accepted |
 | [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 
 ## Deviation ledger (vs the original brief)

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-08
 ---
 
@@ -41,17 +41,34 @@ and fire automations (schedule/webhook -> agent). Verified 2026-09-08:
 - **A. opencode web only** (+ `veggies ls/status`): per-stack browser UI we
   already have; no cross-stack view, no automations, no diff-centric review.
 - **B. OpenHands Agent Canvas** as control plane, driving stack opencode via
-  ACP (`podman exec -i ... opencode acp`), run as the `stacks` user with its
-  UI on 127.0.0.1. If adopted permanently it becomes *substrate* (an ansible
-  role, ADR 0016) - it supervises stacks, it is not part of one.
+  ACP (`podman exec -i ... opencode acp`), its UI on 127.0.0.1.
 - **C. Thin own dashboard**: a small read-mostly webapp over
   `~/.local/state/veggies/state.json` + the serve APIs. Full control; we own
   a webapp forever.
 
 ## Decision outcome
 
-**Decide by spike.** A half-day spike of Option B on the VPS, then this ADR
-is finalized (accepted with the winner) using this scorecard:
+**Option B, adopted - as a stack component, not substrate.** Canvas is an
+opt-in component (`canvas: builtin` in veggies.yml,
+`cli/components/canvas.py`), owned by the CLI like every other component
+(ADR 0016/0023); an early framing as an ansible-managed substrate service
+was rejected: the CLI owns stacks, ansible stays out of stack definitions.
+The spike below passed every machine-verifiable scorecard row; the UX rows
+(multi-session feel, permission prompts, diff review) are exercised by
+dogfooding this repo's own stack.
+
+Caveats carried forward: (1) Canvas conversations and opencode-serve
+sessions are separate worlds (each has its own UI); (2) Canvas/SDK-side
+agent-loop features (critic, goal loops, hooks, persistent memory) do not
+apply to ACP-delegated conversations - if they are ever wanted natively,
+the path is a second harness component (ADR 0023), not new machinery;
+(3) webhook/event automations need inbound listeners, which stay off under
+ADR 0024 - cron + git-synced automations work today; (4) the canvas
+container needs the host's rootless podman socket and `spc_t` SELinux type
+to spawn ACP subprocesses in sibling containers - the widest privilege in
+any component, contained by the same-user boundary.
+
+Original scorecard (pre-spike):
 
 1. Two+ sessions visible and followable in one UI.
 2. Message a running agent mid-run (reroute) and get a response.
