@@ -97,17 +97,15 @@ def main() -> None:
         post(key, "/api/agent-profiles/veggies-openhands", {
             "agent_kind": "openhands",
             "llm_profile_ref": "veggies-litellm",
-            # ADR 0027: critic = LLM-as-judge via OUR router (no third
-            # party). Judge = a different model than the author's (the
-            # adversarial-review habit). The key is inherited from the
-            # resolved LLM profile (profiles are secret-free by design).
+            # ADR 0027: critic is OFF by default. Verified 2026-09-09: the
+            # upstream critic's chat-template renderer fetches a Qwen
+            # tokenizer config from huggingface.co at evaluate time (blocked
+            # by the egress allowlist), i.e. it is built around their hosted
+            # critic model. Options (all deliberate, none default): allowlist
+            # huggingface.co and accept an untrained judge; or an OpenHands
+            # API key for the hosted trained critic (data leaves the pod).
             "verification": {
-                "critic_enabled": True,
-                "critic_server_url": os.environ["VEGGIES_ROUTER_BASE"],
-                "critic_model_name": "deepseek-v4",
-                "enable_iterative_refinement": True,
-                "critic_threshold": 0.6,
-                "max_refinement_iterations": 2,
+                "critic_enabled": False,
             },
         })
         print(f"canvas bootstrap: LLM profile veggies-litellm + agent profile "

@@ -29,11 +29,17 @@ The canvas component doubles as the second harness:
 - Agent kind is per-conversation in the Canvas UI: ACP/opencode remains
   the default (TUI/web-attach ecosystem, vendored rosters); OpenHands kind
   unlocks critic, goal loops, hooks, memory. No migration, no flag day.
-- **Critic = LLM-as-judge via OUR litellm** (sovereign). The
-  OpenHands-hosted trained critic was rejected: it would make
-  all-hands.dev a second third-party data sink (Fireworks is the only one
-  we accept today). If self-judging proves too weak in practice, revisit
-  with an explicit data-boundary decision - not by default.
+- **Critic: OFF by default.** Plan was LLM-as-judge via our litellm;
+  verified live (2026-09-09) that the upstream critic path fetches a Qwen
+  tokenizer config from huggingface.co at evaluate time (its chat-template
+  renderer is built around their hosted critic model) - blocked by the
+  egress allowlist, so the evaluation 500s. Real options, all deliberate:
+  (a) allowlist huggingface.co and accept an *untrained* judge through our
+  router; (b) an OpenHands API key for the hosted trained critic
+  (conversation content leaves the pod - a second third party); (c) keep
+  adversarial review where it already works: the opencode
+  `adversarial-review` agent + the definition-of-done convention (0019).
+  Default is (c). Goal loops and hooks carry no such external dependency.
 - Tools execute in the canvas container as container-root (= the stack
   user on the host): same ownership story as the harness, same shared
   /workspace mount, egress via the in-pod squid.
