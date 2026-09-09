@@ -5,9 +5,10 @@ provider "github" {
   owner = var.github_owner
 }
 
-# OpenStack provider: used only by the scaffolded ovh/ module when
-# var.enable_ovh = true. Authenticates via clouds.yaml / OS_* env on the
-# operator machine. `null` means "fall back to OS_CLOUD".
-provider "openstack" {
-  cloud = var.openstack_cloud
-}
+# OpenStack provider: intentionally UNWIRED. An unconfigured openstack
+# provider fails `tofu plan` even when the ovh module is count=0 (providers
+# configure unconditionally). The scaffold module stays in ovh/; wire both
+# back at the ADR 0002 migration:
+# provider "openstack" {
+#   cloud = var.openstack_cloud
+# }
