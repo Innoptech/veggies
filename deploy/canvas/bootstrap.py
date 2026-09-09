@@ -75,11 +75,12 @@ def main() -> None:
     patch(key, {"agent_settings_diff": diff})
     print(f"canvas bootstrap: ACP configured -> {target}", flush=True)
 
-    # ADR 0027: second harness. Save + activate an LLM profile pointing at
-    # the in-pod router (verified: conversations resolve their LLM from the
-    # ACTIVE PROFILE, not from agent_settings.llm; inline api_key in a
-    # conversation request is dropped). Profiles API: POST /api/profiles/
-    # {name} then /activate.
+    # ADR 0027: second harness. Verified against the live agent server
+    # (2026-09-09): conversations resolve their agent from an AGENT PROFILE
+    # (agent_profile_id), which references an LLM PROFILE by name; inline
+    # api_keys in conversation requests are dropped by design. So: save the
+    # LLM profile (router + master key), then an agent profile pointing at
+    # it; the UI lists it as a one-click kind for new conversations.
     sdk_model = os.environ.get("VEGGIES_SDK_MODEL")
     master_key = os.environ.get("LITELLM_MASTER_KEY")
     if sdk_model and master_key:
@@ -93,8 +94,13 @@ def main() -> None:
             "include_secrets": True,
         })
         post(key, "/api/profiles/veggies-litellm/activate", {})
-        print(f"canvas bootstrap: LLM profile veggies-litellm active "
-              f"({sdk_model} via in-pod router)", flush=True)
+        post(key, "/api/agent-profiles/veggies-openhands", {
+            "agent_kind": "openhands",
+            "llm_profile_ref": "veggies-litellm",
+        })
+        print(f"canvas bootstrap: LLM profile veggies-litellm + agent profile "
+              f"veggies-openhands ready ({sdk_model} via in-pod router)",
+              flush=True)
 
 
 if __name__ == "__main__":
