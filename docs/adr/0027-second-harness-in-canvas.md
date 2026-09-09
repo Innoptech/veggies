@@ -29,17 +29,22 @@ The canvas component doubles as the second harness:
 - Agent kind is per-conversation in the Canvas UI: ACP/opencode remains
   the default (TUI/web-attach ecosystem, vendored rosters); OpenHands kind
   unlocks critic, goal loops, hooks, memory. No migration, no flag day.
-- **Critic: OFF by default.** Plan was LLM-as-judge via our litellm;
-  verified live (2026-09-09) that the upstream critic path fetches a Qwen
-  tokenizer config from huggingface.co at evaluate time (its chat-template
-  renderer is built around their hosted critic model) - blocked by the
-  egress allowlist, so the evaluation 500s. Real options, all deliberate:
-  (a) allowlist huggingface.co and accept an *untrained* judge through our
-  router; (b) an OpenHands API key for the hosted trained critic
-  (conversation content leaves the pod - a second third party); (c) keep
-  adversarial review where it already works: the opencode
-  `adversarial-review` agent + the definition-of-done convention (0019).
-  Default is (c). Goal loops and hooks carry no such external dependency.
+- **Critic: ON, via our own shim.** Verified live (2026-09-09): the
+  upstream `APIBasedCritic` speaks a bespoke `POST {server_url}/classify`
+  protocol that no provider serves (not litellm, not Fireworks), and its
+  chat-template renderer fetches a Qwen tokenizer config from
+  huggingface.co (blocked by the egress allowlist). Both are adapted, not
+  adopted: `deploy/canvas/critic_shim.py` (pod-loopback 127.0.0.1:4401,
+  Bearer = the pod's master key) maps /classify onto a judge call through
+  our router - **deepseek-v4 judging kimi-k3's work** (never the author's
+  own model); the renderer's tokenizer config is vendored
+  (`deploy/canvas/tokenizer_config.qwen3-4b.json`, Apache-2.0) and
+  pre-seeded at boot. Verified end-to-end: a native conversation's
+  FinishAction carried `critic_result score=0.9`. The judge is advisory
+  (untrained LLM-as-judge); iterative refinement is on (threshold 0.6,
+  max 2). The hosted OpenHands critic (trained model) remains a rejected
+  alternative: conversation content would flow to all-hands.dev.
+  Goal loops and hooks carry no such external dependency.
 - Tools execute in the canvas container as container-root (= the stack
   user on the host): same ownership story as the harness, same shared
   /workspace mount, egress via the in-pod squid.
