@@ -19,8 +19,11 @@ Environment=DOCKER_HOST=unix:///var/run/docker.sock
 Environment=HTTPS_PROXY=http://host.containers.internal:3128
 Environment=HTTP_PROXY=http://host.containers.internal:3128
 Environment=NO_PROXY=host.containers.internal,127.0.0.1,localhost
-# Optional extra runtime env (drop-in, not managed):
-EnvironmentFile=-%h/.config/gh-runner/runtime.env
+# Optional extra runtime env (drop-in). NO systemd '-' prefix: podman's
+# quadlet parser treats '-%h/...' as a literal relative path and the unit
+# never starts (verified 2026-09-09). The role ships an empty file so the
+# reference always resolves.
+EnvironmentFile=%h/.config/gh-runner/runtime.env
 NoNewPrivileges=true
 
 [Service]
