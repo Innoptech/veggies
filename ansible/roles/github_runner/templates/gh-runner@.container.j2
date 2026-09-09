@@ -6,6 +6,12 @@ Description=Ephemeral GitHub Actions runner %i
 [Container]
 Image=localhost/gh-runner:{{ github_runner_version }}
 ContainerName=gh-runner-%i
+# Container root == the gh-runner user on the host (rootless userns), which
+# is what owns the mounted _work dirs; the image's `runner` uid maps to a
+# subuid and cannot write them ("Fail to create and validate runner's work
+# directory", verified 2026-09-09). The runner refuses root unless told:
+User=0
+Environment=RUNNER_ALLOW_RUNASROOT=1
 # Written by ExecStartPre (fetch_runner_token) just before every start:
 EnvironmentFile=%h/.config/gh-runner/%i.env
 # Only the per-instance work dir is mounted.

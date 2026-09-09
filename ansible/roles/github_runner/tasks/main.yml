@@ -161,11 +161,16 @@
     - runner.Containerfile
     - runner-entrypoint.sh
   when: github_runner_build_image
+  register: github_runner_context
 
 - name: Build the runner image as the service user
   containers.podman.podman_image:
     name: localhost/gh-runner
     tag: "{{ github_runner_version }}"
+    # The module does NOT detect context/arg changes on its own (verified
+    # 2026-09-09: an entrypoint fix never rebuilt). Force iff the staged
+    # context changed - idempotent and never stale.
+    force: "{{ github_runner_context is changed }}"
     path: "/home/{{ github_runner_user }}/runner-build" # remote context (builds run on the VPS)
     build:
       file: "/home/{{ github_runner_user }}/runner-build/runner.Containerfile"
