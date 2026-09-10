@@ -26,7 +26,10 @@ resource "github_branch_protection" "main" {
     required_approving_review_count = try(var.review_overrides[each.key].approvals, 1)
     require_code_owner_reviews      = try(var.review_overrides[each.key].code_owners, true) # <-- the bot can never satisfy this: it is not in CODEOWNERS
     dismiss_stale_reviews           = true
-    require_last_push_approval      = true
+    # ADR 0024 (solo author): "someone other than the pusher" would be an
+    # empty set on this repo, so the most-recent-push approval gate is off.
+    # Re-enable once a second identity joins (then it is the right default).
+    require_last_push_approval = false
   }
 }
 
