@@ -37,6 +37,8 @@ spec:
         secretKeyRef:
           key: master_key
           name: veggies-demo-litellm
+    - name: SUPERPOWERS_DISABLE_TELEMETRY
+      value: '1'
     - name: HTTP_PROXY
       value: http://127.0.0.1:3128
     - name: HTTPS_PROXY

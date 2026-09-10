@@ -191,7 +191,14 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 - Skill: `agent-config/skills/<name>/SKILL.md` with `name` + `description`
   frontmatter (see opencode skills docs). Same flow.
 - Superpowers bump: change the pinned tag in `agent-config/opencode.json`
-  (`#vX.Y.Z`), PR; same stack-recreate rollout.
+  (`#vX.Y.Z`; check the tag's resolved commit with
+  `git ls-remote --tags https://github.com/obra/superpowers.git`), PR; same
+  stack-recreate rollout. opencode/bun caches git plugins under the
+  opencode-home volume, so a bump may not take effect on recreate alone
+  (upstream-documented): clear the cache with
+  `podman exec veggies-<name>-opencode rm -rf /root/.cache/opencode /root/.config/opencode/node_modules`
+  then restart the stack. Telemetry is disabled pod-wide via
+  `SUPERPOWERS_DISABLE_TELEMETRY=1` (set by the opencode component).
 
 ## 9. veggies stacks (ADR 0013/0014)
 

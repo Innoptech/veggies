@@ -78,6 +78,9 @@ def _render(ctx: PodContext) -> dict:
         "env": [
             secret_env("OPENCODE_SERVER_PASSWORD", spec.secret_opencode, "password"),
             secret_env("LITELLM_MASTER_KEY", router.secret, "master_key"),
+            # Superpowers phones home a version ping (opt-out per upstream
+            # README); the egress proxy blocks it anyway - belt and braces.
+            {"name": "SUPERPOWERS_DISABLE_TELEMETRY", "value": "1"},
         ] + [{"name": k, "value": v} for k, v in egress.env.items()],
         "ports": [
             {
