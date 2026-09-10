@@ -70,10 +70,10 @@ acl allowed_src src {src}
 acl allowed_sites dstdomain "/stack-config/allowlist.txt"
 acl SSL_ports port 443
 acl CONNECT method CONNECT
-# Pod-loopback destinations (the router at 4000, canvas at 8000): some
-# clients' proxy libs ignore no_proxy (aiohttp; verified 2026-09-09 via the
-# canvas SDK path) and would CONNECT through us. Allow pod-local targets;
-# the internet boundary below is unchanged.
+# Pod-loopback destinations (e.g. the router at 4000): some clients'
+# proxy libs ignore no_proxy (aiohttp; verified 2026-09-09) and would
+# CONNECT through us. Allow pod-local targets; the internet boundary
+# below is unchanged.
 acl pod_local dst 127.0.0.1
 
 http_access deny CONNECT !SSL_ports

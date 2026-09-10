@@ -31,11 +31,12 @@ reviews PRs; agents implement. These rules are not negotiable:
    `cli/components/`, selected via the REGISTRY and per-repo `veggies.yml`
    (schema v1: model, components or capability keys, mcps). MCP servers are
    opt-in sidecars on pod loopback selected via `mcps:` (ADR 0018); a
-   component wires them in via `mcp_entry()`/`egress_domains()` hooks. The
-   opt-in canvas
-   control plane (ADR 0025, `canvas: builtin`) is the ONLY component
-   allowed the podman socket + `spc_t` + container-root (all three are
-   load-bearing for ACP spawns; verified whys in its docstring).
+   component wires them in via `mcp_entry()`/`egress_domains()` hooks.
+   Supervision = `veggies supervise` (ADR 0028): the critic loop is ours,
+   judge calls exec inside the litellm container so the master key never
+   leaves the pod. (The canvas control plane was retired - ADR 0028; if a
+   component ever needs the podman socket again, that ADR's history and
+   0025 document the verified cost.)
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket

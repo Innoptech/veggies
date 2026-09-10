@@ -219,13 +219,9 @@ squid allowlist. New MCP = one file in `cli/components/` + one registry
 line. Verify a live one: a session prompt "use the <name> MCP ..." should
 produce a `<name>_<tool>` tool call in the session messages.
 
-MCPs are opencode-only today (verified 2026-09-09 against agent-canvas
-1.16.0): the canvas agent-profiles API rejects `mcp_config` with 422
-`extra_forbidden`, and `settings.agent_settings.mcp_config` exists in the
-schema but its validator rejects any actual server definition (empty dict
-patches fine, real entries 422 "Settings validation failed"). So the
-OpenHands native harness gets no MCP tools until upstream exposes the
-field - re-probe on canvas image bumps; a flip would be a new ADR.
+MCPs are opencode-only: the canvas probe (2026-09-09, agent-canvas
+1.16.0) showed its profile API rejects `mcp_config`, and canvas is now
+retired entirely (ADR 0028) - opencode is the only harness.
 
 Browser attach (verified 2026-09-08): the published port serves opencode's
 official web UI - sessions list, live multi-session view, permissions; it
@@ -234,39 +230,23 @@ Remote: `ssh -L <port>:127.0.0.1:<port> veggies`, then open the same URL.
 The basic-auth password is printed at `up` and stored in
 `~/.local/state/veggies/state.json`.
 
-### Canvas (control plane; stack needs `canvas: builtin`, ADR 0025)
+### Supervision: the critic loop (ADR 0028)
 
-Agent Canvas = the supervision UI: multiple conversations at once, message
-a running agent, answer permission prompts, review diffs, and automations
-(cron + git-synced definitions; event/webhook triggers stay OFF while
-inbound listeners are out of posture - ADR 0024).
+Canvas is retired (ADR 0028: upstream archived, two-worlds problem, and
+the critic only covered canvas conversations). The loop is ours now:
 
-- UI: `http://127.0.0.1:<port+1000>/canvas` (loopback always; remote:
-  `ssh -L 5097:127.0.0.1:5097 veggies` when the stack's opencode port is
-  4097). ACP wiring self-configures at boot (`podman logs
-  veggies-<name>-canvas | grep bootstrap` should say
-  `ACP configured -> veggies-<name>-opencode`).
-- Canvas drives opencode via ACP (`podman exec ... opencode acp` over the
-  host's rootless podman socket - the canvas container is the only one
-  allowed that socket + `spc_t`; see the component docstring).
-- Canvas conversations and opencode-serve sessions are SEPARATE worlds:
-  canvas-spawned work does not appear in the opencode web UI's session
-  list (each has its own UI; verified 2026-09-08).
-- Second harness (ADR 0027): agent profile `veggies-openhands` runs the
-  OpenHands CodeAct loop natively (choose it per conversation in the UI);
-  its critic judges via our in-pod shim (deepseek-v4 over the stack's
-  router; score appears in the conversation timeline; low scores trigger
-  iterative refinement). Shim health: `podman logs veggies-<name>-canvas |
-  grep critic-shim`.
-- The `/vscode` route answers 403 in our topology (no workspace service
-  behind it for ACP conversations) - not wired; revisit if wanted.
-- Troubleshooting: canvas unhealthy at up -> `veggies logs <name> canvas`;
-  sqlite "unable to open database file" -> the canvas-state dir under the
-  stack state root must be writable by the stack user (`runAsUser 0` in
-  the container maps to it); ACP conversations fail to start ->
-  `podman exec -i veggies-<name>-opencode opencode acp` must answer an
-  initialize handshake (podman.socket active: `systemctl --user status
-  podman.socket`).
+`veggies supervise <stack> --session <id> [--threshold 0.6] [--max 2]`
+
+watches an opencode session; every time the agent finishes (session goes
+idle with an unjudged assistant message), the transcript is judged by a
+DIFFERENT model (default deepseek-v4 judging kimi-k3) via the in-pod
+router - the judge call runs inside the litellm container, so the master
+key never leaves the pod. Below threshold, a `[critic] score ... issues:
+...` message is posted into the session (visible in the web UI) and the
+agent iterates; exit 0 on PASS, 1 on max-iterations/timeout. Runs while
+invoked (operator-driven); an always-on mode is a deliberate later step.
+Get session ids from the web UI or `GET /session` on the stack port.
+
 
 ### Teammate onboarding (stack user, not operator)
 

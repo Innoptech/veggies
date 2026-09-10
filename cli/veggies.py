@@ -456,9 +456,6 @@ def cmd_render(args: argparse.Namespace) -> int:
         components=cfg.get("components"),
         selections=cfg.get("selections"),
         mcps=tuple(cfg.get("mcps") or ()),
-        # render-only: canvas needs *a* socket dir; the local one is the
-        # honest guess (remote renders show the stacks user's at up time).
-        runtime_dir=f"/run/user/{os.geteuid()}",
     )
     sys.stdout.write(render_yaml(spec, infra_repo))
     return 0
@@ -518,22 +515,6 @@ def cmd_up(args: argparse.Namespace) -> int:
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     if spec.model:
         print(f"model:   litellm/{spec.model} (veggies.yml)")
-
-    if any(c.provides == "control-plane"
-           for c in stack_components(spec)):
-        # canvas spawns ACP sessions through the host's rootless podman
-        # socket: it needs the runtime dir and a listening socket.
-        spec.runtime_dir = (f"/run/user/{os.geteuid()}" if host is None else
-                            "/run/user/" + host_run(host, ["id", "-u"],
-                                                    capture=True).stdout.strip())
-        r = host_systemctl(host, "enable", "--now", "podman.socket",
-                           check=False, capture=True)
-        if r.returncode != 0:
-            print("!! canvas needs the user podman socket "
-                  "(systemctl --user enable --now podman.socket)", file=sys.stderr)
-        host_run(host, ["mkdir", "-p",
-                        f"{spec.state_root()}/{spec.name}/canvas-state"])
-        label_for_containers(host, f"{spec.state_root()}/{spec.name}/canvas-state")
 
     url = f"http://{host or '127.0.0.1'}:{port}"
     if sys.stdin.isatty() and not args.yes:
@@ -845,9 +826,14 @@ def _basic_auth(password: str) -> str:
 
 def spec_from_record(name: str, record: dict) -> StackSpec:
     """The stack as it was brought up (state persists the wiring choices)."""
+    selections = dict(record.get("selections") or {})
+    if selections.pop("control-plane", None) is not None:
+        print(f"warning: stack {name!r} selected the retired canvas control "
+              "plane (ADR 0028); ignoring it - delete and re-up to drop the "
+              "container", file=sys.stderr)
     return StackSpec(name=name, repo=record["repo"], host=record["host"],
                      components=record.get("components"),
-                     selections=record.get("selections"),
+                     selections=selections or None,
                      mcps=tuple(record.get("mcps") or ()))
 
 
@@ -1000,7 +986,7 @@ def main(argv: list[str] | None = None) -> int:
     p_logs = sub.add_parser("logs", help="pod logs (or one container)")
     p_logs.add_argument("name")
     p_logs.add_argument("container", nargs="?",
-                        choices=["opencode", "litellm", "squid", "canvas"])
+                        choices=["opencode", "litellm", "squid"])
     p_logs.add_argument("-f", "--follow", action="store_true")
     p_logs.set_defaults(func=cmd_logs)
 

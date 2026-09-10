@@ -4,7 +4,7 @@ Zero-egress, zero-secret FastMCP server (current_time, roll_dice) serving
 streamable HTTP on pod loopback. Proves the whole MCP loop - component,
 pod wiring, opencode.json mcp: block, tool call - before real MCPs
 (sonarqube et al.) join as config-only adds. The server code ships as a
-stack-config file (same pattern as the canvas critic shim), so the image
+stack-config file (ADR 0018), so the image
 is nothing but python + fastmcp."""
 
 from __future__ import annotations
