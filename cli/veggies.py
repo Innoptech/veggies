@@ -633,6 +633,87 @@ def cmd_down(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_supervise(args: argparse.Namespace) -> int:
+    """Watch an opencode session; judge each finish with a different model
+    and inject a refinement message when below threshold (ADR 0028).
+    Operator-invoked: runs while this command runs."""
+    import supervisor
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
+    host, port = record["host"], record["port"]
+    password = record.get("password", "")
+    if not password:
+        raise ValueError(f"stack {args.name!r} has no password on record")
+    pod = f"veggies-{args.name}"
+    sid = args.session
+    q = "?directory=/workspace"
+    print(f"supervising {args.name}/{sid} (judge: {args.judge_model}, "
+          f"threshold {args.threshold}, max {args.max_iters} refinements)")
+    judged: set[str] = set()
+    scores: list[float] = []
+    deadline = time.time() + args.timeout
+    while time.time() < deadline:
+        status = api_call(host, port, password, "GET", f"/session/status{q}")
+        if status is None:
+            print("api unreachable; retrying...")
+            time.sleep(args.interval)
+            continue
+        entry = status.get(sid) if isinstance(status, dict) else None
+        if entry and entry.get("type") != "idle":
+            time.sleep(args.interval)
+            continue
+        msgs = api_call(host, port, password, "GET",
+                        f"/session/{sid}/message{q}")
+        if not isinstance(msgs, list):
+            raise ValueError(f"no such session {sid!r} on stack {args.name!r}")
+        assistants = [m for m in msgs
+                      if (m.get("info") or {}).get("role") == "assistant"]
+        if not assistants:
+            time.sleep(args.interval)
+            continue
+        last_id = assistants[-1]["info"]["id"]
+        if last_id in judged:
+            time.sleep(args.interval)
+            continue
+        transcript = supervisor.render_transcript(msgs)
+        if not transcript.strip():
+            judged.add(last_id)
+            continue
+        # Judge inside the litellm container: the master key stays in-pod.
+        r = host_podman(host, "exec", "-i", f"{pod}-litellm",
+                        "python3", "-",
+                        input_text=supervisor.judge_exec_script(
+                            args.judge_model, transcript),
+                        capture=True, check=False)
+        if r.returncode != 0:
+            raise ValueError(f"judge exec failed: "
+                             f"{redact(r.stderr.strip()[-300:])}")
+        verdict = supervisor.parse_judgment(r.stdout.strip())
+        scores.append(verdict["score"])
+        judged.add(last_id)
+        print(f"critic: score {verdict['score']:.2f} "
+              f"issues={verdict['issues'] or '[]'}")
+        action = supervisor.decide(scores, args.threshold, args.max_iters)
+        if action == "pass":
+            print(f"PASS (score {scores[-1]:.2f} >= {args.threshold})")
+            return 0
+        if action == "stop":
+            print(f"STOP: {args.max_iters} refinements used, "
+                  f"last score {scores[-1]:.2f} - needs a human")
+            return 1
+        prompt = supervisor.refinement_prompt(verdict)
+        resp = api_call(host, port, password, "POST",
+                        f"/session/{sid}/message{q}",
+                        {"parts": [{"type": "text", "text": prompt}]},
+                        timeout=max(args.timeout, 900))
+        if resp is None:
+            raise ValueError("failed to post refinement message")
+        print("refinement posted; the agent is iterating...")
+    print(f"timeout after {args.timeout}s (scores so far: {scores})")
+    return 1
+
+
 def cmd_attach(args: argparse.Namespace) -> int:
     record = State().get(args.name)
     if record is None:
@@ -694,6 +775,42 @@ def cmd_ls(args: argparse.Namespace) -> int:
 
 
 API_TIMEOUT = 90  # cold bootstrap (~20s: plugin cache warm-up) must fit
+
+
+def api_call(host: str | None, port: int, password: str, method: str,
+             path: str, body: dict | None = None,
+             timeout: int = API_TIMEOUT) -> object | None:
+    """Any-method opencode API call with the stack's basic auth (GET sibling
+    of probe_api). Body goes over stdin to curl remotely - never argv.
+    Returns parsed JSON, or None on any failure."""
+    import urllib.request
+    url = f"http://127.0.0.1:{port}{path}"
+    data = json.dumps(body) if body is not None else None
+    if host:
+        argv = ["curl", "-s", "-m", str(timeout), "-u",
+                f"opencode:{password}", "-X", method, url]
+        if data is not None:
+            argv += ["-H", "Content-Type: application/json",
+                     "--data-binary", "@-"]
+        r = run(["ssh", host, " ".join(shlex.quote(a) for a in argv)],
+                input_text=data, check=False, capture=True)
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        try:
+            return json.loads(r.stdout)
+        except json.JSONDecodeError:
+            return None
+    req = urllib.request.Request(url, method=method,
+                                 data=data.encode() if data else None)
+    req.add_header("Authorization", "Basic " + _basic_auth(password))
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw.strip() else {}
+    except Exception:  # connection refused, timeout, 401/5xx, bad json
+        return None
 
 
 def probe_api(host: str | None, port: int, password: str, path: str) -> object | None:
@@ -886,6 +1003,21 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["opencode", "litellm", "squid", "canvas"])
     p_logs.add_argument("-f", "--follow", action="store_true")
     p_logs.set_defaults(func=cmd_logs)
+
+    p_sup = sub.add_parser(
+        "supervise",
+        help="watch a session; judge finishes, inject refinements (ADR 0028)")
+    p_sup.add_argument("name")
+    p_sup.add_argument("--session", required=True, help="session id to watch")
+    p_sup.add_argument("--threshold", type=float, default=0.6)
+    p_sup.add_argument("--max", type=int, default=2, dest="max_iters",
+                       help="max refinement injections before giving up")
+    p_sup.add_argument("--judge-model", default="deepseek-v4",
+                       help="litellm alias; must differ from the author model")
+    p_sup.add_argument("--interval", type=int, default=10,
+                       help="poll seconds")
+    p_sup.add_argument("--timeout", type=int, default=3600)
+    p_sup.set_defaults(func=cmd_supervise)
 
     args = parser.parse_args(argv)
     try:
