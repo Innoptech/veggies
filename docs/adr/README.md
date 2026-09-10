@@ -26,7 +26,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0015](0015-rename-garden-to-veggies.md) | Project identity renamed: garden -> veggies | accepted |
 | [0016](0016-substrate-vs-stack-boundary.md) | Ansible is the substrate; the CLI is the stack | accepted |
 | [0017](0017-agent-orchestrator-and-workflows.md) | Agent orchestrator and adaptive pipelines | superseded by 0026 |
-| [0018](0018-mcp-server-components.md) | MCP server components | proposed |
+| [0018](0018-mcp-server-components.md) | MCP server components | accepted |
 | [0019](0019-agent-rosters-and-skills.md) | Agent rosters and skills: convention over machinery | accepted |
 | [0020](0020-cloud-substrate-module.md) | Cloud substrate module (GCP / other) | proposed |
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed |
