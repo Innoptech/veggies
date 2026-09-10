@@ -105,7 +105,9 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install pytest==9.1.1 pyyaml jinja2 ansible-core==2.21.3
+      # tzdata: python zoneinfo without an OS tz database (runner image has
+      # none) would break ZoneInfo() lookups used by the toolbox tests.
+      - run: pip install pytest==9.1.1 pyyaml jinja2 ansible-core==2.21.3 tzdata
       - run: python -m pytest tests/ -q
 
   # Branch protection requires a check context named exactly "molecule";
