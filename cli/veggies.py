@@ -536,6 +536,8 @@ def cmd_up(args: argparse.Namespace) -> int:
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     if spec.model:
         print(f"model:   litellm/{spec.model} (veggies.yml)")
+    if spec.github:
+        print("github:  GH_TOKEN + gh push/PR access enabled (ADR 0030)")
 
     url = f"http://{host or '127.0.0.1'}:{port}"
     if sys.stdin.isatty() and not args.yes:
@@ -621,7 +623,7 @@ def cmd_down(args: argparse.Namespace) -> int:
     if args.purge:
         host_podman(host, "volume", "rm", "-f", spec.volume_opencode,
                     check=False, capture=True)
-        host_podman(host, "secret", "rm", spec.secret_litellm, spec.secret_opencode,
+        host_podman(host, "secret", "rm", *secret_names(spec),
                     check=False, capture=True)
         safe_rmtree(host, spec.state_root(), f"{spec.state_root()}/{args.name}")
         if record["mode"] == "clone":

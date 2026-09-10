@@ -11,6 +11,7 @@ from pathlib import Path
 
 from capabilities import (
     HARDENED,
+    VAULT_GITHUB,
     Component,
     Generated,
     PodContext,
@@ -19,6 +20,7 @@ from capabilities import (
     ServiceRef,
     StackSpec,
     StatusProbe,
+    VaultKey,
     secret_env,
 )
 
@@ -60,6 +62,20 @@ def _render(ctx: PodContext) -> dict:
     publish_ip = "0.0.0.0" if spec.host else "127.0.0.1"
     router = ctx.service("model-router")
     egress = ctx.service("egress")
+    git_setup = ""
+    gh_env: list[dict] = []
+    if spec.github:
+        # ADR 0030 opt-in: GH_TOKEN (podman secret env) + a credential helper that
+        # expands it at use time - never persisted into .git/config. insteadOf lets
+        # SSH-style remotes work; identity so commits attribute to the bot.
+        git_setup = (
+            "git config --global credential.helper "
+            "'!f() { echo \"username=x-access-token\"; echo \"password=$GH_TOKEN\"; }; f' && "
+            "git config --global \"url.https://github.com/.insteadOf\" \"git@github.com:\" && "
+            "git config --global user.name \"veggies-agent\" && "
+            "git config --global user.email \"veggies-agent@users.noreply.github.com\" && "
+        )
+        gh_env = [secret_env("GH_TOKEN", spec.secret_github, "token")]
     return {
         "name": "opencode",
         "image": IMAGE_OPENCODE,
@@ -76,6 +92,7 @@ def _render(ctx: PodContext) -> dict:
             # config dirs are where opencode discovers them.
             "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
+            + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"
         ],
         "workingDir": "/workspace",
@@ -85,7 +102,7 @@ def _render(ctx: PodContext) -> dict:
             # Superpowers phones home a version ping (opt-out per upstream
             # README); the egress proxy blocks it anyway - belt and braces.
             {"name": "SUPERPOWERS_DISABLE_TELEMETRY", "value": "1"},
-        ] + [{"name": k, "value": v} for k, v in egress.env.items()],
+        ] + gh_env + [{"name": k, "value": v} for k, v in egress.env.items()],
         "ports": [
             {
                 "containerPort": _OPENCODE_CONTAINER_PORT,
@@ -127,7 +144,10 @@ def _volumes(ctx: PodContext) -> list[dict]:
 
 
 def _secrets(spec: StackSpec) -> list[SecretSpec]:
-    return [SecretSpec("opencode", {"password": Generated(12)})]
+    out = [SecretSpec("opencode", {"password": Generated(12)})]
+    if spec.github:
+        out.append(SecretSpec("github", {"token": VaultKey("github_token", VAULT_GITHUB)}))
+    return out
 
 
 def _config_files(ctx: PodContext) -> dict[str, str]:

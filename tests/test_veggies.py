@@ -1,5 +1,6 @@
 """Tests for cli/veggies.py - pure renderers, state, and drift guards."""
 
+import argparse
 import importlib.util
 import json
 import shlex
@@ -370,6 +371,8 @@ def test_parse_repo_config_mcps():
 def test_parse_repo_config_github():
     cfg, _ = veggies_stack.parse_repo_config("github: true\n")
     assert cfg["github"] is True
+    cfg, _ = veggies_stack.parse_repo_config("github: false\n")
+    assert cfg["github"] is False
     cfg, _ = veggies_stack.parse_repo_config("mcps: [toolbox]\n")
     assert "github" not in cfg
     # quoted on purpose: a bare `yes` is a YAML 1.1 bool to PyYAML and would
@@ -577,6 +580,33 @@ def test_stackspec_github_flag_and_secret_name():
     assert spec.secret_github == "veggies-t-github"
 
 
+def test_github_optin_adds_secret_env_and_gitconfig():
+    import components.opencode as opencode
+    spec = veggies.StackSpec(name="demo", repo="/tmp/r", port=4096, github=True)
+    secs = {s.name_suffix: s for s in opencode.COMPONENT.secrets(spec)}
+    assert secs["github"].keys["token"] == capabilities.VaultKey(
+        "github_token", "secrets/github.yml")
+    ctx = veggies_stack.build_context(spec, INFRA_REPO)
+    cont = opencode.COMPONENT.render(ctx)
+    env = {e["name"]: e for e in cont["env"] if "name" in e}
+    assert env["GH_TOKEN"]["valueFrom"]["secretKeyRef"] == {
+        "name": "veggies-demo-github", "key": "token"}
+    args = cont["args"][0]
+    assert "credential.helper" in args and "$GH_TOKEN" in args
+    assert "url.https://github.com/.insteadOf" in args
+    assert 'user.name "veggies-agent"' in args
+
+
+def test_github_default_off_leaves_render_untouched():
+    import components.opencode as opencode
+    spec = veggies.StackSpec(name="demo", repo="/tmp/r", port=4096)
+    secs = [s.name_suffix for s in opencode.COMPONENT.secrets(spec)]
+    assert "github" not in secs
+    cont = opencode.COMPONENT.render(veggies_stack.build_context(spec, INFRA_REPO))
+    blob = str(cont)
+    assert "GH_TOKEN" not in blob and "credential.helper" not in blob
+
+
 def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
     # The up-time seam cmd_up uses: a VaultKey's own vault file decides
     # which vault it is read from.
@@ -595,6 +625,33 @@ def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
     assert calls == [("github_token", "secrets/github.yml"),
                      ("fireworks_api_key", "secrets/model.yml")]
     assert values == {"token": "x", "model_key": "x"}
+
+
+def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_path):
+    # cmd_down --purge must remove EVERY declared secret, github's included.
+    # No down/purge test precedent exists, so drive the real cmd_down with
+    # the host_* seams monkeypatched (like the probe/clone tests above).
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(
+        veggies.StackSpec(name="g", repo="/tmp/g", port=4096, github=True),
+        password="p")
+    calls = []
+    monkeypatch.setattr(veggies, "host_run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_podman",
+                        lambda *a, **k: calls.append(a) or
+                        subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_systemctl",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_exists", lambda *a, **k: False)
+    monkeypatch.setattr(veggies, "safe_rmtree", lambda *a, **k: None)
+    veggies.cmd_down(argparse.Namespace(name="g", purge=True))
+    rm = next(c for c in calls if "secret" in c)
+    assert "veggies-g-github" in rm
+    assert rm == ("secret", "rm") + tuple(veggies.secret_names(
+        veggies.spec_from_record("g", {"repo": "/tmp/g", "mode": "mount",
+                                       "port": 4096, "host": None,
+                                       "github": True})))
 
 
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
