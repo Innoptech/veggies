@@ -1,5 +1,7 @@
 # veggies opencode image: official image + git, which the official
-# image lacks (verified 2026-09-04: alpine-based, root, no git/node).
+# image lacks (verified 2026-09-04: alpine-based, root, no git/node),
+# plus gh for github-enabled stacks (ADR 0030): gh reads GH_TOKEN and
+# api.github.com is already on the squid allowlist.
 # Base pinned by tag AND digest; bump both together.
 FROM ghcr.io/anomalyco/opencode:1.18.27@sha256:1eedcb5d4439130e35f5cf76d87c786c4eeb12dc7afebd79663f6c8341fa8505
 
@@ -12,4 +14,4 @@ ARG http_proxy=""
 ARG https_proxy=""
 ARG NO_PROXY=""
 
-RUN apk add --no-cache git openssh-client
+RUN apk add --no-cache git openssh-client github-cli
