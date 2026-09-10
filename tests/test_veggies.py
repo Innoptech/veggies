@@ -222,6 +222,27 @@ def test_squid_conf_chains_only_when_remote(spec):
     assert "cache_peer" in files["squid.conf"]
 
 
+def test_chained_squid_conf_fails_dns_fast():
+    """Remote (chained) pods: the substrate drops this uid's direct egress,
+    DNS included. Squid's own resolution of CONNECT targets stalls ~30s on
+    the dead path before falling back to the parent (verified on veggies
+    2026-09-10: 35s per new tunnel; parent answered in <1s). Fail DNS fast
+    (nothing listens on loopback:53 -> instant refusal) - the parent
+    resolves; never attempt direct for CONNECT; no netdb exchange noise."""
+    import components.squid as squid
+    conf = squid.render_squid_conf(chained=True)
+    assert "dns_nameservers 127.0.0.1" in conf
+    assert "nonhierarchical_direct off" in conf
+    assert "no-netdb-exchange" in conf
+
+
+def test_unchained_squid_conf_keeps_real_dns():
+    import components.squid as squid
+    conf = squid.render_squid_conf(chained=False)
+    assert "dns_nameservers" not in conf
+    assert "no-netdb-exchange" not in conf
+
+
 def test_squid_containerfile_reused():
     assert (ROOT / "ansible/roles/egress/files/squid.Containerfile").exists()
 
