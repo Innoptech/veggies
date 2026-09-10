@@ -86,6 +86,15 @@ def test_state_roundtrip_and_permissions(tmp_path):
     assert state.remove("a") is False
 
 
+def test_state_roundtrip_preserves_github(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    spec = veggies.StackSpec(name="t", repo="/tmp/t", port=4096, github=True)
+    veggies.State().add(spec, password="p")
+    record = veggies.State().get("t")
+    assert record["github"] is True
+    assert veggies.spec_from_record("t", record).github is True
+
+
 # --- pod rendering -------------------------------------------------------------
 
 
@@ -356,6 +365,17 @@ def test_parse_repo_config_mcps():
         veggies_stack.parse_repo_config("mcps: [bogus]\n")
     with pytest.raises(ValueError, match="'mcps' must be a list of strings"):
         veggies_stack.parse_repo_config("mcps: toolbox\n")
+
+
+def test_parse_repo_config_github():
+    cfg, _ = veggies_stack.parse_repo_config("github: true\n")
+    assert cfg["github"] is True
+    cfg, _ = veggies_stack.parse_repo_config("mcps: [toolbox]\n")
+    assert "github" not in cfg
+    # quoted on purpose: a bare `yes` is a YAML 1.1 bool to PyYAML and would
+    # PASS validation; the rejection path needs a genuine non-bool
+    with pytest.raises(ValueError, match="'github' must be a bool"):
+        veggies_stack.parse_repo_config('github: "yes"\n')
 
 
 def test_stack_components_includes_mcps():
@@ -648,6 +668,23 @@ def test_remote_clone_public_repo_gets_no_token(monkeypatch):
     cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/veggies.git", "/c/x")
     assert cmd == ["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
                    "clone", "https://github.com/Innoptech/veggies.git", "/c/x"]
+    assert calls == [["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
+                      "ls-remote", "https://github.com/Innoptech/veggies.git", "HEAD"]]
+
+
+def test_remote_clone_normalizes_github_ssh(monkeypatch):
+    calls = []
+
+    def fake_host_run(host, args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(veggies, "host_run", fake_host_run)
+    monkeypatch.setattr(veggies, "vault_key",
+                        lambda *a, **k: pytest.fail("token read for a public repo"))
+    cmd = veggies.remote_clone_cmd("h", "git@github.com:Innoptech/veggies.git", "/x")
+    assert cmd[-2:] == ["https://github.com/Innoptech/veggies.git", "/x"]
+    # normalization happens before the anonymous ls-remote probe
     assert calls == [["git", "-c", f"http.proxy={veggies_stack.REMOTE_PROXY}",
                       "ls-remote", "https://github.com/Innoptech/veggies.git", "HEAD"]]
 

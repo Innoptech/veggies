@@ -90,6 +90,7 @@ class State:
             "components": spec.components,
             "selections": spec.selections,
             "mcps": list(spec.mcps),
+            "github": spec.github,
             "model": spec.model,
             "created": spec.created,
             # opencode serve basic-auth password. Kept here (0600) rather than
@@ -182,6 +183,11 @@ def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
     limited-scope token fails even public clones (verified 2026-09-08), so
     probe anonymously first. All traffic via the substrate proxy: the stacks
     user is direct-egress-denied."""
+    if repo_url.startswith("git@github.com:"):
+        # SSH from pods is dead by design (squid CONNECT allowlist is 443-only,
+        # no keys in-container); the HTTPS form rides the proxy and, when the
+        # stack opts in, the GH_TOKEN credential helper.
+        repo_url = "https://github.com/" + repo_url[len("git@github.com:"):]
     cmd = ["git", "-c", f"http.proxy={REMOTE_PROXY}", "clone"]
     if repo_url.startswith("https://github.com/"):
         public = host_run(host, ["git", "-c", f"http.proxy={REMOTE_PROXY}",
@@ -469,6 +475,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         components=cfg.get("components"),
         selections=cfg.get("selections"),
         mcps=tuple(cfg.get("mcps") or ()),
+        github=cfg.get("github", False),
     )
     sys.stdout.write(render_yaml(spec, infra_repo))
     return 0
@@ -524,6 +531,7 @@ def cmd_up(args: argparse.Namespace) -> int:
                      components=cfg.get("components"),
                      selections=cfg.get("selections"),
                      mcps=tuple(cfg.get("mcps") or ()),
+                     github=args.github or cfg.get("github", False),
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     if spec.model:
@@ -602,7 +610,8 @@ def cmd_down(args: argparse.Namespace) -> int:
     if record is None:
         raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
     spec = StackSpec(name=args.name, repo=record["repo"], mode=record["mode"],
-                     port=record["port"], host=record["host"])
+                     port=record["port"], host=record["host"],
+                     github=record.get("github", False))
     host = spec.host
     if host_exists(host, quadlet_path(spec)):
         host_run(host, ["rm", "-f", quadlet_path(spec)])
@@ -863,7 +872,8 @@ def spec_from_record(name: str, record: dict) -> StackSpec:
     return StackSpec(name=name, repo=record["repo"], host=record["host"],
                      components=record.get("components"),
                      selections=selections or None,
-                     mcps=tuple(record.get("mcps") or ()))
+                     mcps=tuple(record.get("mcps") or ()),
+                     github=record.get("github", False))
 
 
 def harness_of(spec: StackSpec) -> Component | None:
@@ -993,6 +1003,9 @@ def main(argv: list[str] | None = None) -> int:
     p_up.add_argument("--clone", action="store_true",
                       default=os.environ.get("VEGGIES_CLONE") == "1",
                       help="repo is a URL; clone into the state dir")
+    p_up.add_argument("--github", action="store_true",
+                      help="deliver the vault's github_token as GH_TOKEN + git "
+                      "credential config (push/PR; ADR 0030)")
     p_up.add_argument("--no-attach", action="store_true",
                       default=os.environ.get("VEGGIES_NO_ATTACH") == "1")
     p_up.add_argument("--no-install", action="store_true",
