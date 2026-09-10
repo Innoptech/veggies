@@ -592,7 +592,10 @@ def test_github_optin_adds_secret_env_and_gitconfig():
     assert env["GH_TOKEN"]["valueFrom"]["secretKeyRef"] == {
         "name": "veggies-demo-github", "key": "token"}
     args = cont["args"][0]
-    assert "credential.helper" in args and "$GH_TOKEN" in args
+    # single-quoting is the security property: $GH_TOKEN must stay literal in
+    # the git config and expand only when git invokes the helper - a
+    # double-quoted helper would bake the PAT into /root/.gitconfig.
+    assert "credential.helper '!f() {" in args and "$GH_TOKEN" in args
     assert "url.https://github.com/.insteadOf" in args
     assert 'user.name "veggies-agent"' in args
 
@@ -638,8 +641,10 @@ def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_pa
     calls = []
     monkeypatch.setattr(veggies, "host_run",
                         lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    # host_podman's first positional is the host; drop it so captures are
+    # pure podman argv and compare against the declared name list directly.
     monkeypatch.setattr(veggies, "host_podman",
-                        lambda *a, **k: calls.append(a) or
+                        lambda host, *a, **k: calls.append(a) or
                         subprocess.CompletedProcess(a, 0))
     monkeypatch.setattr(veggies, "host_systemctl",
                         lambda *a, **k: subprocess.CompletedProcess(a, 0))
