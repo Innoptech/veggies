@@ -25,6 +25,8 @@ nftables rules still apply. SELinux stays Enforcing.
 - Read the repo it runs on and its own work dir.
 - Reach the squid allowlist (github, registries, mirrors, fireworks) -
   responses logged.
+- In github-enabled stacks (ADR 0030): push branches and open PRs as the
+  bot - the review gate is branch protection, not the pod.
 
 ## A prompt-injected job cannot (by design)
 
@@ -42,9 +44,10 @@ nftables rules still apply. SELinux stays Enforcing.
 
 | Key | Where it lives | If leaked |
 |-----|----------------|-----------|
-| Fireworks API key | per-stack litellm podman secret (vault-sourced) | Full model spend until rotated - `veggies secrets` re-injects per stack |
+| Fireworks API key | per-stack litellm podman secret (vault-sourced) | Full model spend until rotated - `veggies down <name> --purge` + `veggies up` re-injects per stack |
 | per-stack litellm master key | state.json (0600) + podman secret | Random per stack; useless outside that stack's pod |
 | GitHub runner admin PAT/App | gh-runner api.env (0600) | Runner admin on the governed repos until revoked; never enters containers |
+| GitHub bot PAT (opt-in stacks) | per-stack podman secret + GH_TOKEN env in the opencode container (ADR 0030) | Push/PR as the bot on repos the PAT can reach until revoked; cannot merge (branch protection, ADR 0007) - rotate via vault-edit + stack recreate |
 | Tailscale auth key | tailscale role (no_log) | Adds nodes with `tag:agent-host` until revoked in the tailnet console |
 | restic password + S3 creds | backup role env | Can decrypt/delete the backup bucket; cannot reach the host |
 | Vault password | `~/.config/infra/vault-password` (operator machine) | Everything above - protect accordingly (ADR 0004) |
