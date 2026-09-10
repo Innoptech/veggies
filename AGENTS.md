@@ -29,7 +29,7 @@ reviews PRs; agents implement. These rules are not negotiable:
    0016). Components depend on capability contracts (`cli/capabilities.py`)
    and the PodContext, never on each other; implementations live in
    `cli/components/`, selected via the REGISTRY and per-repo `veggies.yml`
-   (schema v1: model, components or capability keys, mcps). MCP servers are
+   (schema v1: model, components or capability keys, mcps, github). MCP servers are
    opt-in sidecars on pod loopback selected via `mcps:` (ADR 0018); a
    component wires them in via `mcp_entry()`/`egress_domains()` hooks.
    Supervision = `veggies supervise` (ADR 0028): the critic loop is ours,

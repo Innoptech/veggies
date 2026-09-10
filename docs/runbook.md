@@ -207,7 +207,7 @@ Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`.
 Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over the
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
-`components`, capability keys, `mcps`; ADR 0016/0023).
+`components`, capability keys, `mcps`, `github`; ADR 0016/0023).
 
 MCP servers (ADR 0018): opt-in sidecars selected via `mcps: [<name>]` in
 veggies.yml (registry in `cli/veggies_stack.py:MCP_REGISTRY`). They serve

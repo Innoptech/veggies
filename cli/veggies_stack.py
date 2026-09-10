@@ -120,7 +120,7 @@ def resolve_components(
 # --- veggies.yml (schema v1) ---------------------------------------------------------
 
 REPO_CONFIG_FILE = "veggies.yml"
-REPO_CONFIG_KEYS = {"model", "components", "mcps", *CAPABILITY_KEYS}
+REPO_CONFIG_KEYS = {"model", "components", "mcps", "github", *CAPABILITY_KEYS}
 
 
 def parse_repo_config(text: str) -> tuple[dict, list[str]]:
@@ -150,6 +150,10 @@ def parse_repo_config(text: str) -> tuple[dict, list[str]]:
             raise ValueError(f"{REPO_CONFIG_FILE}: 'mcps' must be a list of strings")
         resolve_mcps(mcps)  # raises on unknown names
         cfg["mcps"] = tuple(mcps)
+    if "github" in data:
+        if not isinstance(data["github"], bool):
+            raise ValueError(f"{REPO_CONFIG_FILE}: 'github' must be a bool")
+        cfg["github"] = data["github"]
     selections = {CAPABILITY_KEYS[k]: data[k] for k in CAPABILITY_KEYS if k in data}
     if selections:
         for key in CAPABILITY_KEYS:
