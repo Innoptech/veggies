@@ -1,5 +1,6 @@
 ---
 # veggies stack config for this repo (schema v1; ADR 0013/0023)
 # Dogfooding: our own stack runs the control plane so daily work here
-# exercises it (ADR 0025).
+# exercises it (ADR 0025), plus the MCP reference sidecar (ADR 0018).
 canvas: builtin
+mcps: [toolbox]

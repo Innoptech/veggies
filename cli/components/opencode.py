@@ -38,16 +38,20 @@ def _service_ref(spec: StackSpec) -> ServiceRef:
 
 
 def render_opencode_json(infra_repo: Path, router_base_url: str,
-                         model: str | None = None) -> str:
+                         model: str | None = None,
+                         mcp_entries: dict[str, dict] | None = None) -> str:
     """Stack variant of agent-config/opencode.json: router address injected
     by the caller and the master key via env (secretKeyRef)
-    instead of an auth.json file."""
+    instead of an auth.json file. mcp_entries (ADR 0018) come from the
+    selected components' mcp_entry() hooks."""
     src = json.loads((infra_repo / "agent-config/opencode.json").read_text())
     provider = src["provider"]["litellm"]
     provider["options"]["baseURL"] = router_base_url
     provider["options"]["apiKey"] = "{env:LITELLM_MASTER_KEY}"
     if model:
         src["model"] = f"litellm/{model}"
+    if mcp_entries:
+        src["mcp"] = dict(sorted(mcp_entries.items()))
     return json.dumps(src, indent=2) + "\n"
 
 
@@ -128,10 +132,13 @@ def _secrets(spec: StackSpec) -> list[SecretSpec]:
 
 def _config_files(ctx: PodContext) -> dict[str, str]:
     infra_repo = ctx.infra_repo
+    mcp_entries = {c.name: e for c in ctx.components
+                   if (e := c.mcp_entry(ctx)) is not None}
     files = {"opencode.json": render_opencode_json(
         infra_repo,
         router_base_url=ctx.service("model-router").base_url,
-        model=ctx.spec.model)}
+        model=ctx.spec.model,
+        mcp_entries=mcp_entries)}
     # Vendored agents + skills ship as per-stack copies (edit + `veggies up`
     # to apply; the wrapper copies them into opencode's global config dir).
     for sub in ("agents", "skills"):

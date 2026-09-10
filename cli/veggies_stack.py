@@ -35,7 +35,7 @@ from capabilities import (  # noqa: E402  (re-exported for cli/veggies.py)
     secret_env,
     state_dir,
 )
-from components import canvas, litellm, opencode, squid  # noqa: E402
+from components import canvas, litellm, mcp_toolbox, opencode, squid  # noqa: E402
 
 # Re-exported for tests and cli/veggies.py (single import surface).
 IMAGE_LITELLM = litellm.IMAGE_LITELLM
@@ -64,6 +64,27 @@ CAPABILITY_KEYS = {"harness": "harness", "model_router": "model-router",
 
 CORE = [REGISTRY[cap][impl] for cap, impl in DEFAULT_SELECTION.items()]
 COMPONENT_NAMES = {c.name for c in CORE}
+
+# Opt-in MCP sidecars (ADR 0018): name -> component. Additive on top of the
+# capability selection; never part of DEFAULT_SELECTION.
+MCP_REGISTRY: dict[str, Component] = {
+    "toolbox": mcp_toolbox.COMPONENT,
+}
+
+
+def resolve_mcps(names: tuple[str, ...] | list[str] | None) -> list[Component]:
+    """`mcps:` veggies.yml key -> components. Unknown names raise."""
+    unknown = sorted(set(names or ()) - MCP_REGISTRY.keys())
+    if unknown:
+        raise ValueError(
+            f"unknown mcps: {', '.join(unknown)} "
+            f"(available: {', '.join(sorted(MCP_REGISTRY))})")
+    return [MCP_REGISTRY[n] for n in (names or ())]
+
+
+def stack_components(spec: StackSpec) -> list[Component]:
+    """The full component list for a stack: capability selection + MCPs."""
+    return resolve_components(spec.components, spec.selections) + resolve_mcps(spec.mcps)
 
 
 def resolve_components(
@@ -100,7 +121,7 @@ def resolve_components(
 # --- veggies.yml (schema v1) ---------------------------------------------------------
 
 REPO_CONFIG_FILE = "veggies.yml"
-REPO_CONFIG_KEYS = {"model", "components", *CAPABILITY_KEYS}
+REPO_CONFIG_KEYS = {"model", "components", "mcps", *CAPABILITY_KEYS}
 
 
 def parse_repo_config(text: str) -> tuple[dict, list[str]]:
@@ -124,6 +145,12 @@ def parse_repo_config(text: str) -> tuple[dict, list[str]]:
             raise ValueError(f"{REPO_CONFIG_FILE}: 'components' must be a list of strings")
         resolve_components(names=comps)  # raises on unknown names
         cfg["components"] = comps
+    if "mcps" in data:
+        mcps = data["mcps"]
+        if not isinstance(mcps, list) or not all(isinstance(m, str) for m in mcps):
+            raise ValueError(f"{REPO_CONFIG_FILE}: 'mcps' must be a list of strings")
+        resolve_mcps(mcps)  # raises on unknown names
+        cfg["mcps"] = tuple(mcps)
     selections = {CAPABILITY_KEYS[k]: data[k] for k in CAPABILITY_KEYS if k in data}
     if selections:
         for key in CAPABILITY_KEYS:
@@ -156,7 +183,7 @@ def build_context(
 ) -> PodContext:
     """Resolve components and their capability wiring."""
     if components is None:
-        components = resolve_components(spec.components, spec.selections)
+        components = stack_components(spec)
     providers = {}
     for c in components:
         if c.provides in providers:
@@ -240,7 +267,7 @@ def required_secret_values(
     across the stack's components)."""
     out: dict[str, Generated | VaultKey] = {}
     for c in (components if components is not None
-              else resolve_components(spec.components, spec.selections)):
+              else stack_components(spec)):
         for s in c.secrets(spec):
             for key, source in s.keys.items():
                 if key in out:
@@ -254,7 +281,7 @@ def secret_names(spec: StackSpec, components: list[Component] | None = None) -> 
     return [
         f"{spec.pod}-{s.name_suffix}"
         for c in (components if components is not None
-                  else resolve_components(spec.components, spec.selections))
+                  else stack_components(spec))
         for s in c.secrets(spec)
     ]
 
@@ -267,7 +294,7 @@ def render_secret_docs(
     Name-sorted for determinism."""
     docs = []
     for c in (components if components is not None
-              else resolve_components(spec.components, spec.selections)):
+              else stack_components(spec)):
         for s in c.secrets(spec):
             docs.append({
                 "apiVersion": "v1",
