@@ -12,6 +12,9 @@ metadata:
 - Run the repo's own checks (usually `mask ci` or equivalent) rather than
   inventing ad-hoc verification.
 - Record non-obvious decisions as ADRs when the repo has an ADR process.
+- Respect protected branches: where branch protection applies (veggies:
+  main, ADR 0024), work on a feature branch and open a PR - never push to
+  main directly, never merge before required checks pass.
 
 ## When to use me
 
