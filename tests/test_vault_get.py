@@ -1,5 +1,6 @@
 import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 _SCRIPT = Path(__file__).parent.parent / "scripts/vault_get.py"
@@ -19,7 +20,7 @@ def test_missing_key_errors(tmp_path):
     plain.write_text("a: 1\n")
     # Not a vault file: ansible-vault errors -> non-zero, message on stderr.
     result = subprocess.run(
-        ["./.venv/bin/python", str(_SCRIPT), str(plain), "a"],
+        [sys.executable, str(_SCRIPT), str(plain), "a"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,

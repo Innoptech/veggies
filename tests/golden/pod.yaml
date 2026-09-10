@@ -183,7 +183,7 @@ spec:
       type: Directory
     name: stack-config
   - hostPath:
-      path: /home/josee/Innoptech/veggie/agent-config/litellm
+      path: @ROOT@/agent-config/litellm
       type: Directory
     name: agent-config
   - name: opencode-home

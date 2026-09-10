@@ -685,4 +685,5 @@ def test_render_matches_golden(monkeypatch):
         name="demo", repo="/tmp/veggies-test-state/demo-repo", mode="mount", port=4096
     )
     golden = (ROOT / "tests/golden/pod.yaml").read_text()
-    assert veggies.render_yaml(fixed, INFRA_REPO) == golden
+    rendered = veggies.render_yaml(fixed, INFRA_REPO).replace(str(ROOT), "@ROOT@")
+    assert rendered == golden
