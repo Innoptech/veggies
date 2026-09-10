@@ -632,6 +632,7 @@ def cmd_supervise(args: argparse.Namespace) -> int:
     print(f"supervising {args.name}/{sid} (judge: {args.judge_model}, "
           f"threshold {args.threshold}, max {args.max_iters} refinements)")
     judged: set[str] = set()
+    reported_perms: set[str] = set()
     scores: list[float] = []
     deadline = time.time() + args.timeout
     while time.time() < deadline:
@@ -642,6 +643,22 @@ def cmd_supervise(args: argparse.Namespace) -> int:
             continue
         entry = status.get(sid) if isinstance(status, dict) else None
         if entry and entry.get("type") != "idle":
+            # A busy session may in fact be PARKED on a permission prompt
+            # (verified 2026-09-09: a headless session sat 25 min on an
+            # external_directory prompt). Surface pendings so the operator
+            # knows to attach and answer; we never auto-reply.
+            pending = api_call(host, port, password, "GET",
+                               f"/permission{q}")
+            if isinstance(pending, list):
+                for perm in pending:
+                    if perm.get("sessionID") == sid:
+                        key = perm.get("id")
+                        if key not in reported_perms:
+                            reported_perms.add(key)
+                            print(f"!! pending permission {key}: "
+                                  f"{perm.get('permission')} "
+                                  f"{perm.get('patterns')} - answer it in "
+                                  "the web UI / TUI; supervision waits")
             time.sleep(args.interval)
             continue
         msgs = api_call(host, port, password, "GET",
