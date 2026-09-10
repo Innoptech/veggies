@@ -50,7 +50,7 @@ from veggies_stack import (  # noqa: E402
     render_secret_docs,
     render_yaml,
     required_secret_values,
-    resolve_components,
+    stack_components,
     sanitize_name,
     secret_names,
     state_dir,
@@ -90,6 +90,7 @@ class State:
             "host": spec.host,
             "components": spec.components,
             "selections": spec.selections,
+            "mcps": list(spec.mcps),
             "model": spec.model,
             "created": spec.created,
             # opencode serve basic-auth password. Kept here (0600) rather than
@@ -247,7 +248,7 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
     components' images. Built images use layer-cache (no-op when unchanged);
     pull-only images are pulled once. Remote: Containerfiles are shipped into
     the remote state dir and built there."""
-    for c in resolve_components(spec.components, spec.selections):
+    for c in stack_components(spec):
         b = c.build
         if b is None:
             continue
@@ -454,6 +455,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         model=args.model or cfg.get("model"),
         components=cfg.get("components"),
         selections=cfg.get("selections"),
+        mcps=tuple(cfg.get("mcps") or ()),
         # render-only: canvas needs *a* socket dir; the local one is the
         # honest guess (remote renders show the stacks user's at up time).
         runtime_dir=f"/run/user/{os.geteuid()}",
@@ -511,13 +513,14 @@ def cmd_up(args: argparse.Namespace) -> int:
                      model=args.model or cfg.get("model"),
                      components=cfg.get("components"),
                      selections=cfg.get("selections"),
+                     mcps=tuple(cfg.get("mcps") or ()),
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     if spec.model:
         print(f"model:   litellm/{spec.model} (veggies.yml)")
 
     if any(c.provides == "control-plane"
-           for c in resolve_components(spec.components, spec.selections)):
+           for c in stack_components(spec)):
         # canvas spawns ACP sessions through the host's rootless podman
         # socket: it needs the runtime dir and a listening socket.
         spec.runtime_dir = (f"/run/user/{os.geteuid()}" if host is None else
@@ -727,11 +730,12 @@ def spec_from_record(name: str, record: dict) -> StackSpec:
     """The stack as it was brought up (state persists the wiring choices)."""
     return StackSpec(name=name, repo=record["repo"], host=record["host"],
                      components=record.get("components"),
-                     selections=record.get("selections"))
+                     selections=record.get("selections"),
+                     mcps=tuple(record.get("mcps") or ()))
 
 
 def harness_of(spec: StackSpec) -> Component | None:
-    return next((c for c in resolve_components(spec.components, spec.selections)
+    return next((c for c in stack_components(spec)
                  if c.provides == "harness"), None)
 
 
@@ -772,7 +776,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     api_results: list[str] | None = None
     password = record.get("password", "")
-    components = resolve_components(spec.components, spec.selections)
+    components = stack_components(spec)
     if password and any(c[1] == "running" for c in containers):
         results = []
         for comp in components:

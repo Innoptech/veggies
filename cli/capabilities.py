@@ -46,6 +46,7 @@ class StackSpec:
     model: str | None = None  # litellm alias, from veggies.yml or --model
     components: list[str] | None = None  # component names (v0); None = defaults
     selections: dict[str, str] | None = None  # capability -> impl (v1)
+    mcps: tuple[str, ...] = ()  # opt-in MCP sidecars (ADR 0018)
     # Runtime dir of the stack's user on the TARGET host (/run/user/<uid>);
     # needed by components that mount the rootless podman socket (canvas).
     # Set by `veggies up` (local euid / remote `id -u`); "" = unset.
@@ -220,3 +221,9 @@ class Component:
     probes: Callable[[StackSpec], list[StatusProbe]] = lambda spec: []
     attach: Callable[[str, str], list[str]] | None = None  # (url, password) -> argv
     build: BuildSpec | None = None  # None = no image needed at up-time
+    # MCP sidecars (ADR 0018): mcp_entry() returns the fragment the harness
+    # merges into opencode.json's mcp: block (None = this component is not
+    # an MCP); egress_domains() names extra hosts the squid allowlist must
+    # carry when this component is selected (default: none).
+    mcp_entry: Callable[[PodContext], dict | None] = lambda ctx: None
+    egress_domains: Callable[[PodContext], list[str]] = lambda ctx: []

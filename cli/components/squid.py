@@ -42,8 +42,11 @@ HARDENED_SQUID = {
 }
 
 
-def render_allowlist() -> str:
-    return "\n".join(SQUID_ALLOWLIST_BASE + SQUID_MODEL_ENDPOINTS) + "\n"
+def render_allowlist(extra: list[str] | None = None) -> str:
+    """Base + model endpoints + per-component egress domains (ADR 0018:
+    selected components declare what they need; squid merges)."""
+    extra = sorted(set(extra or []))
+    return "\n".join(SQUID_ALLOWLIST_BASE + SQUID_MODEL_ENDPOINTS + extra) + "\n"
 
 
 def render_squid_conf(chained: bool = False) -> str:
@@ -139,8 +142,9 @@ def _volumes(ctx: PodContext) -> list[dict]:
 
 def _config_files(ctx: PodContext) -> dict[str, str]:
     # spec.host set = running on the substrate host = chain to its proxy.
+    extra = sorted({d for c in ctx.components for d in c.egress_domains(ctx)})
     return {"squid.conf": render_squid_conf(chained=ctx.spec.host is not None),
-            "allowlist.txt": render_allowlist()}
+            "allowlist.txt": render_allowlist(extra)}
 
 
 COMPONENT = Component(

@@ -321,9 +321,51 @@ def test_parse_repo_config_schema_v0():
 
 
 def test_parse_repo_config_unknown_key_warns():
-    cfg, warnings = veggies_stack.parse_repo_config("mcps: [filesystem]\n")
+    cfg, warnings = veggies_stack.parse_repo_config("bogus: [filesystem]\n")
     assert cfg == {}
-    assert len(warnings) == 1 and "mcps" in warnings[0]
+    assert len(warnings) == 1 and "bogus" in warnings[0]
+
+
+def test_parse_repo_config_mcps():
+    cfg, warnings = veggies_stack.parse_repo_config("mcps: [toolbox]\n")
+    assert cfg == {"mcps": ("toolbox",)}
+    assert warnings == []
+    with pytest.raises(ValueError, match="unknown mcps"):
+        veggies_stack.parse_repo_config("mcps: [bogus]\n")
+    with pytest.raises(ValueError, match="'mcps' must be a list of strings"):
+        veggies_stack.parse_repo_config("mcps: toolbox\n")
+
+
+def test_stack_components_includes_mcps():
+    spec = veggies_stack.StackSpec(name="t", repo="/tmp/x", mcps=("toolbox",))
+    names = [c.name for c in veggies_stack.stack_components(spec)]
+    assert names == ["opencode", "litellm", "squid", "toolbox"]
+
+
+def test_toolbox_render_and_mcp_entry():
+    spec = veggies_stack.StackSpec(name="t", repo="/tmp/x", mcps=("toolbox",))
+    ctx = veggies_stack.build_context(spec, INFRA_REPO)
+    tb = ctx.components[-1]
+    container = tb.render(ctx)
+    assert "ports" not in container  # pod loopback only, never published
+    assert container["securityContext"] == veggies_stack.HARDENED
+    entry = tb.mcp_entry(ctx)
+    assert entry["type"] == "remote" and entry["url"].endswith(":7000/mcp")
+    assert "mcp-toolbox-server.py" in tb.config_files(ctx)
+
+
+def test_render_opencode_json_mcp_block():
+    out = json.loads(veggies_stack.render_opencode_json(
+        INFRA_REPO, "http://127.0.0.1:4000/v1",
+        mcp_entries={"toolbox": {"type": "remote",
+                                 "url": "http://127.0.0.1:7000/mcp"}}))
+    assert out["mcp"]["toolbox"]["url"] == "http://127.0.0.1:7000/mcp"
+
+
+def test_render_allowlist_merges_component_domains():
+    allowlist = veggies_stack.render_allowlist(["example.com"]).splitlines()
+    assert "example.com" in allowlist
+    assert "github.com" in allowlist  # base entries survive the merge
 
 
 def test_parse_repo_config_bad_values_raise():
