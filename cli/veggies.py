@@ -55,9 +55,8 @@ from veggies_stack import (  # noqa: E402
     secret_names,
     state_dir,
 )
+from capabilities import VAULT_GITHUB, VAULT_MODEL  # noqa: E402
 
-VAULT_MODEL = "secrets/model.yml"
-VAULT_GITHUB = "secrets/github.yml"
 VAULT_PASSWORD_FILE = "~/.config/infra/vault-password"
 
 class State:
@@ -149,6 +148,20 @@ def vault_key(key: str, vault_file: str = VAULT_MODEL) -> str:
     if value:
         _SECRET_STRINGS.add(value)
     return value
+
+
+def resolve_secret_values(
+    spec: StackSpec, components: list[Component] | None = None
+) -> dict[str, str]:
+    """Flat key -> resolved value map for every declared secret: Generated
+    values are random, VaultKey values are read from the key's own vault
+    file (VaultKey.vault)."""
+    values = {}
+    for key, source in required_secret_values(spec, components).items():
+        values[key] = (secrets_mod.token_hex(source.nbytes)
+                       if isinstance(source, Generated)
+                       else vault_key(source.key, source.vault))
+    return values
 
 
 # --- Runtime (podman, images, health) -------------------------------------------
@@ -527,11 +540,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     # Resolve secrets first: a missing/wrong vault password must fail in a
     # second, not after a full image build (fresh-machine onboarding).
-    values = {}
-    for key, source in required_secret_values(spec).items():
-        values[key] = (secrets_mod.token_hex(source.nbytes)
-                       if isinstance(source, Generated)
-                       else vault_key(source.key))
+    values = resolve_secret_values(spec)
 
     print("==> images")
     ensure_images(host, infra_repo, spec)
