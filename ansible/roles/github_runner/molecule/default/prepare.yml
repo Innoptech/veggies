@@ -1,0 +1,12 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  tasks:
+    # Same rationale as egress: user@<uid> PAM setup on CI podman 4.x
+    # cannot read the 0000-mode /etc/shadow (setuid transition silently
+    # dropped on nosuid worker mounts). Tests only.
+    - name: Relax /etc/shadow so PAM works without the setuid transition (tests only)
+      ansible.builtin.file:
+        path: /etc/shadow
+        mode: "0644"

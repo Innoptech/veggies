@@ -9,3 +9,8 @@ exclude_paths:
   - agent-config/ # opencode/litellm config, not ansible content
   - tests/golden/ # machine-generated kube YAML snapshots (ADR 0013)
   - "**/molecule/**/.molecule/"
+  # Playbooks pull vault-encrypted vars_files; linting them in CI would need
+  # the vault password, which never leaves our trust boundary. Roles and
+  # molecule scenarios keep full coverage; playbooks are exercised by real
+  # runs (mask bootstrap/provision) and local lint (password file present).
+  - ansible/playbooks/

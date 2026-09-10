@@ -11,6 +11,20 @@ platforms:
     pre_build_image: true # built by `mask molecule-images`
     command: /usr/sbin/init
     privileged: true
+    # Explicit systemd mode: podman 5.x auto-detects /usr/sbin/init and does
+    # the systemd container setup; podman 4.x (ubuntu CI) does not, and
+    # user@<uid> then dies at the PAM step (status=224/PAM, verified via
+    # journal dump on the CI runner 2026-09-10).
+    systemd: "true"
+    # systemd USER managers (user@<uid>) need full cgroup delegation; older
+    # podman (ubuntu CI runners) does not hand it over by default and the
+    # manager fails to start (verified red on GitHub-hosted CI 2026-09-09).
+    # extra_opts = raw args appended to `podman run` by the driver
+    # (cgroupns is not a schema key; additionalProperties: false).
+    extra_opts:
+      - --cgroupns=host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
 provisioner:
   name: ansible
   config_options:
