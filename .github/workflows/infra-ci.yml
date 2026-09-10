@@ -30,6 +30,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install pre-commit==4.6.2
+      - name: Dummy vault password file
+        # ansible.cfg sets vault_password_file and ansible-core >=2.21
+        # hard-fails at startup when it is missing - even for vault-free
+        # playbooks. CI has no vault password by design (trust boundary);
+        # a dummy satisfies the startup check. Playbooks with real vault
+        # vars_files are lint-excluded (see .ansible-lint).
+        run: |
+          mkdir -p ~/.config/infra
+          printf 'ci-dummy-not-a-real-secret\n' > ~/.config/infra/vault-password
       - run: pre-commit run --all-files --show-diff-on-failure
 
   tofu:
@@ -68,6 +77,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ansible-core==2.21.3 ansible-lint==26.8.0
+      - name: Dummy vault password file
+        # ansible.cfg sets vault_password_file and ansible-core >=2.21
+        # hard-fails at startup when it is missing - even for vault-free
+        # playbooks. CI has no vault password by design (trust boundary);
+        # a dummy satisfies the startup check. Playbooks with real vault
+        # vars_files are lint-excluded (see .ansible-lint).
+        run: |
+          mkdir -p ~/.config/infra
+          printf 'ci-dummy-not-a-real-secret\n' > ~/.config/infra/vault-password
       - name: ansible-lint (production profile)
         run: |
           set -euo pipefail
@@ -98,3 +116,52 @@ jobs:
       - name: molecule test (${{ matrix.role }})
         working-directory: ansible/roles/${{ matrix.role }}
         run: molecule test
+
+  # WIP (drop before merge): diagnose why user@<uid> dies at the PAM step
+  # on CI podman. Informational: never fails the build, just prints facts.
+  molecule-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Build the shared test image
+        run: podman build -t localhost/fedora44-systemd:latest -f ansible/molecule/fedora44-systemd.Containerfile ansible/molecule
+      - name: Environment facts
+        run: |
+          uname -r
+          podman --version
+          podman info --format 'graph driver: {{.Store.GraphDriverName}}'
+      - name: Manual repro of user manager start
+        run: |
+          set -x
+          podman rm -f probe-instance >/dev/null 2>&1 || true
+          podman run -d --name probe-instance --privileged --cgroupns=host \
+            --systemd=true -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            localhost/fedora44-systemd:latest /usr/sbin/init
+          for _ in $(seq 1 30); do
+            podman exec probe-instance systemctl is-system-running 2>/dev/null | grep -qE "running|degraded" && break
+            sleep 2
+          done
+          set +e
+          podman exec probe-instance useradd --user-group --create-home egress-proxy
+          uid=$(podman exec probe-instance id -u egress-proxy)
+          echo "uid=$uid"
+          echo "== chkpwd with 0000 shadow (4 = PAM_AUTHINFO_UNAVAIL on CI):"
+          echo "wrongpass" | podman exec -u egress-proxy -i probe-instance unix_chkpwd egress-proxy; echo "(rc=$?)"
+          echo "== relax shadow to 0644:"
+          podman exec probe-instance chmod 0644 /etc/shadow
+          echo "== chkpwd with 0644 shadow (7 = auth failure expected, not 4):"
+          echo "wrongpass" | podman exec -u egress-proxy -i probe-instance unix_chkpwd egress-proxy; echo "(rc=$?)"
+          echo "== start user@$uid:"
+          if podman exec probe-instance systemctl start "user@$uid"; then
+            echo "(rc=0)"
+          else
+            echo "(rc=$?)"
+          fi
+          sleep 3
+          echo "== journal:"
+          podman exec probe-instance journalctl -xeu "user@$uid.service" --no-pager -n 40 || true
+          echo "== manager processes:"
+          podman exec probe-instance ps aux | grep -E "systemd --user" | grep -v grep || true
+      - name: Cleanup
+        if: always()
+        run: podman rm -f probe-instance >/dev/null 2>&1 || true

@@ -1,0 +1,16 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  tasks:
+    # /etc/shadow is mode 0000 on modern Fedora; systemd's PAM setup for
+    # user@<uid> relies on unix_chkpwd to read it, which needs the setuid
+    # transition inside the container. podman >= 5.x honours it (local and
+    # production-host parity), but podman 4.x on GitHub's nosuid worker
+    # mounts silently drops it (the 4755 mode survives, the uid transition
+    # does not) and user@<uid> dies with status=224/PAM. Tests only:
+    # world-readable shadow removes the setuid dependency.
+    - name: Relax /etc/shadow so PAM works without the setuid transition (tests only)
+      ansible.builtin.file:
+        path: /etc/shadow
+        mode: "0644"

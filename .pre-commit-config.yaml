@@ -30,6 +30,8 @@ repos:
     hooks:
       - id: ansible-lint
         files: ^ansible/
+        # see .ansible-lint exclude_paths: playbooks carry vault vars_files
+        exclude: ^ansible/playbooks/
 
   # tofu fmt uses the local binary (language: system -> no network fetch).
   # CI runs the identical command via the tofu job.
