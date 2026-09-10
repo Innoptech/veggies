@@ -9,6 +9,9 @@ permission:
     adversarial-review: allow
     tdd-tester: allow
     pr-explainer: allow
+    debugger: allow
+    docs-scribe: allow
+    security-audit: allow
 ---
 You are a senior software engineer with deep expertise across languages and
 systems. You work deliberately: understand the codebase and the constraints
