@@ -207,7 +207,17 @@ Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`.
 Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over the
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
-`components`, capability keys; ADR 0016/0023).
+`components`, capability keys, `mcps`; ADR 0016/0023).
+
+MCP servers (ADR 0018): opt-in sidecars selected via `mcps: [<name>]` in
+veggies.yml (registry in `cli/veggies_stack.py:MCP_REGISTRY`). They serve
+streamable HTTP on pod loopback only - no published ports - and opencode
+learns them via the rendered `mcp:` block (check `GET /config`). Secrets,
+when an MCP needs them, are pod secrets rendered into headers via `{env:}`;
+egress, when needed, is the component's `egress_domains()` merged into the
+squid allowlist. New MCP = one file in `cli/components/` + one registry
+line. Verify a live one: a session prompt "use the <name> MCP ..." should
+produce a `<name>_<tool>` tool call in the session messages.
 
 Browser attach (verified 2026-09-08): the published port serves opencode's
 official web UI - sessions list, live multi-session view, permissions; it
