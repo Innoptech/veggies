@@ -110,7 +110,7 @@ Rotation matrix (do these in one PR each):
 
 | Secret | Rotate by |
 |--------|-----------|
-| fireworks_api_key | new key in Fireworks console -> vault-edit model.yml -> `veggies secrets <name>` per stack (or down/up) -> revoke old |
+| fireworks_api_key | new key in Fireworks console -> vault-edit model.yml -> `veggies down <name>` + `veggies up` per stack -> revoke old |
 | per-stack litellm keys | random per stack; rotate with `veggies down <name> --purge` + `veggies up` |
 | github_token / App key | new credential -> vault-edit github.yml -> `mask tofu-apply` + converge |
 | tailscale_auth_key | new pre-auth key (tagged) -> vault-edit infra.yml -> converge (no-op while Running; only used at join) |
@@ -175,8 +175,8 @@ One PR, three edits:
 
 Stacks pick the new model up at next `veggies up` (agent-config is mounted
 at render time); select it via `litellm/<alias>` in agent frontmatter or
-`/models`. Existing stacks: `veggies down <name>` + `veggies up`, and
-`veggies secrets <name>` if the key changed.
+`/models`. Existing stacks: `veggies down <name>` + `veggies up` - the
+recreate re-injects the current vault keys.
 
 ## 8. Add an agent or a skill
 
@@ -269,6 +269,21 @@ invoked (operator-driven); an always-on mode is a deliberate later step.
 Get session ids from the web UI or `GET /session` on the stack port.
 
 
+### Open PRs from a stack (github: true)
+
+Opt-in per repo (ADR 0030): `github: true` in veggies.yml, or `--github`
+at `up`. A github-enabled stack's opencode container gets the vault's
+`github_token` (secrets/github.yml) as `GH_TOKEN` via a per-stack podman
+secret, a git credential helper that expands `$GH_TOKEN` at use time (the
+token is never written to `.git/config`), the `gh` CLI, and bot commit
+identity (`veggies-agent`); `git@github.com:` remotes are normalized to
+HTTPS. Sessions in the stack can push branches and open PRs as the bot.
+
+- PAT scopes: Contents read/write + Pull requests read/write on the target
+  repos - the same `github_token` in secrets/github.yml that clone uses.
+- Applies at recreate: `veggies up`. The up output shows
+  `github:  GH_TOKEN + gh push/PR access enabled (ADR 0030)` when enabled.
+
 ### Teammate onboarding (stack user, not operator)
 
 ```bash
@@ -313,6 +328,13 @@ Troubleshooting:
   Check: `systemctl --user status veggies-watchdog.timer`.
 - Remote ops fail with sudo/ssh errors: tailnet up? `ssh veggies true`? The
   stacks user exists only after `mask converge` (base role).
+- Remote ops as the stacks user fail with `cannot chdir to /home/fedora`:
+  rootless podman chdirs to $cwd - prefix remote commands with `cd /` (the
+  CLI's host_run does this).
+- git/network ops in a remote stack hang ~35s per connection: the
+  chained-squid DNS stall, fixed on this branch - stacks created before it
+  need one `veggies up` recreate; verify with `veggies logs <name> squid`
+  (CONNECT lines should complete in <1s).
 - Rotate a stack's keys: `veggies down <name> --purge && veggies up ...`
   (fresh random master key + fresh copy of the vault's Fireworks key).
 - `vault lookup failed ... password file missing or empty`: create

@@ -33,7 +33,9 @@ against opencode sessions (ADR 0028).
 
 Components implement capability contracts (`cli/capabilities.py`) and are
 selected per repo via `veggies.yml`; per-repo agent rosters and skills are
-discovered from `.opencode/` in the mounted repo (ADR 0019).
+discovered from `.opencode/` in the mounted repo (ADR 0019). Stacks may opt
+into GitHub write access (`github: true` in veggies.yml): the pod carries
+the bot PAT as `GH_TOKEN` + `gh` (ADR 0030).
 
 ## Repo layout
 
