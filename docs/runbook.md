@@ -219,6 +219,14 @@ squid allowlist. New MCP = one file in `cli/components/` + one registry
 line. Verify a live one: a session prompt "use the <name> MCP ..." should
 produce a `<name>_<tool>` tool call in the session messages.
 
+MCPs are opencode-only today (verified 2026-09-09 against agent-canvas
+1.16.0): the canvas agent-profiles API rejects `mcp_config` with 422
+`extra_forbidden`, and `settings.agent_settings.mcp_config` exists in the
+schema but its validator rejects any actual server definition (empty dict
+patches fine, real entries 422 "Settings validation failed"). So the
+OpenHands native harness gets no MCP tools until upstream exposes the
+field - re-probe on canvas image bumps; a flip would be a new ADR.
+
 Browser attach (verified 2026-09-08): the published port serves opencode's
 official web UI - sessions list, live multi-session view, permissions; it
 shares state with any attached TUI. Local: open `http://127.0.0.1:<port>`.
