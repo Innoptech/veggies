@@ -538,10 +538,13 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     print("==> stack config")
     write_stack_config(spec, infra_repo)
+    # Everything a container bind-mounts must carry container_file_t - the
+    # workspace included, remote too (verified 2026-09-09: the VPS clone
+    # was never labeled and opencode got EACCES even reading /workspace;
+    # the agent then "debugged the environment" instead of working).
     if host is None:
-        # Everything a container bind-mounts must carry container_file_t.
         label_for_containers(None, str(infra_repo / "agent-config" / "litellm"))
-        label_for_containers(None, repo_path)
+    label_for_containers(host, repo_path)
 
     # Idempotent refresh: drop the old pod and secrets before replaying.
     host_podman(host, "pod", "rm", "-f", spec.pod, check=False, capture=True)
