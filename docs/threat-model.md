@@ -66,10 +66,16 @@ nftables rules still apply. SELinux stays Enforcing.
 - veggies stacks (ADR 0013/0014): each stack's litellm holds a copy of the
   Fireworks key (podman secret, per-stack random master key). A stack escape
   exposes that copy - revoke by `veggies down --purge` + rotating in the vault.
-- Remote clone of a private repo puts the vault's github_token in the VPS
-  process list for the clone's duration (git http.extraHeader). Readable only
-  to root/stacks on veggies; accepted. TODO(verify): move to a credential
-  helper or deploy keys later.
+- Remote clone of a private repo passes the vault's github_token as a git
+  http.extraHeader. Before 2026-09-10 the `-c` pair trailed `clone`, and
+  git-clone's own `--config` persisted the header into the clone's
+  `.git/config` - pod-readable at /workspace (verified with git 2.54). As of
+  this branch the `-c` pair leads the command - command-scoped, never
+  persisted; the token rides the VPS process list for the clone's duration
+  only (readable to root/stacks on veggies). Accepted. Pre-fix clones may
+  still carry the header: `git config --unset http.extraheader` in the
+  clone, and rotate the PAT if one was exposed (runbook §3). TODO(verify):
+  move to a credential helper or deploy keys later.
 - Local stacks' egress is env-var enforced only (no nftables on a workstation)
   - the hard per-UID boundary exists on veggies (ADR 0006). A local agent that
   unsets HTTPS_PROXY bypasses the proxy; treat local stacks as guardrails,
