@@ -9,10 +9,14 @@ date: 2026-09-10
 
 Stacks (agent pods) could not push branches or open PRs: no credential ever
 entered the pod. Clone-time auth is a transient `http.extraHeader` by
-design - it exists for the clone's duration and is gone afterwards. Stacks
-are untrusted workloads (see the threat model), so write access must not be
-ambient; but a stack that cannot push cannot do the daily work this repo
-runs agents for.
+design - it exists for the clone's duration and is gone afterwards. That
+holds only because the `-c` pair leads `clone` (command-scoped): a trailing
+`-c` is git-clone's own `--config` and persists the header into the clone's
+`.git/config` (ordering fixed and verified 2026-09-10, git 2.54; clones
+from before may carry the header - see the threat model's known gaps).
+Stacks are untrusted workloads (see the threat model), so write access must
+not be ambient; but a stack that cannot push cannot do the daily work this
+repo runs agents for.
 
 ## Decision drivers
 
