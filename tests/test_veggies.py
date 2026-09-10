@@ -187,7 +187,7 @@ def test_squid_conf_matches_prod_shape():
     assert "http_access deny all" in conf
     assert "dstdomain" in conf
     # pod-loopback bypass: clients whose proxy libs ignore no_proxy
-    # (aiohttp, canvas SDK path) must still reach in-pod services
+    # (aiohttp) must still reach in-pod services
     assert "acl pod_local dst 127.0.0.1" in conf
     assert "http_access allow pod_local" in conf
     allowlist = veggies_stack.render_allowlist().splitlines()
@@ -480,56 +480,13 @@ def test_registry_capability_keys(spec):
         veggies_stack.parse_repo_config("components: [squid]\nharness: opencode\n")
 
 
-def test_canvas_key_resolves_builtin():
-    cfg, _ = veggies_stack.parse_repo_config("canvas: builtin\n")
-    assert cfg["selections"] == {"control-plane": "builtin"}
-    with pytest.raises(ValueError, match="unknown control-plane implementation"):
-        veggies_stack.resolve_components(selections={"control-plane": "x"})
-
-
-def test_canvas_render(spec):
-    import dataclasses
-    from components import canvas
-    spec = dataclasses.replace(spec, runtime_dir="/run/user/1000",
-                               selections={"control-plane": "builtin"})
-    comps = veggies_stack.resolve_components(spec.components, spec.selections)
-    ctx = veggies_stack.build_context(spec, INFRA_REPO, comps)
-    c = canvas.COMPONENT.render(ctx)
-    assert c["ports"][0] == {"containerPort": 8000,
-                             "hostPort": spec.port + canvas.HOST_PORT_OFFSET,
-                             "hostIP": "127.0.0.1"}
-    assert c["securityContext"]["seLinuxOptions"] == {"type": "spc_t"}
-    assert c["securityContext"]["runAsUser"] == 0  # container root == stack user on host
-    env = {e["name"]: e["value"] for e in c["env"] if "value" in e}
-    assert env["CONTAINER_HOST"] == "unix:///run/podman/podman.sock"
-    assert env["VEGGIES_ACP_TARGET"] == "veggies-demo-opencode"
-    assert env["HTTPS_PROXY"] == "http://127.0.0.1:3128"
-    assert env["VEGGIES_SDK_MODEL"] == "openai/kimi-k3"
-    assert env["VEGGIES_ROUTER_BASE"] == "http://127.0.0.1:4000/v1"
-    # ADR 0027: the master key comes from the router's podman secret
-    keyref = [e for e in c["env"] if e["name"] == "LITELLM_MASTER_KEY"][0]
-    assert keyref["valueFrom"]["secretKeyRef"] == {
-        "name": "veggies-demo-litellm", "key": "master_key"}
-    vols = {v["name"]: v for v in canvas.COMPONENT.volumes(ctx)}
-    assert vols["podman-runtime"]["hostPath"]["path"] == "/run/user/1000/podman"
-    files = canvas.COMPONENT.config_files(ctx)
-    assert set(files) == {"canvas-bootstrap.py", "critic-shim.py",
-                          "tokenizer_config.qwen3-4b.json"}
-    assert env["VEGGIES_JUDGE_MODEL"] == "deepseek-v4"
-    # the pod assembles with a fourth container
-    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO, comps)
-           if d["kind"] == "Pod"][0]
-    assert [c_["name"] for c_ in pod["spec"]["containers"]] == [
-        "opencode", "litellm", "squid", "canvas"]
-
-
-def test_canvas_render_requires_runtime_dir(spec):
-    from components import canvas
-    ctx = veggies_stack.build_context(
-        spec, INFRA_REPO,
-        veggies_stack.resolve_components(None, {"control-plane": "builtin"}))
-    with pytest.raises(ValueError, match="runtime_dir"):
-        canvas.COMPONENT.render(ctx)
+def test_retired_control_plane_selection_is_dropped():
+    # state.json from the canvas era (ADR 0028): the retired capability is
+    # dropped with a warning instead of crashing on an unknown impl.
+    spec = veggies.spec_from_record("old", {
+        "repo": "/x", "host": None, "port": 4097, "mode": "clone",
+        "selections": {"control-plane": "builtin"}})
+    assert spec.selections is None
 
 
 def test_probe_api_remote_uses_ssh_curl(monkeypatch):

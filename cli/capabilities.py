@@ -47,10 +47,6 @@ class StackSpec:
     components: list[str] | None = None  # component names (v0); None = defaults
     selections: dict[str, str] | None = None  # capability -> impl (v1)
     mcps: tuple[str, ...] = ()  # opt-in MCP sidecars (ADR 0018)
-    # Runtime dir of the stack's user on the TARGET host (/run/user/<uid>);
-    # needed by components that mount the rootless podman socket (canvas).
-    # Set by `veggies up` (local euid / remote `id -u`); "" = unset.
-    runtime_dir: str = ""
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     )

@@ -23,12 +23,13 @@ state) lives in ADR 0002/0020.
 ## Stacks
 
 A stack is one repo's agent environment: a rootless pod with opencode-serve
-(harness), litellm (model router) and squid (egress), plus the opt-in canvas
-control plane (browser supervision + automations over ACP - ADR 0025).
-The opencode port (and canvas's, 1000 higher) publish on 127.0.0.1
-locally, tailnet-only on the VPS; litellm and squid are pod-internal. Stacks
-are defined, rendered and owned solely by the `veggies` CLI; Ansible prepares
-the host and nothing more.
+(harness), litellm (model router) and squid (egress), plus opt-in MCP
+sidecars on pod loopback (ADR 0018). The opencode port publishes on
+127.0.0.1 locally, tailnet-only on the VPS; litellm and squid are
+pod-internal. Stacks are defined, rendered and owned solely by the
+`veggies` CLI; Ansible prepares the host and nothing more. Supervision is
+operator-invoked from the CLI: `veggies supervise` runs the critic loop
+against opencode sessions (ADR 0028).
 
 Components implement capability contracts (`cli/capabilities.py`) and are
 selected per repo via `veggies.yml`; per-repo agent rosters and skills are
@@ -49,7 +50,7 @@ agent-config/    vendored agent baseline: opencode.json, agents/, skills/,
                  litellm/
 cli/             the veggies CLI: veggies.py, veggies_stack.py,
                  capabilities.py, components/
-deploy/          Containerfiles + component payloads (canvas bootstrap)
+deploy/          Containerfiles + component payloads (MCP toolbox server)
 scripts/         tfvars_from_vault.py, vault_get.py
 tests/           pytest suite + machine-generated golden pod.yaml
 docs/            architecture.md, runbook.md, threat-model.md, adr/
