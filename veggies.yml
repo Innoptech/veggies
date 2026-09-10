@@ -2,3 +2,5 @@
 # veggies stack config for this repo (schema v1; ADR 0013/0023)
 # Dogfooding: our own stack runs the MCP reference sidecar (ADR 0018).
 mcps: [toolbox]
+# Dogfooding: GH_TOKEN + gh in our own stack for pushes/PRs (ADR 0030).
+github: true
