@@ -37,6 +37,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 | [0027](0027-second-harness-in-canvas.md) | Second harness in canvas; critic via our shim | superseded by 0028 |
 | [0028](0028-retire-canvas-own-the-critic-loop.md) | Retire the canvas control plane; own the critic loop | accepted |
+| [0029](0029-deny-over-ask-permission-envelope.md) | Deny-over-ask permission envelope for unattended sessions | accepted |
 
 ## Deviation ledger (vs the original brief)
 

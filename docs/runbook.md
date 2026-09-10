@@ -230,6 +230,27 @@ Remote: `ssh -L <port>:127.0.0.1:<port> veggies`, then open the same URL.
 The basic-auth password is printed at `up` and stored in
 `~/.local/state/veggies/state.json`.
 
+### Permission posture (ADR 0029)
+
+Unattended sessions must never park on a prompt: the envelope in
+`agent-config/opencode.json` allows routine in-workspace work and DENIES
+(rather than asks) the rest - denial is instant feedback the agent routes
+around; `ask` in a headless session parks forever (verified 2026-09-09,
+25 minutes on one prompt).
+
+- Out-of-workspace paths: denied except `/tmp/**`. The `rm -rf` shapes
+  that could kill the workspace or home volume: denied. `.env` /
+  `secrets/*.yml`: unreadable (vault ciphertext never enters transcripts).
+- `doom_loop` (3 identical tool calls) denies - the agent must change
+  approach instead of burning tokens.
+- Widen a rule: one pattern line in `agent-config/opencode.json`, PR,
+  `veggies up` (recreate). Per-agent frontmatter overrides win over the
+  global block (opencode's documented merge order).
+- If a session still stalls, `veggies supervise` prints pending
+  permissions/questions once each; answer them in the web UI. Known
+  residual: the `question` tool can still park a headless session
+  (deliberate - ADR 0029).
+
 ### Supervision: the critic loop (ADR 0028)
 
 Canvas is retired (ADR 0028: upstream archived, two-worlds problem, and
