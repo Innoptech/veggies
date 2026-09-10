@@ -93,7 +93,7 @@ Three domain files, all committed **encrypted** (pre-commit + CI enforce):
 | File | Holds | Consumed by |
 |------|-------|-------------|
 | `secrets/model.yml` | Fireworks key, litellm master key | injected per stack by `veggies` (podman secrets) |
-| `secrets/github.yml` | GitHub App creds or bot PAT | tofu github module, runner registration |
+| `secrets/github.yml` | GitHub App creds or bot PAT | tofu github module, runner registration, `GH_TOKEN` in github-enabled stacks (ADR 0030) |
 | `secrets/infra.yml` | tailscale auth key, restic password + S3 creds | tailscale/backup roles |
 
 Structure templates: `secrets/*.yml.example`. Rules: never decrypt to disk;
@@ -112,7 +112,7 @@ Rotation matrix (do these in one PR each):
 |--------|-----------|
 | fireworks_api_key | new key in Fireworks console -> vault-edit model.yml -> `veggies down <name>` + `veggies up` per stack -> revoke old |
 | per-stack litellm keys | random per stack; rotate with `veggies down <name> --purge` + `veggies up` |
-| github_token / App key | new credential -> vault-edit github.yml -> `mask tofu-apply` + converge |
+| github_token / App key | new credential -> vault-edit github.yml -> `mask tofu-apply` + converge -> `veggies up` per github-enabled stack |
 | tailscale_auth_key | new pre-auth key (tagged) -> vault-edit infra.yml -> converge (no-op while Running; only used at join) |
 | restic_password | vault-edit infra.yml -> converge; old snapshots need the OLD password - keep it until you prune or re-key the repo |
 | converge_ssh_private_key | new keypair -> pubkey into admin_ssh_public_keys (group_vars) -> converge -> vault-edit infra.yml |
@@ -268,7 +268,6 @@ agent iterates; exit 0 on PASS, 1 on max-iterations/timeout. Runs while
 invoked (operator-driven); an always-on mode is a deliberate later step.
 Get session ids from the web UI or `GET /session` on the stack port.
 
-
 ### Open PRs from a stack (github: true)
 
 Opt-in per repo (ADR 0030): `github: true` in veggies.yml, or `--github`
@@ -332,9 +331,12 @@ Troubleshooting:
   rootless podman chdirs to $cwd - prefix remote commands with `cd /` (the
   CLI's host_run does this).
 - git/network ops in a remote stack hang ~35s per connection: the
-  chained-squid DNS stall, fixed on this branch - stacks created before it
+  chained-squid DNS stall, fixed 2026-09-10 - stacks created before it
   need one `veggies up` recreate; verify with `veggies logs <name> squid`
   (CONNECT lines should complete in <1s).
+- Pre-fix remote clones may carry the clone-time token in `.git/config` -
+  check with `git config --get http.extraheader` and unset it; private-repo
+  pulls in-pod now require `github: true`.
 - Rotate a stack's keys: `veggies down <name> --purge && veggies up ...`
   (fresh random master key + fresh copy of the vault's Fireworks key).
 - `vault lookup failed ... password file missing or empty`: create

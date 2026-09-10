@@ -41,7 +41,6 @@ model: kimi-k3            # litellm alias; becomes the stack's default model
 harness: opencode         # which implementation provides each capability
 model_router: litellm
 egress: squid
-# canvas: builtin         # opt-in: browser control plane on port+1000 (ADR 0025)
 # github: true            # opt-in: GH_TOKEN + gh in the pod for pushes/PRs (ADR 0030)
 ```
 
