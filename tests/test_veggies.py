@@ -758,7 +758,12 @@ def test_remote_clone_private_repo_gets_token(monkeypatch):
     monkeypatch.setattr(veggies, "host_run", fake_host_run)
     monkeypatch.setattr(veggies, "vault_key", lambda *a, **k: "tok123")
     cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/private.git", "/c/x")
-    assert cmd[4:6] == ["-c", "http.extraHeader=Authorization: Bearer tok123"]
+    header = "http.extraHeader=Authorization: Bearer tok123"
+    # the extraHeader -c pair must come BEFORE "clone": a trailing -c is
+    # git-clone's own --config and persists into the new repo's .git/config
+    # (verified 2026-09-10, git 2.54); command-scoped -c never lands on disk
+    assert cmd[3:5] == ["-c", header]
+    assert cmd.index(header) < cmd.index("clone")
     assert cmd[-2:] == ["https://github.com/Innoptech/private.git", "/c/x"]
 
 

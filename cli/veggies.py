@@ -178,17 +178,21 @@ def run(cmd: list[str], *, input_text: str | None = None, check: bool = True,
 
 def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
     """git-clone command for the VPS. Private github.com repos get the vault
-    token via extraHeader (it rides the VPS process list briefly - see
-    docs/threat-model.md); public repos must NOT - an org-blocked or
-    limited-scope token fails even public clones (verified 2026-09-08), so
-    probe anonymously first. All traffic via the substrate proxy: the stacks
-    user is direct-egress-denied."""
+    token via extraHeader, with the -c pair BEFORE "clone": a trailing -c is
+    git-clone's own --config and would PERSIST the header into the new repo's
+    .git/config (pod-readable at /workspace; verified 2026-09-10, git 2.54),
+    while a leading -c is command-scoped - it covers the clone's internal
+    fetch and is never written out. The token still rides the VPS process
+    list briefly - see docs/threat-model.md. Public repos must NOT get the
+    token - an org-blocked or limited-scope token fails even public clones
+    (verified 2026-09-08), so probe anonymously first. All traffic via the
+    substrate proxy: the stacks user is direct-egress-denied."""
     if repo_url.startswith("git@github.com:"):
         # SSH from pods is dead by design (squid CONNECT allowlist is 443-only,
         # no keys in-container); the HTTPS form rides the proxy and, when the
         # stack opts in, the GH_TOKEN credential helper.
         repo_url = "https://github.com/" + repo_url[len("git@github.com:"):]
-    cmd = ["git", "-c", f"http.proxy={REMOTE_PROXY}", "clone"]
+    cmd = ["git", "-c", f"http.proxy={REMOTE_PROXY}"]
     if repo_url.startswith("https://github.com/"):
         public = host_run(host, ["git", "-c", f"http.proxy={REMOTE_PROXY}",
                                  "ls-remote", repo_url, "HEAD"],
@@ -196,7 +200,7 @@ def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
         if not public:
             token = vault_key("github_token", VAULT_GITHUB)
             cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
-    return cmd + [repo_url, clone_dir]
+    return cmd + ["clone", repo_url, clone_dir]
 
 
 _REMOTE_UID: dict[str, str] = {}
