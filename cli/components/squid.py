@@ -60,8 +60,16 @@ def render_squid_conf(chained: bool = False) -> str:
         chain = f"""
 # Chained egress: parent is the substrate proxy on the host (the stacks user
 # may not egress directly - ansible egress role's nftables).
-cache_peer host.containers.internal parent {_SQUID_PORT} 0 no-query default
+cache_peer host.containers.internal parent {_SQUID_PORT} 0 no-query no-netdb-exchange default
 never_direct allow all
+# The substrate denies this pod's uid all direct egress, DNS included
+# (ansible egress role, per-UID nftables). Squid still resolves CONNECT
+# targets itself (the pod_local dst ACL) and stalls ~dns_timeout on the
+# dead path before falling back to the parent - verified 2026-09-10 on
+# veggies: 35s per new tunnel, git looks hung. Nothing listens on
+# loopback:53, so resolution fails instantly and the parent resolves.
+dns_nameservers 127.0.0.1
+nonhierarchical_direct off
 """
     return f"""# Rendered by veggies - mirrors ansible/roles/egress/templates/squid.conf.j2.
 http_port {_SQUID_PORT}
