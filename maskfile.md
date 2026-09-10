@@ -10,6 +10,10 @@ tflint, actionlint) live in `~/.local/bin`.
 
 ```bash
 set -euo pipefail
+if [ -e .venv ] && ! .venv/bin/python --version >/dev/null 2>&1; then
+  echo ".venv exists but its interpreter is gone (checkout moved? venvs are not relocatable) - recreating"
+  rm -rf .venv
+fi
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pre-commit install
