@@ -75,50 +75,54 @@ variable "manage_label_workflow" {
   default     = false
 }
 
-variable "enable_ovh" {
-  type        = bool
-  description = "Gate for the scaffolded Public Cloud module (ADRs 0002, 0008). Keep false until the migration is planned."
-  default     = false
-}
+# --- OVH Public Cloud scaffold (ADR 0002, unwired) --------------------------
+# Everything below is the scaffold's interface; it stays commented while the
+# module call in main.tf and the provider in providers.tf are commented out
+# (tflint flags unused declarations). Uncomment all three places together.
+# variable "enable_ovh" {
+#   type        = bool
+#   description = "Gate for the scaffolded Public Cloud module (ADRs 0002, 0008). Keep false until the migration is planned."
+#   default     = false
+# }
 
-variable "openstack_cloud" {
-  type        = string
-  description = "clouds.yaml entry name for the OpenStack provider (scaffold only)."
-  default     = null
-}
+# variable "openstack_cloud" {
+#   type        = string
+#   description = "clouds.yaml entry name for the OpenStack provider (scaffold only)."
+#   default     = null
+# }
 
-variable "ovh_region" {
-  type        = string
-  description = "OVH Public Cloud region for the scaffold (e.g. GRA11, SBG5, BHS5)."
-  default     = "" # TODO(you)
-}
+# variable "ovh_region" {
+#   type        = string
+#   description = "OVH Public Cloud region for the scaffold (e.g. GRA11, SBG5, BHS5)."
+#   default     = "" # TODO(you)
+# }
 
-variable "ovh_flavor_name" {
-  type        = string
-  description = "Flavor matching 8 vCPU / 16 GB in the chosen region (scaffold only)."
-  default     = "" # TODO(you) + TODO(verify): against the region catalog
-}
+# variable "ovh_flavor_name" {
+#   type        = string
+#   description = "Flavor matching 8 vCPU / 16 GB in the chosen region (scaffold only)."
+#   default     = "" # TODO(you) + TODO(verify): against the region catalog
+# }
 
-variable "ovh_image_name" {
-  type        = string
-  description = "Boot image name for the scaffold."
-  default     = "Fedora 44" # TODO(verify): exact catalog name in the chosen region
-}
+# variable "ovh_image_name" {
+#   type        = string
+#   description = "Boot image name for the scaffold."
+#   default     = "Fedora 44" # TODO(verify): exact catalog name in the chosen region
+# }
 
-variable "ovh_ssh_public_key" {
-  type        = string
-  description = "Admin SSH public key for the scaffold's cloud-init."
-  default     = "" # TODO(you)
-}
+# variable "ovh_ssh_public_key" {
+#   type        = string
+#   description = "Admin SSH public key for the scaffold's cloud-init."
+#   default     = "" # TODO(you)
+# }
 
-variable "ovh_admin_cidr" {
-  type        = string
-  description = "Temporary SSH source /32 for the bootstrap window (scaffold only)."
-  default     = "" # TODO(you)
-}
+# variable "ovh_admin_cidr" {
+#   type        = string
+#   description = "Temporary SSH source /32 for the bootstrap window (scaffold only)."
+#   default     = "" # TODO(you)
+# }
 
-variable "ovh_volume_size_gb" {
-  type        = number
-  description = "Data volume size for the scaffold."
-  default     = 200
-}
+# variable "ovh_volume_size_gb" {
+#   type        = number
+#   description = "Data volume size for the scaffold."
+#   default     = 200
+# }
