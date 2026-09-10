@@ -47,6 +47,7 @@ class StackSpec:
     components: list[str] | None = None  # component names (v0); None = defaults
     selections: dict[str, str] | None = None  # capability -> impl (v1)
     mcps: tuple[str, ...] = ()  # opt-in MCP sidecars (ADR 0018)
+    github: bool = False  # opt-in: GH_TOKEN + git identity for push/PR (ADR 0030)
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     )
@@ -62,6 +63,10 @@ class StackSpec:
     @property
     def secret_opencode(self) -> str:
         return f"{self.pod}-opencode"
+
+    @property
+    def secret_github(self) -> str:
+        return f"{self.pod}-github"
 
     @property
     def volume_opencode(self) -> str:
@@ -110,6 +115,10 @@ def allocate_port(used: set[int]) -> int:
 
 # --- Secret declarations ---------------------------------------------------------
 
+# Vault files a VaultKey can be sourced from (paths relative to the repo root).
+VAULT_MODEL = "secrets/model.yml"
+VAULT_GITHUB = "secrets/github.yml"
+
 
 @dataclass(frozen=True)
 class Generated:
@@ -119,8 +128,9 @@ class Generated:
 
 @dataclass(frozen=True)
 class VaultKey:
-    """Sourced from the vault (secrets/model.yml) at up-time."""
+    """Sourced from the vault file `vault` at up-time."""
     key: str
+    vault: str = VAULT_MODEL
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,7 @@ ROOT = Path(__file__).parent.parent
 _spec = importlib.util.spec_from_file_location("veggies", ROOT / "cli/veggies.py")
 veggies = importlib.util.module_from_spec(_spec)
 sys.path.insert(0, str(ROOT / "cli"))
+import capabilities  # noqa: E402
 import veggies_stack  # noqa: E402
 sys.modules["veggies"] = veggies  # dataclass introspection needs this (py3.14)
 _spec.loader.exec_module(veggies)
@@ -543,6 +544,37 @@ def test_secret_names_match_declarations(spec):
         "veggies-demo-opencode", "veggies-demo-litellm"] or \
         sorted(veggies.secret_names(spec)) == [
             "veggies-demo-litellm", "veggies-demo-opencode"]
+
+
+def test_vaultkey_defaults_to_model_vault():
+    assert capabilities.VaultKey("fireworks_api_key").vault == "secrets/model.yml"
+
+
+def test_stackspec_github_flag_and_secret_name():
+    spec = veggies.StackSpec(name="t", repo="/tmp/t", port=4096)
+    assert spec.github is False
+    assert veggies.StackSpec(name="t", repo="/tmp/t", port=4096, github=True).github is True
+    assert spec.secret_github == "veggies-t-github"
+
+
+def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
+    # The up-time seam cmd_up uses: a VaultKey's own vault file decides
+    # which vault it is read from.
+    stub = veggies_stack.Component(
+        name="stub", provides="stub", requires=(),
+        render=lambda ctx: {}, volumes=lambda ctx: [],
+        secrets=lambda s: [capabilities.SecretSpec("github", {
+            "token": capabilities.VaultKey("github_token", capabilities.VAULT_GITHUB),
+            "model_key": capabilities.VaultKey("fireworks_api_key"),
+        })],
+    )
+    calls = []
+    monkeypatch.setattr(veggies, "vault_key",
+                        lambda key, vault: calls.append((key, vault)) or "x")
+    values = veggies.resolve_secret_values(spec, [stub])
+    assert calls == [("github_token", "secrets/github.yml"),
+                     ("fireworks_api_key", "secrets/model.yml")]
+    assert values == {"token": "x", "model_key": "x"}
 
 
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):
