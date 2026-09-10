@@ -13,4 +13,7 @@ ARG http_proxy=""
 ARG https_proxy=""
 ARG NO_PROXY=""
 
-RUN pip install --no-cache-dir fastmcp==4.0.3
+# tzdata: python zoneinfo has no stdlib zone data; without the OS database
+# ZoneInfo("America/Toronto") fails (caught first by the CI pytest job -
+# ubuntu runner containers ship no tzdata either).
+RUN apk add --no-cache tzdata && pip install --no-cache-dir fastmcp==4.0.3
