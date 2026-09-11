@@ -53,6 +53,8 @@ def test_build_prompt_contains_issue_and_rules():
     assert "#12" in p and "Fix the thing" in p and "Some body" in p
     assert "agent/issue-12" in p and "Closes #12" in p
     assert "npm test -- --changed" in p
+    # issue #48: gitleaks/actionlint are enumerated as image-baked
+    assert "gitleaks/actionlint" in p
 
 
 def test_build_prompt_mandates_a_per_session_worktree():
@@ -831,7 +833,7 @@ def test_this_repo_declares_its_kick_gate():
     or rewords either half fails loudly here instead of silently
     degrading every kick to the fallback."""
     gate = stack_kick.declared_verify_gate()  # no arg: the script-root anchor
-    assert gate == "SKIP=actionlint-docker mask ci"
+    assert gate == "mask ci"
     agents = (Path(stack_kick.__file__).resolve().parents[1]
               / "AGENTS.md").read_text(encoding="utf-8")
     prose = re.sub(r"<!--.*?-->", "", agents, flags=re.DOTALL)
@@ -894,11 +896,11 @@ def test_main_gate_round_trips_through_github_output(monkeypatch, tmp_path,
         monkeypatch.delenv(k, raising=False)  # done-guard off
     monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     monkeypatch.setattr(stack_kick, "declared_verify_gate",
-                        lambda *a, **k: "SKIP=actionlint-docker mask ci")
+                        lambda *a, **k: "mask ci")
     monkeypatch.setattr(stack_kick, "kick", lambda *a, **k: "ses_x")
     assert stack_kick.main() == 0
     kv = dict(l.split("=", 1) for l in out.read_text().splitlines())
-    assert kv["verify_gate"] == "SKIP=actionlint-docker mask ci"
+    assert kv["verify_gate"] == "mask ci"
 
 
 def test_main_echoes_gate_even_when_kick_fails(monkeypatch, tmp_path, capsys):
