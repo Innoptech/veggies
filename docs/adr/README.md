@@ -53,6 +53,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0042](0042-multi-role-plan-review.md) | Multi-role plan review: the persona roster reviews every kicked plan | accepted |
 | [0043](0043-interim-shared-identity-trigger.md) | Interim: the shared olgam4 identity may trigger kicks | accepted (interim - sunsets at the GitHub App agent identity) |
 | [0044](0044-live-first-watch-path-no-close-time-deletion.md) | Watch path lists live sessions first; no close-time session deletion | accepted |
+| [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
 
 ## Deviation ledger (vs the original brief)
 
