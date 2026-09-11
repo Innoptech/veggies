@@ -707,6 +707,12 @@ def test_logs_remote_uses_env_wrap_not_login_shell(monkeypatch):
         shlex.split(payload)[-4:] == ["podman", "logs", "-f", "veggies-v-opencode"]
 
 
+def test_ui_dir_segment_is_base64url_no_padding():
+    # the web UI's dir route param (1.18.27 bundle: btoa url-safe stripped)
+    assert veggies.ui_dir_segment() == "L3dvcmtzcGFjZQ"
+    assert veggies.ui_dir_segment("/x") == "L3g"
+
+
 def test_pick_ui_port_default_and_fallback():
     assert veggies.pick_ui_port(4098, is_free=lambda p: True) == 5098
     # busy default + busy scan head -> next free in the scan range
@@ -743,7 +749,7 @@ def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
                               open_browser=False)
     assert veggies.cmd_ui(args) == 0
     out = capsys.readouterr().out
-    assert "http://127.0.0.1:4098" in out and "password: p" in out
+    assert "http://127.0.0.1:4098/L3dvcmtzcGFjZQ" in out and "password: p" in out
     assert "tunnel" not in out
 
 
@@ -771,7 +777,7 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
     assert argv[0] == "ssh" and "-N" in argv and "veggies" in argv
     assert "5098:127.0.0.1:4098" in argv
     out = capsys.readouterr().out
-    assert "http://127.0.0.1:5098" in out and "--stop" in out
+    assert "http://127.0.0.1:5098/L3dvcmtzcGFjZQ" in out and "--stop" in out
     # pidfile lets a second run reuse the live tunnel
     info = json.loads((tmp_path / "tunnels" / "v.json").read_text())
     assert info == {"pid": 4242, "port": 5098}

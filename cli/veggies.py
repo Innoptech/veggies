@@ -813,6 +813,14 @@ def cmd_attach(args: argparse.Namespace) -> int:
 # --- web UI / session listing (ADR 0034) ---------------------------------------
 
 
+def ui_dir_segment(directory: str = "/workspace") -> str:
+    """The web UI scopes everything by directory: the route carries it as
+    base64url without padding (read from the 1.18.27 bundle: btoa, +/ ->
+    -_, = stripped). The bare root URL lands on an empty 'no project'
+    state (verified 2026-09-11) - links must include this segment."""
+    return base64.urlsafe_b64encode(directory.encode()).decode().rstrip("=")
+
+
 def port_free(port: int) -> bool:
     """True if nothing listens on 127.0.0.1:port locally."""
     import socket
@@ -899,7 +907,8 @@ def cmd_ui(args: argparse.Namespace) -> int:
                         f"check `ssh {record['host']}`")
                 time.sleep(0.5)
         url = f"http://127.0.0.1:{local}"
-    print(f"web UI: {url}  (user: opencode, password: {password})")
+    print(f"web UI: {url}/{ui_dir_segment()}  "
+          f"(user: opencode, password: {password})")
     if pid:
         print(f"tunnel pid {pid}; close with: veggies ui {args.name} --stop")
     if args.open_browser and shutil.which("xdg-open"):

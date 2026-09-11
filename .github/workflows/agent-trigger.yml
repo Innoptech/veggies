@@ -87,12 +87,15 @@ jobs:
           sid="${{ steps.kick.outputs.session_id }}"
           port="${{ vars.VEGGIES_STACK_PORT }}"
           ui_port=$((1000 + port))
+          # The web UI scopes by directory; the route carries it as
+          # base64url(/workspace), no padding (ADR 0034).
+          dirseg=$(printf '/workspace' | base64 | tr '+/' '-_' | tr -d '=')
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           issue_n="${{ github.event.issue.number }}"
           body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
           body="$body"$'\n\n'"Watch it live:"
           body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
-          body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/session/${sid}>"
+          body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
           body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
           body="$body"$'\n\n'"The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
           body="$body"$' that closes this issue. '"[Workflow log](${run_url})."
