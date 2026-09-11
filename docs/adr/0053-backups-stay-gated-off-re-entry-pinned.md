@@ -48,16 +48,23 @@ the human can execute it in minutes. Two more facts sharpen the cost:
    creds, vault-edit the three restic keys, set `backup_repo` +
    `backup_enabled: true`, converge, smoke, restore-drill, close-out docs
    PR. About 15 minutes of operator time.
-3. **Tripwire.** Re-entry becomes due the day a `spend.jsonl.4` segment
-   exists on any stack - the next rotation past it destroys paid history -
-   or at the next section-1 rebuild, whichever comes first. The rebuild
+3. **Tripwire.** Re-entry becomes due the day a `spend.jsonl.5` segment
+   exists on any stack - the rotation cap (10 MiB x 5 kept segments) is
+   then full, and the NEXT rollover deletes the oldest paid segment - or
+   at the next section-1 rebuild, whichever comes first. The rebuild
    checklist carries the box.
 4. **No terraform for the bucket yet.** `terraform/ovh/` is a
-   never-applied, compute-only scaffold (ADRs 0002/0008); the openstack
-   provider can model a container but not the S3/ec2 credentials, which
-   are an account-level OVH action. A validated-but-never-planned resource
-   is speculative code. The bucket joins terraform when the ADR 0002
-   migration makes the module live.
+   never-applied, compute-only scaffold (ADRs 0002/0008) whose provider
+   block is commented out and fails plan unconfigured; a bucket resource
+   there would be validated syntactically and exercised never -
+   speculative code - and its S3 credentials would need a new
+   tofu-to-vault secret flow nobody has designed. (The openstack
+   provider DOES ship both `openstack_objectstorage_container_v1` and
+   `openstack_identity_ec2_credential_v3`; whether OVH's S3 credentials
+   are Keystone EC2 credentials is TODO(verify) against OVH docs - the
+   kick pod's egress blocked the check.) The bucket joins terraform when
+   the ADR 0002 migration makes the module live and the resource gets
+   real plan/apply signal.
 5. **Interim mitigation, documented not automated**: a manual ssh/tar pull
    of the stack state dir to the operator workstation (runbook cost
    section, "Backup status") moves the ledger from one disk to two with
