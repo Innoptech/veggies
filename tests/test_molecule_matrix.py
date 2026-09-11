@@ -184,3 +184,67 @@ def test_pull_request_requires_files_file():
     result = run_cli("--event-name", "pull_request")
     assert result.returncode == 2
     assert "files-file" in result.stderr
+
+
+# --- dorny <-> script congruence -------------------------------------------
+# The dorny `ansible` filter gates ansible-lint; select_roles gates the
+# molecule matrix. Both must see the same ansible surface - a path that
+# trips lint but maps to no scenario (or the reverse, beyond the documented
+# exemption) is a coverage hole. Drift trips these tests in both directions.
+EXPECTED_ANSIBLE_FILTER = {
+    "ansible/**",
+    "ansible.cfg",
+    "requirements-dev.txt",
+    ".ansible-lint",
+    ".github/workflows/infra-ci.yml",
+}
+
+
+def _dorny_ansible_filter():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/infra-ci.yml").read_text()
+    )
+    filter_step = next(
+        s
+        for s in workflow["jobs"]["changes"]["steps"]
+        if s.get("id") == "filter"
+    )
+    return set(yaml.safe_load(filter_step["with"]["filters"])["ansible"])
+
+
+def select_real(files):
+    return molecule_matrix.select_roles(
+        files, molecule_matrix.role_dirs(ROOT), molecule_matrix.scenario_deps(ROOT)
+    )
+
+
+def test_dorny_ansible_filter_is_exactly_the_expected_set():
+    assert _dorny_ansible_filter() == EXPECTED_ANSIBLE_FILTER
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "ansible/roles/base/tasks/main.yml",  # ansible/** role path
+        "ansible.cfg",
+        "requirements-dev.txt",
+        ".github/workflows/infra-ci.yml",
+    ],
+)
+def test_dorny_filter_paths_map_non_empty(path):
+    assert select_real([path]) != []
+
+
+def test_ansible_catch_all_selects_all_roles():
+    # ansible/** also catches non-role ansible paths; those fail open.
+    assert select_real(["ansible/playbooks/site.yml"]) == molecule_matrix.role_dirs(
+        ROOT
+    )
+
+
+def test_ansible_lint_config_is_the_documented_exemption():
+    # .ansible-lint trips the dorny filter (ansible-lint must rerun on lint
+    # config changes) but maps to NO molecule scenario: molecule 26's default
+    # test sequence has no lint step and no molecule.yml configures one -
+    # scripts/molecule_matrix.py documents this exemption in select_roles.
+    assert select_real([".ansible-lint"]) == []

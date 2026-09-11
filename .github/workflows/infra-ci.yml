@@ -5,6 +5,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "23 4 * * *"
 
 permissions:
   contents: read
@@ -26,7 +28,16 @@ env:
 # every merge as Pending forever. Path-gating is therefore step-gating only:
 # jobs always run, unchanged areas skip their steps. Whoever later verifies
 # GitHub's skipped-conclusion semantics and wants job-level skips writes the
-# ADR then.
+# ADR then. molecule is additionally scoped on the matrix axis:
+# scripts/molecule_matrix.py derives the role list from ansible/roles/ + the
+# PR diff, and unrecognized ansible paths fail open to all roles. The
+# accepted trade-off, in writing: with scoping, PR-green no longer implies
+# main-green for cross-role breakage the dependency map cannot see - the
+# push-to-main full run and the nightly schedule are the net, and operator
+# attention to failed post-merge runs is the control until the merge queue
+# (#79). The nightly is a drift tripwire (moving fedora:44 base tag, galaxy
+# collection bumps) with no required-check teeth, and GitHub auto-disables
+# schedules after 60 days of repo inactivity.
 
 jobs:
   changes:
@@ -38,6 +49,7 @@ jobs:
       ansible: ${{ steps.filter.outputs.ansible }}
       terraform: ${{ steps.filter.outputs.terraform }}
       pytest: ${{ steps.filter.outputs.pytest }}
+      molecule_roles: ${{ steps.molecule-matrix.outputs.molecule_roles }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -47,12 +59,15 @@ jobs:
       # them and CI never uses mask (AGENTS.md rule 8).
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
+        # dorny falls back to "changes from the last commit" on other events
+        # (verified against its README at the pinned SHA) - misleading noise
+        # on schedule runs, and the outputs are only consumed on PRs anyway.
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         with:
           filters: |
             ansible:
               - 'ansible/**'
               - 'ansible.cfg'
-              - 'requirements.yml'
               - 'requirements-dev.txt'
               - '.ansible-lint'
               - '.github/workflows/infra-ci.yml'
@@ -70,6 +85,24 @@ jobs:
               - 'terraform/terraform.tfvars.example'
               - 'veggies.yml'
               - '.github/workflows/infra-ci.yml'
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install pyyaml==6.0.3
+      - id: molecule-matrix
+        # git diff output is piped, never interpolated - PR filenames are
+        # attacker-influenced. Unusual (git-quoted) paths fail open to the
+        # full matrix inside the script.
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            roles=$(git diff --name-only "${base}...HEAD" | python3 scripts/molecule_matrix.py --event-name "$GITHUB_EVENT_NAME" --files-file -)
+          else
+            roles=$(python3 scripts/molecule_matrix.py --event-name "$GITHUB_EVENT_NAME")
+          fi
+          echo "molecule_roles=$roles" >> "$GITHUB_OUTPUT"
+          echo "molecule_roles=$roles"
 
   # Single source of truth for: gitleaks, yamllint, actionlint, whitespace/eof,
   # tofu fmt, vault-encryption check, ansible-lint (all via .pre-commit-config.yaml).
@@ -242,14 +275,16 @@ jobs:
   molecule-roles:
     name: molecule (${{ matrix.role }})
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.ansible == 'true'
+    # job-level `if` evaluates before matrix expansion; GitHub errors on an
+    # empty matrix vector, so the empty case must skip the job. A dead
+    # generator step fails `changes`; a silently empty output passes this
+    # guard and `fromJSON('')` errors the job - fail closed either way.
+    if: needs.changes.outputs.molecule_roles != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # keep in sync with ansible/roles/ - drift is guarded by
-        # tests/test_infra_ci.py (test_molecule_roles_matrix_matches_role_dirs)
-        role: [base, crowdsec, tailscale, podman, github_runner, egress, backup]
+        role: ${{ fromJSON(needs.changes.outputs.molecule_roles) }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -259,6 +294,7 @@ jobs:
       # TODO(verify): podman is preinstalled on ubuntu-latest GHA images.
       # If a job ever fails on `podman: command not found`, add:
       #   sudo apt-get update && sudo apt-get install -y podman
+      # per-leg image builds stay until #76 (build-once); this runtime-derived matrix is its pre-built-digest injection point.
       - name: Build the shared test image
         run: podman build -t localhost/fedora44-systemd:latest -f ansible/molecule/fedora44-systemd.Containerfile ansible/molecule
       - name: molecule test (${{ matrix.role }})
@@ -266,9 +302,10 @@ jobs:
         run: molecule test
 
   # The required "molecule" context: it must report on every run, so it is
-  # if: always() plus explicit result checks - a path-skipped matrix must
-  # never leave branch protection Pending forever. A skipped matrix is
-  # legitimate only for ansible-unchanged PRs; anything else fails closed.
+  # if: always() plus explicit result checks - a skipped matrix must never
+  # leave branch protection Pending forever. A skip is legitimate exactly
+  # when the scoped matrix is empty (no scenario applies to the diff);
+  # anything else fails closed.
   molecule:
     name: molecule
     if: always()
@@ -277,21 +314,20 @@ jobs:
     env:
       CHANGES_RESULT: ${{ needs.changes.result }}
       MOLECULE_RESULT: ${{ needs.molecule-roles.result }}
-      ANSIBLE_CHANGED: ${{ needs.changes.outputs.ansible }}
-      IS_PR: ${{ github.event_name == 'pull_request' }}
+      MOLECULE_ROLES: ${{ needs.changes.outputs.molecule_roles }}
     steps:
       - name: All molecule scenarios must have passed
         run: |
-          echo "changes_result=$CHANGES_RESULT molecule_result=$MOLECULE_RESULT ansible_changed=$ANSIBLE_CHANGED is_pr=$IS_PR"
+          echo "changes_result=$CHANGES_RESULT molecule_result=$MOLECULE_RESULT molecule_roles=$MOLECULE_ROLES"
           [ "$CHANGES_RESULT" = "success" ] || { echo "change detection did not succeed - failing closed"; exit 1; }
           if [ "$MOLECULE_RESULT" = "skipped" ]; then
-            if [ "$IS_PR" = "true" ] && [ "$ANSIBLE_CHANGED" = "false" ]; then
-              MSG="no ansible/** changes on this PR - molecule scenarios not applicable to this diff"
+            if [ "$MOLECULE_ROLES" = "[]" ]; then
+              MSG="no molecule scenarios applicable to this diff - scoped matrix is empty"
               echo "$MSG"
               echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "gating bug: molecule-roles skipped outside an ansible-unchanged PR - failing closed"
+            echo "gating bug: molecule-roles skipped with a non-empty matrix - failing closed"
             exit 1
           fi
           [ "$MOLECULE_RESULT" = "success" ]
