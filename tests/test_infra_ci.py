@@ -120,3 +120,84 @@ def test_changes_outputs_wiring_is_closed():
         f"references={sorted(referenced)} filters={sorted(filters)} "
         f"outputs={sorted(outputs)}"
     )
+
+
+# Issue #76: the molecule test image is built once per run by an image job
+# and shared with the matrix via artifact - matrix legs load, never build.
+# A second image one day (another distro base) extends IMAGE_BUILD_JOBS.
+IMAGE_BUILD_JOBS = ["molecule-image"]
+IMAGE_TAG = "localhost/fedora44-systemd:latest"
+IMAGE_ARTIFACT = "fedora44-systemd"
+
+
+def _run_steps(job):
+    return [s.get("run", "") for s in job.get("steps", [])]
+
+
+def test_molecule_image_built_once_and_shared():
+    image_jobs = [JOBS[name] for name in IMAGE_BUILD_JOBS]
+    roles = JOBS["molecule-roles"]
+
+    # A job-level-if-gated job as a required check never reports and wedges
+    # every merge as Pending - image jobs must never join required_checks.
+    for name in IMAGE_BUILD_JOBS:
+        assert name not in REQUIRED_CHECKS
+
+    # The image jobs and the matrix share one gate, string-equal: divergence
+    # either wastes a build per ansible-unchanged PR or reds seven legs on a
+    # missing artifact.
+    for name in IMAGE_BUILD_JOBS:
+        assert JOBS[name].get("if", "").strip() == roles.get("if", "").strip(), (
+            f"{name} gate must equal molecule-roles gate"
+        )
+        assert "changes" in _needs(JOBS[name])
+
+    # The matrix waits on every image job; the aggregate sees them too.
+    assert set(IMAGE_BUILD_JOBS) <= _needs(roles)
+    assert set(IMAGE_BUILD_JOBS) <= _needs(JOBS["molecule"])
+
+    # Matrix legs never build; builds live only in image jobs.
+    for step_run in _run_steps(roles):
+        assert "podman build" not in step_run
+    for key, job in JOBS.items():
+        builds = [r for r in _run_steps(job) if "podman build" in r]
+        if key in IMAGE_BUILD_JOBS:
+            assert len(builds) == 1, f"{key} must hold the single image build"
+            assert "ansible/molecule/fedora44-systemd.Containerfile" in builds[0]
+            assert f"-t {IMAGE_TAG}" in builds[0]
+        else:
+            assert not builds, f"{key} must not podman build"
+
+    # The artifact contract: same name on upload and download, save/load tar
+    # filenames agree, and every molecule scenario references the built tag.
+    uploads = [
+        s for name in IMAGE_BUILD_JOBS for s in JOBS[name].get("steps", [])
+        if s.get("uses", "").startswith("actions/upload-artifact@")
+    ]
+    downloads = [
+        s for s in roles.get("steps", [])
+        if s.get("uses", "").startswith("actions/download-artifact@")
+    ]
+    assert len(uploads) == 1 and len(downloads) == 1
+    assert uploads[0]["with"]["name"] == downloads[0]["with"]["name"] == IMAGE_ARTIFACT
+    save = [r for r in _run_steps(JOBS[IMAGE_BUILD_JOBS[0]]) if "podman save" in r]
+    load = [r for r in _run_steps(roles) if "podman load" in r]
+    assert len(save) == 1 and len(load) == 1
+    tar_name = re.search(r"(\S+\.tar)", save[0]).group(1).strip('"').rsplit("/", 1)[-1]
+    # ${{ runner.temp }} and "$RUNNER_TEMP" are the same directory; a
+    # subdirectory edit on either side must fail here, not at runtime.
+    assert uploads[0]["with"]["path"] == "${{ runner.temp }}/" + tar_name
+    assert downloads[0]["with"]["path"] == "${{ runner.temp }}"
+    assert f'"$RUNNER_TEMP/{tar_name}"' in load[0]
+
+    molecule_yamls = sorted(ROOT.glob("ansible/roles/*/molecule/*/molecule.yml"))
+    assert molecule_yamls, "no molecule scenarios found"
+    for path in molecule_yamls:
+        doc = yaml.safe_load(path.read_text())
+        images = {p["image"] for p in doc["platforms"]}
+        assert images == {IMAGE_TAG}, f"{path}: platforms must use {IMAGE_TAG}"
+        for p in doc["platforms"]:
+            assert p.get("pre_build_image") is True, (
+                f"{path}: pre_build_image must stay true - the podman driver "
+                "must not build its own layer per leg"
+            )
