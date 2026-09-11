@@ -43,7 +43,11 @@ reviews PRs; agents implement. These rules are not negotiable:
     0025 document the verified cost.)
     Events (ADR 0033): `.github/workflows/agent-trigger.yml` kicks the repo
     stack on `agent-task` labels / `/opencode` comments via
-    `scripts/stack_kick.py`; the kick prompt mandates the pipeline (plan
+    `scripts/stack_kick.py`; a trusted `/elaborate` discussion comment
+    instead kicks one session that fans out to the vendored persona roster
+    (`agent-config/agents/`: domain-expert, infra-architect, marketer,
+    seller, cto) and posts one attributed POV comment per persona (ADR
+    0041); the kick prompt mandates the pipeline (plan
     posted on the issue first, task subagents, adversarial-review subagent
     on the diff, `mask ci` - ADR 0036). `github: true` stacks take the
     serve password from vault key `veggies_stack_password`, never
