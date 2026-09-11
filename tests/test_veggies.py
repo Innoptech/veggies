@@ -266,7 +266,7 @@ def test_no_ask_anywhere():
             f"{agent.name}: permission ask parks headless sessions"
     # same scan for the vendored skills - ADR 0031/0049 scope spans skills
     # too; every file is SKILL.md, so failure messages name the parent dir.
-    skills = sorted((INFRA_REPO / "agent-config/skills").glob("*/SKILL.md"))
+    skills = sorted((INFRA_REPO / "agent-config/skills").glob("**/SKILL.md"))
     assert skills, "agent-config/skills glob empty - did the dir move?"
     for skill in skills:
         assert len(skill.read_text().split("---", 2)) == 3, \
