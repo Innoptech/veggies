@@ -1080,17 +1080,40 @@ def _ui_stop(name: str) -> int:
     return 0
 
 
+IDLE_ROWS_DEFAULT = 10  # one screen of the most-recently-touched idle
+
+
+def live_first(sessions: list, status: object) -> list:
+    """Pure watch-path ordering (ADR 0044): live sessions first, then idle,
+    newest-updated first within each group (missing timestamps sort last;
+    the sort is stable). 'Live' = present in the /session/status map with a
+    type other than 'idle' - the endpoint lists only non-idle sessions
+    (ADR 0017), and this matches the supervisor daemon's predicate
+    (deploy/supervisor/daemon.py) so the two never disagree about the same
+    session. An unknown/garbage status payload degrades to plain
+    newest-first: 'cannot tell' must not reorder anything."""
+    def ts(s):
+        t = s.get("time") or {}
+        return t.get("updated") or t.get("created") or 0
+
+    def live(s):
+        return isinstance(status, dict) and \
+            (status.get(str(s.get("id", ""))) or {}).get("type", "idle") \
+            != "idle"
+
+    ordered = sorted(sessions, key=ts, reverse=True)
+    return [s for s in ordered if live(s)] + \
+        [s for s in ordered if not live(s)]
+
+
 def session_links(sessions: list, status: dict, base_url: str,
                   limit: int = 5) -> list[str]:
-    """Pure: 'state title url' lines, newest-updated first. The web UI's
-    dir route alone opens a composer, not a session list (verified
-    2026-09-11), so ui prints deep links to the actual session views."""
-    def key(s):
-        ts = (s.get("time") or {})
-        return ts.get("updated") or ts.get("created") or 0
-
+    """Pure: 'state title url' lines, live first (ADR 0044), then
+    newest-updated idle. The web UI's dir route alone opens a composer,
+    not a session list (verified 2026-09-11), so ui prints deep links to
+    the actual session views."""
     lines = []
-    for s in sorted(sessions, key=key, reverse=True)[:limit]:
+    for s in live_first(sessions, status)[:limit]:
         sid = s.get("id", "")
         st = (status.get(sid) or {}).get("type", "idle") \
             if isinstance(status, dict) else "idle"
@@ -1157,23 +1180,32 @@ def cmd_ui(args: argparse.Namespace) -> int:
     if isinstance(sessions, list) and sessions:
         status = api_call(None, probe_port, password, "GET",
                           "/session/status?directory=/workspace")
-        print("sessions (newest first):")
-        for line in session_links(sessions,
-                                  status if isinstance(status, dict) else {},
-                                  url):
+        print("sessions (live first):")
+        links = session_links(sessions,
+                              status if isinstance(status, dict) else {},
+                              url)
+        for line in links:
             print(line)
+        if len(sessions) > len(links):
+            print(f"  ... and {len(sessions) - len(links)} more - "
+                  f"`veggies sessions {args.name}` shows all, live first")
     if args.open_browser and shutil.which("xdg-open"):
         subprocess.Popen(["xdg-open", url], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return 0
 
 
-def format_sessions(sessions: list, status: dict,
-                    issue: int | None = None) -> str:
-    """Pure table: one row per session; kicked sessions carry '#N:' titles
-    (ADR 0034), so --issue filters on the title prefix."""
+def format_sessions(sessions: list, status: dict, issue: int | None = None,
+                    show_all: bool = False,
+                    idle_limit: int = IDLE_ROWS_DEFAULT) -> str:
+    """Pure table, live first (ADR 0044): one row per session; kicked
+    sessions carry '#N:' titles (ADR 0034), so --issue filters on the
+    title prefix. Idle rows are capped at idle_limit (default
+    IDLE_ROWS_DEFAULT; --all lifts the cap, --issue is never capped) -
+    live rows are never hidden: the runbook's stale-worktree ownership
+    check stands on seeing every live session."""
     rows = []
-    for s in sessions:
+    for s in live_first(sessions, status):
         sid = str(s.get("id", ""))
         title = str(s.get("title") or "(untitled)")
         if issue is not None and f"#{issue}:" not in title:
@@ -1189,9 +1221,24 @@ def format_sessions(sessions: list, status: dict,
         rows.append((sid, st, when, title))
     if not rows:
         return "no sessions" + (f" for issue #{issue}" if issue else "")
+    hidden = 0
+    if not show_all and issue is None:
+        kept = []
+        idle_seen = 0
+        for row in rows:
+            if row[1] != "idle":
+                kept.append(row)  # live rows are never hidden
+            elif idle_seen < idle_limit:
+                kept.append(row)
+                idle_seen += 1
+            else:
+                hidden += 1
+        rows = kept
     out = [f"{'SESSION':<26} {'STATE':<6} {'UPDATED':<12} TITLE"]
     for sid, st, when, title in rows:
         out.append(f"{sid:<26} {st:<6} {when:<12} {title[:60]}")
+    if hidden:
+        out.append(f"... and {hidden} more idle sessions (use --all)")
     return "\n".join(out)
 
 
@@ -1209,7 +1256,7 @@ def cmd_sessions(args: argparse.Namespace) -> int:
     status = api_call(record["host"], record["port"], password, "GET",
                       f"/session/status{q}")
     print(format_sessions(sessions, status if isinstance(status, dict) else {},
-                          args.issue))
+                          args.issue, show_all=args.all))
     return 0
 
 
@@ -1503,10 +1550,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="xdg-open the URL")
     p_ui.set_defaults(func=cmd_ui)
 
-    p_sessions = sub.add_parser("sessions", help="list sessions on a stack")
+    p_sessions = sub.add_parser("sessions",
+                                help="list sessions on a stack (live first)")
     p_sessions.add_argument("name")
     p_sessions.add_argument("--issue", type=int, default=None,
                             help="only sessions titled '#N: ...'")
+    p_sessions.add_argument("--all", action="store_true", dest="all",
+                            help="show every session (default: live first, "
+                                 "idle capped at 10)")
     p_sessions.set_defaults(func=cmd_sessions)
 
     p_logs = sub.add_parser("logs", help="pod logs (or one container)")
