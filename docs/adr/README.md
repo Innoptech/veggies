@@ -32,7 +32,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed |
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | accepted |
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: contracts, not tools | accepted |
-| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted |
+| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted (amended by 0053) |
 | [0025](0025-stack-control-plane.md) | Stack control plane: Agent Canvas component driving opencode via ACP | superseded by 0028 |
 | [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 | [0027](0027-second-harness-in-canvas.md) | Second harness in canvas; critic via our shim | superseded by 0028 |
@@ -61,6 +61,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 | [0052](0052-spend-log-writer.md) | Spend-log writer: litellm custom callback and title stamping | accepted |
+| [0053](0053-backups-stay-gated-off-re-entry-pinned.md) | Backups stay gated off: re-entry pinned as an operator procedure | accepted |
 
 ## Deviation ledger (vs the original brief)
 
@@ -76,5 +77,5 @@ changes, and keep this index's titles and statuses in sync.
 | (no model router) | per-stack LiteLLM in the pod | ADR 0011/0013 |
 | Agent config only in project repos | + vendored baseline `agent-config/` with Superpowers pinned | ADR 0012 |
 | Tailscale-only access | Hardened public SSH (no Innoptech tailnet yet) | ADR 0003/0024 |
-| Backups from day one | backup role gated off until a bucket exists | ADR 0024 |
+| Backups from day one | backup role gated off until the operator runs the section-6 first-enable procedure | ADR 0024/0053 |
 | Human review + code owners on every repo | infra repo merges need checks only (solo author) | ADR 0007/0024 |
