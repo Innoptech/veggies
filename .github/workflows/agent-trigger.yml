@@ -6,9 +6,10 @@ name: agent-trigger
 # session that works the issue autonomously: opens a DRAFT PR at its
 # first commit and marks it ready only when checks are green and it
 # merges cleanly against main (ADR 0046).
-# ADR 0038: a trusted /opencode comment on a *discussion* kicks a session
-# that reads the whole thread and distills it into issues (plan / happy
-# path / criteria of success).
+# ADR 0038 (amended by 0050): a trusted /distill comment on a
+# *discussion* kicks a session that reads the whole thread, distills it
+# into issues (plan / happy path / criteria of success), and closes the
+# discussion as resolved.
 # ADR 0041: a trusted /elaborate comment on a discussion kicks a session
 # that posts five persona POV comments (domain expert, infra/architecture,
 # marketer, seller, CTO) back on the discussion.
@@ -33,9 +34,10 @@ permissions:
 
 jobs:
   kick:
-    # Trigger gates (ADR 0040, amended by 0043): /opencode and /elaborate
-    # are COMMANDS - they must start the comment; a prose mention ("the
-    # /opencode flow...") never fires. INTERIM (ADR 0043): while the agent
+    # Trigger gates (ADR 0040, amended by 0043): /opencode (issues),
+    # /distill and /elaborate (discussions) are COMMANDS - they must
+    # start the comment; a prose mention ("the /opencode flow...") never
+    # fires. INTERIM (ADR 0043): while the agent
     # shares the operator's olgam4 identity there is NO login exclusion -
     # olgam4 may trigger. The self-kick loop is bounded instead by this
     # command anchoring, the in-flight guard (both modes, stack_kick.py)
@@ -49,7 +51,7 @@ jobs:
         startsWith(github.event.comment.body, '/opencode') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'discussion_comment' &&
-        (startsWith(github.event.comment.body, '/opencode') ||
+        (startsWith(github.event.comment.body, '/distill') ||
          startsWith(github.event.comment.body, '/elaborate')) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, linux, x64, veggies]
@@ -173,7 +175,9 @@ jobs:
           else
             body="**veggies agent kicked** - distilling this discussion into issues;"
             body="$body"$' each created issue links back here, and the agent comments'
-            body="$body"$' the issue links below when done. [Workflow log]('"${run_url})."
+            body="$body"$' the issue links below when done; if the thread yielded'
+            body="$body"$' issues it then closes this discussion as resolved.'
+            body="$body"$' [Workflow log]('"${run_url})."
           fi
           jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" \
             '{query: $q, variables: {discussionId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
@@ -220,11 +224,12 @@ jobs:
         run: |
           set -euo pipefail
           body="**veggies kick skipped** - ${SKIP_REASON}."
-          body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
           if [ "${{ github.event_name }}" = "discussion_comment" ]; then
+            body="$body"$' Comment /distill (or /elaborate) again if it truly needs another pass.'
             jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
               '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
           else
+            body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
             jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
               '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
           fi
