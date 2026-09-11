@@ -276,11 +276,14 @@ def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
     return result.returncode == 0
 
 
-def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
+def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
+                  verbose: bool = False) -> None:
     """Images are component-owned: build/pull exactly the selected
     components' images. Built images use layer-cache (no-op when unchanged);
     pull-only images are pulled once. Remote: Containerfiles are shipped into
-    the remote state dir and built there."""
+    the remote state dir and built there. verbose streams the full build
+    output (`veggies prepare`); `up` stays quiet (-q)."""
+    quiet = [] if verbose else ["-q"]
     for c in stack_components(spec):
         b = c.build
         if b is None:
@@ -294,7 +297,11 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
         if b.containerfile is None:
             if hp("image", "exists", b.image,
                   check=False, capture=True).returncode != 0:
-                hp("pull", "-q", b.image)
+                if verbose:
+                    print(f"==> pull {b.image}")
+                hp("pull", *quiet, b.image)
+            elif verbose:
+                print(f"==> {b.image} present")
             continue
         cf = (infra_repo / b.containerfile).read_text()
         base = b.image.split("/")[-1].split(":")[0]
@@ -311,7 +318,9 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec) -> None:
             for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
                 build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
             build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
-        hp("build", "-q", "-t", b.image, "-f", cf_path, *build_args, images_dir)
+        if verbose:
+            print(f"==> build {b.image} ({b.containerfile})")
+        hp("build", *quiet, "-t", b.image, "-f", cf_path, *build_args, images_dir)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
@@ -517,6 +526,38 @@ def warm_api(host: str | None, port: int, password: str,
             return True
         time.sleep(3)
     return False
+
+
+def cmd_prepare(args: argparse.Namespace) -> int:
+    """Pre-build/pull a stack's images on the target host - the slow part of
+    a first `up`, streamed live (no -q). Touches no pods, secrets or state;
+    safe to re-run (layer cache). Image selection comes from the LOCAL
+    --repo checkout's veggies.yml (a fresh host has no clone to read yet)."""
+    infra_repo = Path(__file__).parent.parent.resolve()
+    host = args.host
+    name = args.name or stack_name_from(args.repo)
+    local = Path(args.repo).expanduser()
+    if local.is_dir():
+        cfg, warnings = load_repo_config(local)
+    else:
+        cfg, warnings = {}, [f"{args.repo}: not a local checkout - "
+                             "preparing the default component set (per-repo "
+                             "mcps are only visible in a local --repo)"]
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    spec = StackSpec(name=name, repo=str(local if local.is_dir() else args.repo),
+                     mode="mount", port=0, host=host,
+                     mcps=tuple(cfg.get("mcps") or ()))
+    t0 = time.monotonic()
+    ensure_images(host, infra_repo, spec, verbose=True)
+    print(f"\nimages ready on {host or 'this machine'} "
+          f"in {time.monotonic() - t0:.0f}s")
+    nxt = f"veggies up --repo {args.repo} --name {name}"
+    if host:  # remote stacks are clone-mode (cmd_up enforces)
+        nxt = (f"veggies up --host {host} --clone "
+               f"--repo $(git remote get-url origin) --name {name} -y")
+    print(f"next: {nxt}")
+    return 0
 
 
 def cmd_up(args: argparse.Namespace) -> int:
@@ -1289,6 +1330,15 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["opencode", "litellm", "squid"])
     p_logs.add_argument("-f", "--follow", action="store_true")
     p_logs.set_defaults(func=cmd_logs)
+
+    p_prepare = sub.add_parser(
+        "prepare", help="pre-build/pull a stack's images on a host, with "
+        "build logs (the slow part of a first up)")
+    p_prepare.add_argument("--repo", default=os.environ.get("VEGGIES_REPO", "."),
+                           help="LOCAL checkout; its veggies.yml selects images")
+    p_prepare.add_argument("--host", default=os.environ.get("VEGGIES_HOST"))
+    p_prepare.add_argument("--name", default=os.environ.get("VEGGIES_NAME"))
+    p_prepare.set_defaults(func=cmd_prepare)
 
     p_sup = sub.add_parser(
         "supervise",

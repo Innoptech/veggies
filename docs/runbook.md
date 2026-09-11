@@ -26,6 +26,15 @@ Prerequisites: mask 0.11.x, tofu 1.12.6, python 3.14, podman 5.8.x
 Execute this on a second VPS (or a reinstalled veggies) to prove the repo
 rebuilds the machine. Every box must be ticked in order.
 
+Fast path (the demo): after the three provisioning boxes below,
+`mask demo-stack` runs bootstrap -> converge -> prepare -> up -> ui as one
+idempotent command, streaming logs throughout. Indicative timings on a
+clean box (2026-09): converge ~10 min, prepare ~5-8 min (image layers
+through the egress proxy), up ~2 min once images are warm. For a live
+log tail in a second terminal during the ansible parts:
+`ssh veggies "sudo journalctl -f"`. The checklist below is the same flow
+broken out for verification.
+
 Provision manually (ADR 0008):
 
 - [ ] Order/reinstall the VPS: Fedora 44 image, your ssh key attached.
@@ -52,7 +61,8 @@ Bootstrap:
 Converge + verify:
 
 - [ ] `mask converge` finishes green and idempotent on rerun.
-- [ ] `veggies --host veggies ls` from the operator machine shows stacks; `ssh veggies systemctl --user list-units 'gh-runner*' -M gh-runner@` shows runners.
+- [ ] `veggies ls` from the operator machine shows stacks (remote hosts
+      included); `ssh veggies systemctl --user list-units 'gh-runner*' -M gh-runner@` shows runners.
 - [ ] A test PR in a governed repo: `/opencode` comment triggers a job on
       veggies; the PR cannot merge without your review (ADR 0007).
 - [ ] Deny test: in a runner, `curl https://example.com` fails and

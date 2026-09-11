@@ -826,6 +826,61 @@ def test_cmd_ui_reuses_live_tunnel_and_stop_kills(monkeypatch, tmp_path):
     assert not (tdir / "v.json").exists()
 
 
+def test_prepare_uses_local_repo_config_and_streams(monkeypatch, tmp_path,
+                                                    capsys):
+    (tmp_path / "veggies.yml").write_text("mcps: [toolbox]\n")
+    calls = []
+
+    def fake_ensure(host, repo, spec, verbose=False):
+        calls.append((host, verbose,
+                          [c.name for c in veggies.stack_components(spec)]))
+
+    monkeypatch.setattr(veggies, "ensure_images", fake_ensure)
+    args = argparse.Namespace(repo=str(tmp_path), host="veggies", name=None)
+    assert veggies.cmd_prepare(args) == 0
+    host, verbose, comps = calls[0]
+    assert host == "veggies" and verbose is True
+    assert "toolbox" in comps  # mcps from the local veggies.yml honored
+    assert comps[:3] == ["opencode", "litellm", "squid"]
+    out = capsys.readouterr().out
+    assert "veggies up" in out and "--host veggies" in out and "--clone" in out
+
+
+def test_prepare_nonlocal_repo_warns_and_defaults(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(veggies, "ensure_images",
+                        lambda *a, **k: calls.append((a, k)))
+    args = argparse.Namespace(repo="git@github.com:o/r.git", host=None,
+                              name=None)
+    assert veggies.cmd_prepare(args) == 0
+    res = capsys.readouterr()
+    assert "not a local checkout" in res.err
+    # local target: the next-step hint stays local (no --host/--clone)
+    assert "next: veggies up --repo" in res.out and "--host" not in res.out
+    assert calls[0][0][0] is None  # host=None
+
+
+def test_ensure_images_verbose_streams_and_quiet_default(monkeypatch, spec):
+    calls = []
+
+    class R:
+        returncode = 1  # "image exists" says no -> pull paths exercised too
+        stdout = ""
+
+    monkeypatch.setattr(veggies, "run",
+                        lambda cmd, **kw: (calls.append(cmd), R())[1])
+    monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
+    veggies.ensure_images(None, INFRA_REPO, spec, verbose=True)
+    builds = [c for c in calls if c[:2] == ["podman", "build"]]
+    pulls = [c for c in calls if c[:2] == ["podman", "pull"]]
+    assert builds and pulls, "default spec builds opencode+squid, pulls litellm"
+    assert all("-q" not in b for b in builds + pulls)
+    calls.clear()
+    veggies.ensure_images(None, INFRA_REPO, spec)
+    builds = [c for c in calls if c[:2] == ["podman", "build"]]
+    assert builds and all("-q" in b for b in builds)
+
+
 def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
     # The state primary key is the name: without this guard, re-upping a
     # name on a different host reuses its port and overwrites its record,

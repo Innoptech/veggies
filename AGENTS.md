@@ -49,6 +49,8 @@ reviews PRs; agents implement. These rules are not negotiable:
    are the watch path. `agent-task` is a one-shot label (ADR 0035): the
    workflow clears it on kick/skip, and the done-guard never re-kicks an
    issue that is closed or already has an `agent/issue-N` PR.
+   `veggies prepare` pre-stages images with build logs; `mask demo-stack`
+   is the one-command clean-VPS-to-stack path (runbook §1).
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket
