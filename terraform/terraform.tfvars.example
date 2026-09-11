@@ -22,6 +22,10 @@ required_checks = ["pre-commit", "tofu", "tflint", "ansible-lint", "molecule", "
 # (merge the PR yourself - direct pushes would bypass this very policy):
 # manage_label_workflow = true
 
+# Agent kicks (issue-triggered agent runs on a repo) are NOT tfvars: each repo
+# gets one module block in github/agent_kicks.tf (ADR 0044) so the install is
+# reviewable as a PR diff.
+
 # --- OVH Public Cloud scaffold (gated, never applied) --------------------
 # enable_ovh      = false         # do NOT enable before the ADR 0002 migration plan
 # openstack_cloud = "ovh"         # entry in ~/.config/openstack/clouds.yaml
