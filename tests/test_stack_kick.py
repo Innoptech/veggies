@@ -162,12 +162,54 @@ def test_done_reason_closed_issue(monkeypatch):
 def test_done_reason_existing_agent_pr(monkeypatch):
     def fake(tok, path):
         if "/pulls?" in path:
-            return [{"html_url": "https://x/pr/9", "state": "open"}]
+            # "draft" pinned: without it a missing key would pass by accident
+            return [{"html_url": "https://x/pr/9", "state": "open",
+                     "draft": False}]
         return {"state": "open"}
 
     monkeypatch.setattr(stack_kick, "gh_api", fake)
     reason = stack_kick.done_reason("o/r", "5", "t")
-    assert "https://x/pr/9" in reason and "open" in reason
+    assert "https://x/pr/9" in reason and "ready for review" in reason
+
+
+def test_done_reason_open_draft_pr_does_not_block(monkeypatch):
+    """ADR 0044: an open draft PR is the session's workbench under
+    draft-first, not handled work - the done-guard must not block the
+    re-kick (the in-flight guard, ADR 0040, owns the double-book
+    window)."""
+    def fake(tok, path):
+        if "/pulls?" in path:
+            return [{"html_url": "https://x/pr/9", "state": "open",
+                     "draft": True}]
+        return {"state": "open"}
+
+    monkeypatch.setattr(stack_kick, "gh_api", fake)
+    assert stack_kick.done_reason("o/r", "5", "t") is None
+
+
+def test_done_reason_merged_pr_blocks(monkeypatch):
+    def fake(tok, path):
+        if "/pulls?" in path:
+            return [{"html_url": "https://x/pr/9", "state": "closed",
+                     "merged_at": "2026-09-11T12:00:00Z"}]
+        return {"state": "open"}
+
+    monkeypatch.setattr(stack_kick, "gh_api", fake)
+    reason = stack_kick.done_reason("o/r", "5", "t")
+    assert "https://x/pr/9" in reason and "merged" in reason
+
+
+def test_done_reason_closed_unmerged_pr_does_not_block(monkeypatch):
+    """A closed-unmerged PR is an abandoned attempt - a re-kick
+    reconciles the branch (ADR 0044)."""
+    def fake(tok, path):
+        if "/pulls?" in path:
+            return [{"html_url": "https://x/pr/9", "state": "closed",
+                     "merged_at": None}]
+        return {"state": "open"}
+
+    monkeypatch.setattr(stack_kick, "gh_api", fake)
+    assert stack_kick.done_reason("o/r", "5", "t") is None
 
 
 def test_done_reason_none_when_open_and_no_pr(monkeypatch):

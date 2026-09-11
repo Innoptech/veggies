@@ -83,9 +83,13 @@ def gh_api(token: str, path: str) -> object:
 
 def done_reason(repo: str, number: str, token: str) -> str | None:
     """Why this issue should NOT be (re-)kicked, or None. 'Done' = the issue
-    is closed, or an agent/issue-N PR already exists (any state - open means
-    in flight, merged means shipped). Re-kicking a done issue burns a
-    session and produces duplicate branches (ADR 0035)."""
+    is closed, or an agent/issue-N PR that is merged or marked ready; an
+    open draft never blocks (it is the session's workbench under
+    draft-first, ADR 0044) - the in-flight guard (ADR 0040) owns the
+    double-book window. Re-kicking a done issue burns a session and
+    produces duplicate branches (ADR 0035). Known blind spot: the
+    head=owner:agent/issue-N lookup never sees PRs opened from a -2
+    recovery branch."""
     issue = gh_api(token, f"/repos/{repo}/issues/{number}")
     if issue.get("state") != "open":
         return f"issue state is {issue.get('state')}"
@@ -94,7 +98,16 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
                         f"?head={owner}:agent/issue-{number}&state=all&per_page=1")
     if prs:
         pr = prs[0]
-        return f"PR {pr.get('html_url')} already exists ({pr.get('state')})"
+        url = pr.get("html_url")
+        if pr.get("state") == "open":
+            if pr.get("draft"):
+                # an open draft is a workbench, not handled (ADR 0044)
+                return None
+            return f"PR {url} already exists (ready for review)"
+        if pr.get("merged_at"):
+            return f"PR {url} already exists (merged)"
+        # closed-unmerged: an abandoned attempt - a re-kick reconciles
+        # the branch
     return None
 
 # The repo declares its in-pod verify gate as one HTML-comment marker in
