@@ -201,6 +201,21 @@ def test_spend_passthrough():
     assert rec["spend"] is None
 
 
+def test_non_finite_spend_degrades_to_unpriced(tmp_path):
+    # A NaN/Infinity response_cost must never reach the file: bare NaN is
+    # not strict JSON (jq rejects the whole file), so it degrades to
+    # unpriced - which the 0051 reader keeps but excludes from sums.
+    inst = cc.VeggiesCostLogger(path=str(tmp_path / "spend.jsonl"))
+    asyncio.run(inst.async_log_success_event(
+        make_kwargs(response_cost=float("nan")), make_response(), START, END))
+    text = (tmp_path / "spend.jsonl").read_text()
+    assert json.loads(text.strip())["spend"] is None
+    parsed = costs.parse_spend_log(text)
+    assert parsed.skipped == 0
+    assert parsed.records[0].spend is None
+    assert parsed.unpriced == 1
+
+
 def test_ts_is_epoch_float_with_fallbacks(monkeypatch):
     # Aware end_time converts to the right epoch.
     aware = datetime(2026, 9, 11, 14, 34, 56, 789000,

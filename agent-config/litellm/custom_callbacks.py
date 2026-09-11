@@ -22,6 +22,7 @@ sync path, so log_success_event/log_failure_event would be dead code.
 import json
 import logging
 import logging.handlers
+import math
 import os
 import sys
 import time
@@ -91,6 +92,10 @@ def build_record(kwargs, response_obj, start_time, end_time, status, stack,
         # report 0.0 - both must survive so readers can distinguish them.
         spend = float(cost) if isinstance(cost, (int, float)) \
             and not isinstance(cost, bool) else None
+        # Non-finite spend degrades to unpriced: json.dumps would emit bare
+        # NaN/Infinity, which strict JSON parsers (jq) reject file-wide.
+        if spend is not None and not math.isfinite(spend):
+            spend = None
     else:
         usage, spend = {}, None
     record = {
