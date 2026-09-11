@@ -45,6 +45,13 @@ def calls(monkeypatch):
     return seen
 
 
+@pytest.fixture(autouse=True)
+def _isolated_cwd(tmp_path, monkeypatch):
+    """The no-ask gate scans the CWD: keep every test off the real
+    checkout (a stray project-tier file must never flip unrelated tests)."""
+    monkeypatch.chdir(tmp_path)
+
+
 def test_build_prompt_contains_issue_and_rules():
     # a deliberately foreign gate proves interpolation, not hardcoding
     p = stack_kick.build_prompt("o/r", "12", "Fix the thing",
@@ -987,3 +994,25 @@ def test_permission_gate_blocks_the_kick(tmp_path, monkeypatch, calls):
     monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     assert stack_kick.main() == 3
     assert calls == []  # no session was created
+
+
+def test_permission_gate_blocks_a_discussion_kick(tmp_path, monkeypatch, calls):
+    """The gate covers discussion mode too (main_discussion)."""
+    (tmp_path / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": "ask"}}))
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "REPO": "o/r", "DISCUSSION_NUMBER": "7",
+                 "DISCUSSION_TITLE": "t", "DISCUSSION_URL": "u"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    assert stack_kick.main() == 3
+    assert calls == []
+
+
+def test_skip_reason_output_is_newline_safe(tmp_path, monkeypatch):
+    # A newline in a filename/JSON key must never corrupt the key=value
+    # stream the workflow reads skip_reason back from.
+    out = tmp_path / "gh_out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    assert stack_kick.skip("a\nb") == stack_kick.SKIP_DONE
+    assert out.read_text().splitlines() == ["skip_reason=a // b"]

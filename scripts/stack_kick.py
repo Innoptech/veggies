@@ -56,12 +56,17 @@ from pathlib import Path
 
 # The no-ask gate (ADR 0044): the merged config tier (project overrides
 # global) lets a repo's own opencode.json/.opencode/ reintroduce `ask`,
-# which parks unattended sessions forever (ADR 0031). The module is
-# stdlib-only and lives in cli/; a copied-alone script (or a moved
-# checkout) degrades to proceeding rather than blocking kicks.
+# which parks unattended sessions forever (ADR 0031). Imported by explicit
+# path (never sys.path search, where a same-named module would shadow it);
+# a copied-alone script or moved checkout degrades to proceeding rather
+# than blocking kicks.
 try:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cli"))
-    import permission_envelope
+    import importlib.util as _ilu
+    _pe_spec = _ilu.spec_from_file_location(
+        "permission_envelope",
+        Path(__file__).resolve().parent.parent / "cli/permission_envelope.py")
+    permission_envelope = _ilu.module_from_spec(_pe_spec)
+    _pe_spec.loader.exec_module(permission_envelope)
 except Exception:
     permission_envelope = None
 
@@ -548,7 +553,7 @@ def skip(reason: str) -> int:
     print(f"SKIP_REASON={reason}")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"skip_reason={reason}\n")
+            f.write(f"skip_reason={reason.replace(chr(10), ' // ')}\n")
     return SKIP_DONE
 
 
@@ -586,7 +591,7 @@ def permission_gate_reason() -> str | None:
     shown = "; ".join(violations[:3])
     if len(violations) > 3:
         shown += f"; +{len(violations) - 3} more"
-    return f"project-tier `ask` refused (ADR 0044): {shown}"
+    return f"no-ask gate: project tier carries ask or is unverifiable (ADR 0044): {shown}"
 
 
 def permission_gate() -> int | None:

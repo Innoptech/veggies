@@ -93,12 +93,16 @@ def ask_violations_in_markdown(text: str, origin: str) -> list[str]:
     skipped, so prose and pattern keys are ignored. Asymmetry is intended:
     a false positive costs a loud refusal a human reviews; a false negative
     re-opens the ADR 0031 park."""
-    parts = text.split("---", 2)
-    if len(parts) != 3:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
         return []
+    try:
+        end = lines[1:].index("---") + 1
+    except ValueError:
+        return []  # no closing fence: no frontmatter, nothing to scan
     out = []
     in_perm = False
-    for lineno, line in enumerate(parts[1].splitlines(), 1):
+    for lineno, line in enumerate(lines[1:end], 1):
         top = re.match(r"^([^:\s][^:]*):\s*(.*)$", line)
         if top:  # top-level frontmatter key opens/closes the block
             # A quoted key ("permission":) is valid YAML and opens the
@@ -155,20 +159,27 @@ def _strip_jsonc_comments(text: str) -> str:
 
 def scan_project_tier(repo: Path) -> list[str]:
     """Every `ask` violation a mounted repo's project tier would merge over
-    the global envelope. Fail-closed on content: an unparseable config
-    cannot be verified ask-free, so it is reported as a violation naming the
-    file - not skipped. Read errors (OSError) propagate to the caller (the
-    kick gate treats transport hiccups as degrade-to-proceed)."""
+    the global envelope. Fail-closed on content: an unparseable or
+    unreadable file cannot be verified ask-free, so it is reported as a
+    violation naming the file - per file, so one bad file never discards
+    violations already collected from the others. (The kick gate's broad
+    except stays as belt-and-braces for anything unexpected.)"""
     out: list[str] = []
     for f in project_tier_files(repo):
         origin = str(f)
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            # Content we cannot read cannot be verified ask-free - fail
+            # closed per file, so one bad file never discards violations
+            # already collected from the others.
+            out.append(f"{origin}: unreadable ({e}) - cannot verify ask-free")
+            continue
         if f.suffix == ".md":
-            out += ask_violations_in_markdown(f.read_text(encoding="utf-8"),
-                                              origin)
+            out += ask_violations_in_markdown(text, origin)
             continue
         try:
-            cfg = json.loads(_strip_jsonc_comments(
-                f.read_text(encoding="utf-8")))
+            cfg = json.loads(_strip_jsonc_comments(text))
         except json.JSONDecodeError as e:
             out.append(f"{origin}: unparseable ({e.msg}) - "
                        "cannot verify ask-free")
