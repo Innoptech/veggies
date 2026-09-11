@@ -20,7 +20,7 @@ When a human asks what a pull request or issue cost ("what did this PR cost?", "
 
 Run `command -v veggies` and `veggies ls` first. Inside a kicked session's pod both fail - no veggies CLI, no
 `~/.local/state/veggies`, no spend-log mount: the opencode container mounts repo/stack-config/home/tmp only; the
-litellm container alone mounts stack-state (ADR 0022 decision 4). On failure, answer with ONE honest step and stop:
+litellm container alone mounts stack-state (ADR 0022 decision 2). On failure, answer with ONE honest step and stop:
 
     veggies costs <stack> --pr N      # run this on the host
 
@@ -42,7 +42,8 @@ Never hand-roll ssh: the CLI does the remote read from the stack record itself.
     veggies costs <stack> --pr N
 
 `--pr` resolves the PR's `agent/issue-M` branch via operator-side `gh pr view` and needs gh auth; when that fails,
-read M from the PR's branch name and fall back to `veggies costs <stack> --issue M`.
+read M from the PR's branch name and fall back to `veggies costs <stack> --issue M`. A PR whose branch is not
+`agent/issue-M` is not attributable by convention: say so, or offer `veggies costs <stack> --session SUBSTR`.
 
 ## Relay, never re-derive
 
@@ -69,7 +70,8 @@ evidence lines such as the unpriced count. Never re-sum numbers in prose. Read t
 - Work done before the metering writer landed (issue #46) left no records and is absent.
 - Rotation keeps 10MiB x 5 segments; older history falls off.
 - Unpriced models are excluded from totals, rendered `?`.
-- Sessions titled off the `#N:` convention land in `(unattributed)`.
+- Sessions titled off-convention never reach a `--pr`/`--issue` report at all (filtered out upstream); in the
+  whole-stack view `D#N:` titles attribute to discussions and the rest lands in `(unattributed)`.
 
 ## Reply shape
 
