@@ -367,9 +367,13 @@ The opencode image carries python3/pip, `mask`, `ansible`/`ansible-vault`,
 repo's own checks inside the stack. Two exclusions: molecule (no podman
 socket in-pod, ADR 0028) and the `actionlint-docker` pre-commit hook
 (needs a docker daemon, and it has no `files:` filter so every
-`pre-commit run --all-files` hits it) - in-container, run checks as
-`SKIP=actionlint-docker mask ci`. CI on GitHub-hosted runners still covers
-the skipped hook. In-container checks are a CLONE-stack story (the VPS
+`pre-commit run --all-files` hits it). In-container checks therefore run
+as `SKIP=actionlint-docker mask ci` - and that exact string is this repo's
+DECLARED in-pod verify gate: declared machine-readably by the
+`veggies-verify-gate` marker in AGENTS.md rule 3 and consumed by
+`scripts/stack_kick.py` at kick time (ADR 0044; see "Declaring a repo's
+verify gate" below). CI on GitHub-hosted runners still covers the skipped
+hook. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
 run host-side there instead. Smoke-test a fresh image:
@@ -485,6 +489,47 @@ Manual fallback (workflow down, demo must go on): run `scripts/stack_kick.py`
 by hand - the header comment has the exact env. From the operator machine,
 tunnel first or run it on the VPS (`ssh veggies`, then STACK_URL is
 `http://127.0.0.1:<port>`).
+
+### Declaring a repo's verify gate (ADR 0044)
+
+A repo declares its in-pod verify gate as ONE machine-readable marker in
+its agent-instruction file: `<!-- veggies-verify-gate: CMD -->`, a single
+command string, kept honest by the human prose around it (this repo:
+AGENTS.md rule 3, `SKIP=actionlint-docker mask ci`). Search order:
+`AGENTS.md`, then `CLAUDE.md`; the first marker wins. A pytest parses the
+real AGENTS.md and pins the declared command plus the prose<->marker
+lockstep, so an edit that drops either half fails loudly.
+
+`scripts/stack_kick.py` resolves the marker at kick time, anchored to the
+vendored script's own repo root (the runner's default-branch checkout),
+never cwd. Consequence: a gate change ships as an ordinary PR on the
+default branch - no CLI release.
+
+No marker -> the kick prompt degrades to an advisory pointer: the
+agent-instruction file's prose is the contract and the agent claims only
+what it actually ran. That fallback is the design, not a failure mode: a
+repo with a decent agent-instruction file already gets a repo-native
+agent with zero veggies markup - the marker just makes the gate
+deterministic.
+
+The resolved gate is echoed per kick so a typo'd marker is a visible
+event, not a silent degrade: the `VERIFY_GATE` line in the workflow log,
+and one `Verify gate:` line in the session-link comment the workflow
+posts on the issue.
+
+Scope the gate to the diff in the declaration's prose, not in the marker
+(this repo's convention): a narrow diff runs file-scoped pre-commit hooks
+plus targeted tests instead of the flattened `--all-files` run; the
+security hooks (gitleaks, vault-check) always run full-scope, whatever
+the diff. A repo that outgrows one command points the marker at a
+mask/make target.
+
+The gate executes inside the harness image (ADR 0032): a foreign gate
+needs an image that can run it - the repo owner owns that toolchain
+story.
+
+Scope: the marker is ONLY the verify gate. Broader respect for a repo's
+own agent files (instructions, skills, rosters) is issue #54's territory.
 
 ### Session worktrees (ADR 0037)
 
