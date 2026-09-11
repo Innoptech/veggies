@@ -99,9 +99,11 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
 
 # The repo declares its in-pod verify gate as one HTML-comment marker in
 # its agent-instruction file (ADR 0044). Search order below: the first
-# file that exists, first marker match wins.
+# file that exists, first marker match wins. The marker must be alone on
+# its line - an example quoted inside prose is not a declaration.
 GATE_MARKER = re.compile(
-    r"<!--\s*veggies-verify-gate:\s*(?P<cmd>.*?)\s*-->")
+    r"^\s*<!--\s*veggies-verify-gate:\s*(?P<cmd>.*?)\s*-->\s*$",
+    re.MULTILINE)
 AGENT_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
 # Echoed (stdout + GITHUB_OUTPUT) when no marker is found, so a degraded
 # kick is a visible event, not a silent one (ADR 0044).
@@ -114,15 +116,18 @@ def declared_verify_gate(repo_root: Path | str | None = None) -> str | None:
     root anchors to this vendored script's own repo root
     (Path(__file__).resolve().parents[1] - the script lives at
     <root>/scripts/), never cwd, because manual kicks run from anywhere.
-    The lookup degrades, it never blocks: a missing/unreadable file or a
-    repo with no marker yields None, and the kick prompt falls back to
-    pointing at the agent-instruction file's prose."""
+    The lookup degrades, it never blocks: a missing/unreadable/
+    undecodable file or a repo with no marker yields None, and the kick
+    prompt falls back to pointing at the agent-instruction file's prose.
+    An empty marker is an explicit opt-out: the advisory fallback, not a
+    parse error - and it suppresses any file later in the search
+    order."""
     root = (Path(repo_root) if repo_root is not None
             else Path(__file__).resolve().parents[1])
     for name in AGENT_INSTRUCTION_FILES:
         try:
             text = (root / name).read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         m = GATE_MARKER.search(text)
         if m:
@@ -409,11 +414,10 @@ def build_prompt(repo: str, number: str, title: str, body: str,
             f"4. Verify: `{verify_gate}` must pass before you push. That\n"
             "   command is the repo's declared in-pod verify gate (the\n"
             "   veggies-verify-gate marker in its agent-instruction file,\n"
-            "   ADR 0044); the declaration also scopes the gate to your\n"
-            "   diff - a narrow change runs file-scoped hooks plus\n"
-            "   targeted tests, and the security hooks it names always\n"
-            "   run full-scope. If the gate skips anything in this\n"
-            "   environment, note it in the PR body.\n"
+            "   ADR 0044). The declaration's prose may also scope it to\n"
+            "   your diff - follow the scoping the declaration declares;\n"
+            "   absent any, run the whole gate. If the gate skips\n"
+            "   anything in this environment, note it in the PR body.\n"
             "   Claim only what you actually ran.")
     else:
         verify_step = (
@@ -556,9 +560,14 @@ def main() -> int:
         return rc
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
     # The repo's declared verify gate (ADR 0044): interpolated into the
-    # prompt's verify step and echoed after the kick, so a typo'd marker
-    # is a visible event, not a silent degrade.
+    # prompt's verify step and echoed BEFORE the kick attempt, so a
+    # typo'd marker is a visible event even when the kick itself fails.
     gate = declared_verify_gate()
+    shown_gate = gate or VERIFY_GATE_NONE
+    print(f"VERIFY_GATE={shown_gate}")
+    if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"verify_gate={shown_gate}\n")
     prompt = build_prompt(os.environ["REPO"], os.environ["ISSUE_NUMBER"],
                           os.environ["ISSUE_TITLE"],
                           os.environ.get("ISSUE_BODY", ""),
@@ -572,15 +581,12 @@ def main() -> int:
             json.JSONDecodeError) as e:
         print(f"kick failed: {e}", file=sys.stderr)
         return 1
-    shown_gate = gate or VERIFY_GATE_NONE
     print(f"session queued: {sid} on {url} "
           f"(issue #{os.environ['ISSUE_NUMBER']})")
     print(f"SESSION_ID={sid}")  # machine-readable, one per line
-    print(f"VERIFY_GATE={shown_gate}")
     if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             f.write(f"session_id={sid}\n")
-            f.write(f"verify_gate={shown_gate}\n")
     return 0
 
 

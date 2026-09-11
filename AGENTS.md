@@ -17,13 +17,14 @@ reviews PRs; agents implement. These rules are not negotiable:
    stays excluded by the banned podman socket (ADR 0028); CI on
    GitHub-hosted runners covers both.
    <!-- veggies-verify-gate: SKIP=actionlint-docker mask ci -->
-   Scale the gate to the diff: a change touching one area runs that
-   area's file-scoped pre-commit hooks plus its targeted tests (e.g.
-   `pre-commit run --files <files>` and the focused pytest), not the
-   flattened `--all-files` run; the security hooks (gitleaks, vault-check)
-   always run full-scope, whatever the diff. Every Ansible role needs a
-   Molecule scenario that converges and is idempotent. Every Terraform
-   change needs `tofu fmt`, `validate`, and `tflint` clean.
+   Kicked sessions scale the gate to the diff: a change touching one
+   area runs that area's file-scoped pre-commit hooks plus its targeted
+   tests (e.g. `pre-commit run --files <files>` and the focused pytest),
+   not the flattened `--all-files` run; the security hooks (gitleaks,
+   vault-encrypted) always run full-scope, whatever the diff. Every
+   Ansible role needs a Molecule scenario that converges and is
+   idempotent. Every Terraform change needs `tofu fmt`, `validate`, and
+   `tflint` clean.
 4. **Commits**: conventional-commit messages, small and single-purpose.
 5. **Decisions**: read `docs/adr/README.md` first. A new decision gets a new
    ADR; never edit a decided ADR. Keep the deviation ledger in

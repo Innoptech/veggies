@@ -114,6 +114,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.issue.node_id }}
+          # env-routed, never spliced into the shell string: the gate is
+          # repo-controlled text and could carry $()/backticks
+          VERIFY_GATE: ${{ steps.kick.outputs.verify_gate }}
         run: |
           set -euo pipefail
           sid="${{ steps.kick.outputs.session_id }}"
@@ -132,7 +135,7 @@ jobs:
           body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
           body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
           body="$body"$'\n\n'"$tail"
-          body="$body"$'\n'"Verify gate: \`${{ steps.kick.outputs.verify_gate }}\`"
+          body="$body"$'\n'"Verify gate: \`$VERIFY_GATE\`"
           jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
             '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
           resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
