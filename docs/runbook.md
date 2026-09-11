@@ -17,7 +17,7 @@ the rebuild checklist (section 1) is the acceptance test for the whole repo.
 | `mask molecule-test <role>` / `mask molecule-all` | role tests |
 | `mask converge` / `mask bootstrap` | Ansible against veggies |
 
-On PRs, `.github/workflows/infra-ci.yml` path-gates the tofu/tflint/ansible-lint/pytest jobs to changed areas and scopes the molecule matrix to the roles the PR touches (`scripts/molecule_matrix.py` derives it from `ansible/roles/` + the converge.yml role-application map; unrecognized ansible paths fail open to all roles) - the required contexts still report on every run and the pre-commit job is ungated. Push to main, merge groups, and the nightly schedule (`23 4 * * *`) always run the full matrix; the nightly is a drift tripwire (moving `fedora:44` base tag, galaxy collection bumps) with no required-check teeth - a red nightly pages no one, it is visible in the Actions tab, and GitHub auto-disables scheduled workflows after 60 days of repo inactivity (re-enable from the Actions tab). The accepted trade-off: with scoping, PR-green no longer implies main-green for cross-role breakage the dependency map cannot see; failed post-merge runs are the control until this repo opts into the merge queue (section 10), whose groups run the full matrix on the exact tree entering main.
+On PRs, `.github/workflows/infra-ci.yml` path-gates the tofu/tflint/ansible-lint/pytest jobs to changed areas and scopes the molecule matrix to the roles the PR touches (`scripts/molecule_matrix.py` derives it from `ansible/roles/` + the converge.yml role-application map; unrecognized ansible paths fail open to all roles) - the required contexts still report on every run and the pre-commit job is ungated. Push to main, merge groups, and the nightly schedule (`23 4 * * *`) always run the full matrix; the nightly is a drift tripwire (moving `fedora:44` base tag, galaxy collection bumps) with no required-check teeth - a red nightly pages no one, it is visible in the Actions tab, and GitHub auto-disables scheduled workflows after 60 days of repo inactivity (re-enable from the Actions tab). The accepted trade-off: with scoping, PR-green no longer implies main-green for cross-role breakage the dependency map cannot see; failed post-merge runs are the control until this repo opts into the merge queue (section 11), whose groups run the full matrix on the exact tree entering main.
 
 Prerequisites: mask 0.11.x, tofu 1.12.6, python 3.14, podman 5.8.x
 (workstation and veggies are both Fedora 44); the pinned Python tooling is in
@@ -72,6 +72,13 @@ Converge + verify:
 - [ ] Backups enabled: run section 6's "Enabling backups for the first
       time" (ADR 0054) - bucket, vault keys, `backup_repo`,
       `backup_enabled: true`, converge, smoke. (gated - ADR 0054)
+- [ ] Build-time deny test (ADR 0058): in the local demo checkout,
+      `echo 'RUN curl -sSf https://example.com' >> deploy/images/opencode.Containerfile`,
+      then `veggies prepare --host veggies --repo .` - the build must
+      FAIL with an error naming `example.com` and the
+      `egress_allowlist_extra` remediation block (earlier layers are
+      cached, so the appended step is reached fast); revert with
+      `git checkout -- deploy/images/opencode.Containerfile`.
 - [ ] `systemctl list-timers 'backup*'` shows the timers; a manual
       `systemctl start backup` succeeds (needs real restic creds).
       (gated - ADR 0054)
@@ -254,7 +261,70 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 `/models`. Existing stacks: `veggies down <name>` + `veggies up` - the
 recreate re-injects the current vault keys.
 
-## 8. Add an agent or a skill
+## 8. Image build fails with a blocked domain
+
+Remote image builds (`veggies prepare` / `veggies up`) run as the
+egress-denied `stacks` user and fetch through the substrate squid
+(ADR 0006). A build step reaching a non-allowlisted domain fails, and the
+CLI reads the substrate squid's access log for the build window and
+re-raises the error naming the image and EVERY denied domain sourced from
+loopback (the build's path), plus a paste-ready `egress_allowlist_extra`
+YAML block (ADR 0058).
+
+The fix loop:
+
+1. Add the domain(s) to `egress_allowlist_extra` in
+   `ansible/inventory/group_vars/all.yml` - the error prints the exact
+   YAML block to paste.
+2. `mask converge` - the allowlist template change notifies the handler
+   that restarts squid.
+3. Re-run the same veggies command. Safe: the layer cache keeps every
+   step that already succeeded; only the failed step re-runs.
+
+Doctrine before you paste: the extra list is HOST-WIDE and PERMANENT -
+once converged it serves every stack, every runner job, and every host
+build, not just yours. Treat a denial as a review prompt, not a rubber
+stamp: add narrow domains only (one registry, one API host). CDN-fronting
+domains stay off - `storage.googleapis.com` fronts all of GCS and is
+deliberately absent from the base list (pinned by tests); a domain like
+it does not belong in `_extra` either.
+
+Build-time vs runtime: this error covers BUILD-time fetches against the
+substrate list. An agent fetching at RUNTIME rides the in-pod squid,
+whose allowlist comes from the components' `egress_domains()` hooks
+(ADR 0018) - a runtime denial is a component change, not a converge. An
+overlay toolchain (its image built by `veggies prepare`) normally needs
+the substrate list only.
+
+Alternative for exotic or one-shot toolchains: build the image in GitHub
+Actions, push to ghcr.io (already on the base allowlist), and `FROM`/pull
+it - no converge, no permanent list entry.
+
+If the error says NO proxy denials were logged in the window, the build
+tool bypassed the proxy env vars and hit the per-UID nftables drop
+instead - check with:
+
+```bash
+ssh veggies 'sudo journalctl -k -g infra-egress-deny'
+```
+
+Domains denied from NON-loopback sources in the same window come from
+pod runtime traffic (chained through the pasta gateway) and are usually
+unrelated to the failing build. To read the proxy log by hand:
+
+```bash
+ssh veggies sudo -n -u egress-proxy \
+  env HOME=/home/egress-proxy XDG_RUNTIME_DIR=/run/user/$(ssh veggies \
+  sudo -n -u egress-proxy id -u) podman logs --since 10m squid
+```
+
+Fix the Containerfile to honor the proxy build-args: declare the
+`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy`/`NO_PROXY` ARGs and
+use tools that read them - the ARG pattern in
+`deploy/images/opencode.Containerfile` is the reference (buildah exposes
+the ARGs to RUN steps as env).
+
+## 9. Add an agent or a skill
 
 - Agent: new file in `agent-config/agents/<name>.md` (frontmatter:
   description, mode, model, permission). PR, merge; stacks pick it up at
@@ -276,7 +346,7 @@ recreate re-injects the current vault keys.
   then restart the stack. Telemetry is disabled pod-wide via
   `SUPERPOWERS_DISABLE_TELEMETRY=1` (set by the opencode component).
 
-## 9. veggies stacks (ADR 0013/0014)
+## 10. veggies stacks (ADR 0013/0014)
 
 Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
@@ -1024,7 +1094,7 @@ Troubleshooting:
 - `!! running as root`: warning only - stacks assume a rootless user
   (systemd --user, linger); use a normal account.
 
-## 10. When agents out-produce reviewers: the merge queue
+## 11. When agents out-produce reviewers: the merge queue
 
 Agent PRs land at machine pace; `strict` required checks plus linear history
 used to make every merge invalidate every other open PR - the operator was
@@ -1059,7 +1129,7 @@ to terraform/terraform.tfvars, then the zero-gap two-phase apply -
 `mask tofu-apply` (removes the classic resource). Applying without the tfvars
 line migrates the policy to the ruleset but leaves the queue off.
 
-## 11. The reviewer verdict gate: pr-review-agent (ADR 0056)
+## 12. The reviewer verdict gate: pr-review-agent (ADR 0056)
 
 On opted-in repos the ruleset additionally requires the `pr-review-agent`
 check on every PR head. One workflow -
@@ -1123,7 +1193,7 @@ Activate on a repo (in order):
 - [ ] `.github/workflows/pr-review-gate.yml` exists on the repo's default
       branch.
 - [ ] The #102 reviewer is live on that repo.
-- [ ] If the repo also uses the merge queue (section 10): the gate reports
+- [ ] If the repo also uses the merge queue (section 11): the gate reports
       on `merge_group` runs (it does - the workflow triggers on it).
 - [ ] Add the repo to `pr_review_gate_repos` in terraform/terraform.tfvars,
       then `mask tofu-apply`.
