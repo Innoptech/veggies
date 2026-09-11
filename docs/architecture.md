@@ -64,8 +64,9 @@ verified checks. Observability (ADR
 workflow comments the session link back on issues (discussions get a
 minimal ack - discussions take GraphQL `addDiscussionComment`, issues
 `addComment`, ADR 0039), and operators watch via `veggies ui`
-(ssh tunnel helper) / `veggies sessions` / the web UI. Session isolation
-(ADR 0037): every kicked session works in its own git worktree at
+(ssh tunnel helper) / `veggies sessions` / the web UI. Session listings
+are live-first with idle history capped behind `--all` (ADR 0044). Session
+isolation (ADR 0037): every kicked session works in its own git worktree at
 `/workspace/.veggies/wt/issue-N` inside the shared clone (the kick prompt
 mandates the bootstrap; `veggies up` excludes `.veggies/` via the clone's
 `.git/info/exclude`), so parallel sessions never share a checkout. Freshness:
