@@ -20,7 +20,56 @@ env:
   ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
   PYTHON_VERSION: "3.14"
 
+# Standing rule: every required branch-protection context (pre-commit, tofu,
+# tflint, ansible-lint, molecule, pytest) must REPORT on every run - a
+# required check that is job-level `if:`-skipped never reports and wedges
+# every merge as Pending forever. Path-gating is therefore step-gating only:
+# jobs always run, unchanged areas skip their steps. Whoever later verifies
+# GitHub's skipped-conclusion semantics and wants job-level skips writes the
+# ADR then.
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # dorny lists PR files via the API
+    outputs:
+      ansible: ${{ steps.filter.outputs.ansible }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+      pytest: ${{ steps.filter.outputs.pytest }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0 # push events diff against the before-SHA
+      # agent-trigger.yml, maskfile.md, .pre-commit-config.yaml belong to no
+      # filter - the always-on pre-commit job (actionlint/yamllint) covers
+      # them and CI never uses mask (AGENTS.md rule 8).
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            ansible:
+              - 'ansible/**'
+              - 'ansible.cfg'
+              - 'requirements.yml'
+              - 'requirements-dev.txt'
+              - '.ansible-lint'
+              - '.github/workflows/infra-ci.yml'
+            terraform:
+              - 'terraform/**'
+              - '.tflint.hcl'
+              - '.github/workflows/infra-ci.yml'
+            pytest:
+              - 'cli/**'
+              - 'tests/**'
+              - 'scripts/**'
+              - 'agent-config/**'
+              - 'ansible/**'
+              - 'deploy/**'
+              - 'veggies.yml'
+              - '.github/workflows/infra-ci.yml'
+
   # Single source of truth for: gitleaks, yamllint, actionlint, whitespace/eof,
   # tofu fmt, vault-encryption check, ansible-lint (all via .pre-commit-config.yaml).
   pre-commit:
@@ -61,12 +110,25 @@ jobs:
 
   tofu:
     runs-on: ubuntu-latest
+    needs: changes
+    if: always()
+    env:
+      RUN_JOB: ${{ github.event_name != 'pull_request' || needs.changes.outputs.terraform == 'true' }}
     steps:
+      - name: Change detection must have succeeded
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Skip notice
+        if: env.RUN_JOB != 'true'
+        run: echo "terraform/** unchanged on this PR - tofu validate not applicable to this diff"
       - uses: actions/checkout@v7.0.1
+        if: env.RUN_JOB == 'true'
       - uses: opentofu/setup-opentofu@v2.0.2
+        if: env.RUN_JOB == 'true'
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
-      - run: |
+      - if: env.RUN_JOB == 'true'
+        run: |
           set -euo pipefail
           cd terraform
           tofu init -backend=false -input=false
@@ -74,9 +136,21 @@ jobs:
 
   tflint:
     runs-on: ubuntu-latest
+    needs: changes
+    if: always()
+    env:
+      RUN_JOB: ${{ github.event_name != 'pull_request' || needs.changes.outputs.terraform == 'true' }}
     steps:
+      - name: Change detection must have succeeded
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Skip notice
+        if: env.RUN_JOB != 'true'
+        run: echo "terraform/** unchanged on this PR - tflint not applicable to this diff"
       - uses: actions/checkout@v7.0.1
+        if: env.RUN_JOB == 'true'
       - name: Install tflint (checksum-verified)
+        if: env.RUN_JOB == 'true'
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
@@ -85,17 +159,32 @@ jobs:
           grep "tflint_linux_amd64.zip$" checksums.txt | sha256sum -c -
           unzip -o -j tflint_linux_amd64.zip tflint
           install -m 0755 tflint /usr/local/bin/tflint
-      - run: tflint --recursive
+      - if: env.RUN_JOB == 'true'
+        run: tflint --recursive
 
   ansible-lint:
     runs-on: ubuntu-latest
+    needs: changes
+    if: always()
+    env:
+      RUN_JOB: ${{ github.event_name != 'pull_request' || needs.changes.outputs.ansible == 'true' }}
     steps:
+      - name: Change detection must have succeeded
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Skip notice
+        if: env.RUN_JOB != 'true'
+        run: echo "ansible/** unchanged on this PR - ansible-lint not applicable to this diff"
       - uses: actions/checkout@v7.0.1
+        if: env.RUN_JOB == 'true'
       - uses: actions/setup-python@v7.0.0
+        if: env.RUN_JOB == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ansible-core==2.21.3 ansible-lint==26.8.0
+      - if: env.RUN_JOB == 'true'
+        run: pip install ansible-core==2.21.3 ansible-lint==26.8.0
       - name: Dummy vault password file
+        if: env.RUN_JOB == 'true'
         # ansible.cfg sets vault_password_file and ansible-core >=2.21
         # hard-fails at startup when it is missing - even for vault-free
         # playbooks. CI has no vault password by design (trust boundary);
@@ -105,6 +194,7 @@ jobs:
           mkdir -p ~/.config/infra
           printf 'ci-dummy-not-a-real-secret\n' > ~/.config/infra/vault-password
       - name: ansible-lint (production profile)
+        if: env.RUN_JOB == 'true'
         run: |
           set -euo pipefail
           if [ -d ansible/roles ] && [ -n "$(ls -A ansible/roles)" ]; then
@@ -115,29 +205,49 @@ jobs:
 
   # Phase C dogfood (ADR 0005): the repo's pytest suite on our ephemeral
   # self-hosted runners. CI never ran it before (mask ci doesn't either -
-  # it was local-only). Not in required_checks yet; prove it, then require.
+  # it was local-only). pytest IS a required branch-protection context now
+  # (verified live), so it must report on every run; on unrelated PRs the
+  # no-op spin-up on the self-hosted runner is accepted - never convert
+  # this job to a job-level skip.
   pytest:
     runs-on: [self-hosted, linux, x64, veggies]
+    needs: changes
+    if: always()
+    env:
+      RUN_JOB: ${{ github.event_name != 'pull_request' || needs.changes.outputs.pytest == 'true' || needs.changes.outputs.ansible == 'true' }}
     steps:
+      - name: Change detection must have succeeded
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Skip notice
+        if: env.RUN_JOB != 'true'
+        run: echo "pytest-covered paths unchanged on this PR - pytest suite not applicable to this diff"
       - uses: actions/checkout@v7.0.1
+        if: env.RUN_JOB == 'true'
       - uses: actions/setup-python@v7.0.0
+        if: env.RUN_JOB == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       # tzdata: python zoneinfo without an OS tz database (runner image has
       # none) would break ZoneInfo() lookups used by the toolbox tests.
-      - run: pip install pytest==9.1.1 pyyaml jinja2 ansible-core==2.21.3 tzdata
-      - run: python -m pytest tests/ -q
+      - if: env.RUN_JOB == 'true'
+        run: pip install pytest==9.1.1 pyyaml jinja2 ansible-core==2.21.3 tzdata
+      - if: env.RUN_JOB == 'true'
+        run: python -m pytest tests/ -q
 
   # Branch protection requires a check context named exactly "molecule";
   # the matrix job's check-runs are "molecule (<role>)" and can never
   # satisfy it. The aggregate job below is the required context.
   molecule-roles:
     name: molecule (${{ matrix.role }})
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.ansible == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # keep in sync with ansible/roles/
+        # keep in sync with ansible/roles/ - drift is guarded by
+        # tests/test_infra_ci.py (test_molecule_roles_matrix_matches_role_dirs)
         role: [base, crowdsec, tailscale, podman, github_runner, egress, backup]
     steps:
       - uses: actions/checkout@v7.0.1
@@ -154,16 +264,33 @@ jobs:
         working-directory: ansible/roles/${{ matrix.role }}
         run: molecule test
 
+  # The required "molecule" context: it must report on every run, so it is
+  # if: always() plus explicit result checks - a path-skipped matrix must
+  # never leave branch protection Pending forever. A skipped matrix is
+  # legitimate only for ansible-unchanged PRs; anything else fails closed.
   molecule:
     name: molecule
     if: always()
-    needs: molecule-roles
+    needs: [changes, molecule-roles]
     runs-on: ubuntu-latest
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      MOLECULE_RESULT: ${{ needs.molecule-roles.result }}
+      ANSIBLE_CHANGED: ${{ needs.changes.outputs.ansible }}
+      IS_PR: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: All molecule scenarios must have passed
         run: |
-          RESULTS='${{ toJSON(needs) }}'
-          echo "$RESULTS"
-          if echo "$RESULTS" | grep -q '"failure"\|"cancelled"\|"skipped"'; then
+          echo "changes_result=$CHANGES_RESULT molecule_result=$MOLECULE_RESULT ansible_changed=$ANSIBLE_CHANGED is_pr=$IS_PR"
+          [ "$CHANGES_RESULT" = "success" ] || { echo "change detection did not succeed - failing closed"; exit 1; }
+          if [ "$MOLECULE_RESULT" = "skipped" ]; then
+            if [ "$IS_PR" = "true" ] && [ "$ANSIBLE_CHANGED" = "false" ]; then
+              MSG="no ansible/** changes on this PR - molecule scenarios not applicable to this diff"
+              echo "$MSG"
+              echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "gating bug: molecule-roles skipped outside an ansible-unchanged PR - failing closed"
             exit 1
           fi
+          [ "$MOLECULE_RESULT" = "success" ]

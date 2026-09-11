@@ -17,6 +17,8 @@ the rebuild checklist (section 1) is the acceptance test for the whole repo.
 | `mask molecule-test <role>` / `mask molecule-all` | role tests |
 | `mask converge` / `mask bootstrap` | Ansible against veggies |
 
+On PRs, `.github/workflows/infra-ci.yml` path-gates the molecule/tofu/tflint/ansible-lint/pytest jobs to changed areas (the required contexts still report on every run); the pre-commit security hooks and push-to-main runs always execute everything.
+
 Prerequisites: mask 0.11.x, tofu 1.12.6, python 3.14, podman 5.8.x
 (workstation and veggies are both Fedora 44); the pinned Python tooling is in
 `requirements-dev.txt` (`mask setup`).
