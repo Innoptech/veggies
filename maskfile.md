@@ -242,3 +242,27 @@ printf '#!/bin/sh\nexec %s/.venv/bin/python %s/cli/veggies.py "$@"\n' "$PWD" "$P
 chmod +x ~/.local/bin/veggies
 echo "installed: ~/.local/bin/veggies"
 ```
+
+## demo-stack
+
+> Clean VPS -> running dogfood stack, one command: bootstrap, converge,
+> image prepare (streamed), up, ui URL. Idempotent: safe to re-run
+> (ansible idempotent, images layer-cached, up is a refresh).
+> Precondition (the only manual step): `Host veggies` in ~/.ssh/config
+> points at the fresh box (Fedora 44 + your ssh key); `mask setup` and the
+> vault password file exist locally.
+
+```bash
+set -euo pipefail
+export PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"
+ssh -o BatchMode=yes -o ConnectTimeout=5 veggies true || {
+  echo "veggies unreachable: order the VPS (Fedora 44, your ssh key) and"
+  echo "point 'Host veggies' in ~/.ssh/config at its public IP first"
+  exit 1
+}
+mask bootstrap
+mask converge
+veggies prepare --host veggies --repo .
+veggies up --host veggies --clone --repo "$(git remote get-url origin)" --name veggie -y
+veggies ui veggie
+```
