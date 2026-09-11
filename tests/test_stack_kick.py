@@ -93,9 +93,39 @@ def test_build_prompt_mandates_the_pipeline():
     assert "npm test -- --changed" in p
 
 
+def test_build_prompt_mandates_draft_first_lifecycle():
+    """Issue #53 / ADR 0044: the PR exists from the FIRST commit as a
+    draft - `gh pr create --draft` right after the plan comment, pushed
+    early and often so the draft's CI is the feedback loop for the checks
+    this environment cannot run - and `ready` is the final act of a
+    green-and-mergeable gate. The done-guard treats the issue as handled
+    from that moment, so late changes (a supervisor refinement, ADR 0036)
+    convert back with `gh pr ready --undo` first - never push onto a
+    ready PR."""
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    # draft from the first commit, not at the end
+    assert "gh pr create --draft" in p
+    # the draft's CI on the final head gates ready
+    assert "gh pr checks --watch" in p
+    # mergeable is computed async - UNKNOWN is transient, never a rebase
+    # trigger
+    assert "--json mergeable" in p and "UNKNOWN" in p
+    # rebase-only repo: ready means green AND mergeable against CURRENT
+    # main
+    assert "git rebase origin/main" in p and "--force-with-lease" in p
+    # the supervisor collision: rework converts back first
+    assert "gh pr ready --undo" in p
+
+
 def test_build_prompt_truncates_and_defaults():
     p = stack_kick.build_prompt("o/r", "1", "t", "x" * 9000, "u")
-    assert len(p) < 9000
+    # the body is cut at BODY_LIMIT: the prompt's size is bounded by the
+    # template plus that budget, never by the raw body (the draft-first
+    # lifecycle, ADR 0044, grew the template past the old absolute 9000 -
+    # assert the shape, not a number the template legitimately crosses)
+    assert "x" * (stack_kick.BODY_LIMIT + 1) not in p
+    assert len(p) < len(stack_kick.build_prompt("o/r", "1", "t", "", "u")) \
+        + stack_kick.BODY_LIMIT
     assert "(no description)" in stack_kick.build_prompt("o/r", "1", "t", "", "u")
 
 
