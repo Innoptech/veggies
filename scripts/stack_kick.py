@@ -2,7 +2,8 @@
 """Kick a veggies stack from a GitHub issue (ADR 0033).
 
 Creates a fresh opencode session on the repo's long-lived stack and durably
-queues the issue as a prompt; the agent works it autonomously through the
+queues the issue as a prompt; the agent works it autonomously in its own
+git worktree (/workspace/.veggies/wt/issue-N, ADR 0036) through the
 mandated pipeline (plan posted on the issue, subagent execution,
 adversarial review, `mask ci`, PR - ADR 0036). Used by
 .github/workflows/agent-trigger.yml on the
@@ -79,8 +80,21 @@ Rules of engagement:
   your assumptions in the PR body.
 - Read AGENTS.md first and follow it (ADR rules, conventional commits,
   the `mask ci` gate).
-- Sync first: git fetch origin, then branch agent/issue-{number} from
-  origin/main - the clone may be stale.
+- Isolate first (ADR 0036): other sessions share this clone, so this issue
+  works in its own git worktree. Run exactly:
+    git -C /workspace fetch origin
+    git -C /workspace worktree add -B agent/issue-{number} /workspace/.veggies/wt/issue-{number} origin/main
+    grep -qxF '.veggies/' /workspace/.git/info/exclude 2>/dev/null || echo '.veggies/' >> /workspace/.git/info/exclude
+    cd /workspace/.veggies/wt/issue-{number}
+  ALL work (edits, `mask ci`, commits, push) happens inside that worktree;
+  the shared checkout at /workspace itself is read-only to you - never
+  edit, commit, or switch branches there. If `worktree add` fails because
+  agent/issue-{number} "is already checked out", another (possibly crashed)
+  session owns it: use agent/issue-{number}-2 and wt/issue-{number}-2
+  instead, and say so in the PR body; remove the stale worktree only when
+  certain no live session owns it (e.g. right after a stack restart). If
+  origin/agent/issue-{number} exists from a crashed run, reconcile
+  (merge/rebase); force-push only with --force-with-lease.
 - python/mask/ansible/tofu/tflint/pre-commit/pytest are preinstalled in
   this image - do NOT run `mask setup` or build a venv.
 - Push the branch and open a PR with `gh pr create` whose body contains
