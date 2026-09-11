@@ -6,8 +6,8 @@ Creates a fresh opencode session on the repo's long-lived stack and durably
 queues the prompt; an issue kick works it autonomously in its own
 git worktree (/workspace/.veggies/wt/issue-N, ADR 0037) through the
 mandated pipeline (plan refined by the persona roster and posted on the
-issue, subagent execution, adversarial review, `mask ci`, PR -
-ADR 0036/0042), a discussion kick distills
+issue, subagent execution, adversarial review, the repo-declared verify
+gate (ADR 0044), PR - ADR 0036/0042), a discussion kick distills
 the thread into issues (plan / happy path / criteria of success). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
@@ -46,9 +46,11 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 TIMEOUT = 60
 BODY_LIMIT = 4000
@@ -95,6 +97,38 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
         return f"PR {pr.get('html_url')} already exists ({pr.get('state')})"
     return None
 
+# The repo declares its in-pod verify gate as one HTML-comment marker in
+# its agent-instruction file (ADR 0044). Search order below: the first
+# file that exists, first marker match wins.
+GATE_MARKER = re.compile(
+    r"<!--\s*veggies-verify-gate:\s*(?P<cmd>.*?)\s*-->")
+AGENT_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
+# Echoed (stdout + GITHUB_OUTPUT) when no marker is found, so a degraded
+# kick is a visible event, not a silent one (ADR 0044).
+VERIFY_GATE_NONE = "(none declared - agent-instruction prose governs)"
+
+
+def declared_verify_gate(repo_root: Path | str | None = None) -> str | None:
+    """The repo's declared in-pod verify gate (ADR 0044), or None when no
+    agent-instruction file carries a veggies-verify-gate marker. A None
+    root anchors to this vendored script's own repo root
+    (Path(__file__).resolve().parents[1] - the script lives at
+    <root>/scripts/), never cwd, because manual kicks run from anywhere.
+    The lookup degrades, it never blocks: a missing/unreadable file or a
+    repo with no marker yields None, and the kick prompt falls back to
+    pointing at the agent-instruction file's prose."""
+    root = (Path(repo_root) if repo_root is not None
+            else Path(__file__).resolve().parents[1])
+    for name in AGENT_INSTRUCTION_FILES:
+        try:
+            text = (root / name).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        m = GATE_MARKER.search(text)
+        if m:
+            return m.group("cmd").strip() or None
+    return None
+
 PROMPT_TEMPLATE = """You are the veggies agent for {repo}, working unattended in the stack's clone at /workspace.
 
 GitHub issue #{number}: {title}
@@ -108,7 +142,7 @@ Rules of engagement:
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
 - Read AGENTS.md first and follow it (ADR rules, conventional commits,
-  the `mask ci` gate).
+  the declared verify gate).
 - Isolate first (ADR 0037): other sessions share this clone, so this issue
   works in its own git worktree. Run exactly, in order; if a command
   fails, stop and read the error before improvising:
@@ -116,7 +150,8 @@ Rules of engagement:
     git -C /workspace worktree add --lock --reason 'session issue-{number}' -B agent/issue-{number} /workspace/.veggies/wt/issue-{number} origin/main
     ex=/workspace/.git/info/exclude; mkdir -p "$(dirname "$ex")"; grep -qxF '/.veggies/' "$ex" 2>/dev/null || echo '/.veggies/' >> "$ex"
     cd /workspace/.veggies/wt/issue-{number}
-  ALL work (edits, `mask ci`, commits, push) happens inside that worktree.
+  ALL work (edits, the verify gate, commits, push) happens inside that
+  worktree.
   File tools resolve relative paths against the session dir (/workspace),
   not the shell's cwd. Use absolute paths under /workspace/.veggies/wt/issue-{number} for every read/edit.
   The shared checkout at /workspace itself is read-only to you - never
@@ -165,9 +200,7 @@ pipeline, not to dive straight into code):
 3. Adversarial review: before pushing, dispatch the `adversarial-review`
    subagent on the full diff (it runs a different model on purpose).
    Fix, or explicitly rebut in the PR body, every critical/major finding.
-4. Verify: `SKIP=actionlint-docker mask ci` must pass before you push
-   (the docker hook and molecule cannot run in this environment - note
-   that in the PR body). Claim only what you actually ran.
+{verify_step}
 - NEVER fork the repo or push anywhere but origin. If push is denied,
   report the exact missing token permission in your final message (the
   operator grants it) and stop.
@@ -363,13 +396,37 @@ def build_elaborate_prompt(repo: str, number: str, title: str, body: str,
 
 
 def build_prompt(repo: str, number: str, title: str, body: str,
-                 url: str, comment: str = "", comment_author: str = "") -> str:
+                 url: str, comment: str = "", comment_author: str = "",
+                 verify_gate: str | None = None) -> str:
     """Pure: the kick prompt for one issue (label trigger) or for a
-    comment on it (comment trigger - the comment text rides along)."""
+    comment on it (comment trigger - the comment text rides along).
+    verify_gate is the repo's declared in-pod gate (ADR 0044); None
+    renders the advisory fallback (the agent-instruction file's prose
+    is the contract)."""
     body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
+    if verify_gate:
+        verify_step = (
+            f"4. Verify: `{verify_gate}` must pass before you push. That\n"
+            "   command is the repo's declared in-pod verify gate (the\n"
+            "   veggies-verify-gate marker in its agent-instruction file,\n"
+            "   ADR 0044); the declaration also scopes the gate to your\n"
+            "   diff - a narrow change runs file-scoped hooks plus\n"
+            "   targeted tests, and the security hooks it names always\n"
+            "   run full-scope. If the gate skips anything in this\n"
+            "   environment, note it in the PR body.\n"
+            "   Claim only what you actually ran.")
+    else:
+        verify_step = (
+            "4. Verify: this repo declares no veggies-verify-gate marker\n"
+            "   (ADR 0044), so its agent-instruction file's prose is the\n"
+            "   contract - read it and make the checks it declares pass\n"
+            "   before you push. If anything cannot run in this\n"
+            "   environment, note it in the PR body.\n"
+            "   Claim only what you actually ran.")
     prompt = PROMPT_TEMPLATE.format(
         repo=repo, number=number, title=title, body=body, url=url,
-        personas=", ".join(f"`{n}` ({r})" for n, r in PERSONAS))
+        personas=", ".join(f"`{n}` ({r})" for n, r in PERSONAS),
+        verify_step=verify_step)
     if comment.strip():
         prompt += COMMENT_SECTION.format(author=comment_author or "?",
                                          comment=comment.strip()[:2000])
@@ -498,24 +555,32 @@ def main() -> int:
     if rc is not None:
         return rc
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
+    # The repo's declared verify gate (ADR 0044): interpolated into the
+    # prompt's verify step and echoed after the kick, so a typo'd marker
+    # is a visible event, not a silent degrade.
+    gate = declared_verify_gate()
     prompt = build_prompt(os.environ["REPO"], os.environ["ISSUE_NUMBER"],
                           os.environ["ISSUE_TITLE"],
                           os.environ.get("ISSUE_BODY", ""),
                           os.environ["ISSUE_URL"],
                           comment=os.environ.get("COMMENT_BODY", ""),
-                          comment_author=os.environ.get("COMMENT_AUTHOR", ""))
+                          comment_author=os.environ.get("COMMENT_AUTHOR", ""),
+                          verify_gate=gate)
     try:
         sid = kick(url, os.environ["STACK_PASSWORD"], prompt, title=title)
     except (urllib.error.URLError, RuntimeError, TimeoutError,
             json.JSONDecodeError) as e:
         print(f"kick failed: {e}", file=sys.stderr)
         return 1
+    shown_gate = gate or VERIFY_GATE_NONE
     print(f"session queued: {sid} on {url} "
           f"(issue #{os.environ['ISSUE_NUMBER']})")
     print(f"SESSION_ID={sid}")  # machine-readable, one per line
+    print(f"VERIFY_GATE={shown_gate}")
     if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             f.write(f"session_id={sid}\n")
+            f.write(f"verify_gate={shown_gate}\n")
     return 0
 
 

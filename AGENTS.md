@@ -9,9 +9,21 @@ reviews PRs; agents implement. These rules are not negotiable:
 2. **Mutation discipline**: never run `mask tofu-apply`, register runners, join
    tailnets, or call account-mutating APIs without explicit human approval in
    the conversation. `tofu plan`, Molecule, and lint runs are fine.
-3. **Verify before finishing**: run `mask ci` and make it pass. Every Ansible
-   role needs a Molecule scenario that converges and is idempotent. Every
-   Terraform change needs `tofu fmt`, `validate`, and `tflint` clean.
+3. **Verify before finishing**: run `mask ci` and make it pass. Kicked
+   sessions instead run the repo's declared in-pod verify gate,
+   `SKIP=actionlint-docker mask ci`, declared machine-readably by the
+   marker line below (consumed by scripts/stack_kick.py at kick time, ADR
+   0044) - the SKIP excludes the dockerized actionlint hook, and molecule
+   stays excluded by the banned podman socket (ADR 0028); CI on
+   GitHub-hosted runners covers both.
+   <!-- veggies-verify-gate: SKIP=actionlint-docker mask ci -->
+   Scale the gate to the diff: a change touching one area runs that
+   area's file-scoped pre-commit hooks plus its targeted tests (e.g.
+   `pre-commit run --files <files>` and the focused pytest), not the
+   flattened `--all-files` run; the security hooks (gitleaks, vault-check)
+   always run full-scope, whatever the diff. Every Ansible role needs a
+   Molecule scenario that converges and is idempotent. Every Terraform
+   change needs `tofu fmt`, `validate`, and `tflint` clean.
 4. **Commits**: conventional-commit messages, small and single-purpose.
 5. **Decisions**: read `docs/adr/README.md` first. A new decision gets a new
    ADR; never edit a decided ADR. Keep the deviation ledger in
@@ -49,10 +61,10 @@ reviews PRs; agents implement. These rules are not negotiable:
     seller, cto) and posts one attributed POV comment per persona (ADR
     0041); the kick prompt mandates the pipeline (plan refined by that
     same persona roster and posted on the issue first with each role's
-    input, task subagents, adversarial-review subagent on the diff,
-    `mask ci` - ADR 0036/0042). `github: true` stacks take the
-    serve password from vault key `veggies_stack_password`, never
-    per-stack random. Stack
+    input, task subagents, adversarial-review subagent on the diff, the
+    rule-3 declared verify gate - ADR 0036/0042/0044). `github: true`
+    stacks take the serve password from vault key
+    `veggies_stack_password`, never per-stack random. Stack
    names are global across hosts (cross-host reuse is refused). The
    permission envelope is allow/deny only - `ask` is banned everywhere in
    `agent-config/` (ADR 0031, pytest-enforced).    Observability (ADR 0034):
