@@ -86,7 +86,9 @@ def _render(ctx: PodContext) -> dict:
         gh_env = [secret_env("GH_TOKEN", spec.secret_github, "token")]
     return {
         "name": "opencode",
-        "image": IMAGE_OPENCODE,
+        # Per-repo overlay (issue #69): the IO layer resolves and validates
+        # it at up-time; absent, the pinned base renders as before.
+        "image": spec.harness_image or IMAGE_OPENCODE,
         # opencode writes instance state (.gitignore etc.) into
         # ~/.config/opencode at bootstrap (EROFS 500s on every API call if
         # read-only, verified 2026-09-04) - so stack-config mounts at

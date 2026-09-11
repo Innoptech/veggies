@@ -127,6 +127,46 @@ def test_render_containers_and_pins(spec):
     assert by_name["opencode"]["image"] == veggies_stack.IMAGE_OPENCODE
 
 
+def test_harness_image_override_renders(spec):
+    # issue #69: a resolved per-repo overlay ref replaces the opencode
+    # container's image; None (no harness_containerfile in veggies.yml)
+    # renders the pinned base.
+    override = "localhost/veggies-harness-overlay:" + "0" * 16
+    spec.harness_image = override
+    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO)
+           if d["kind"] == "Pod"][0]
+    by_name = {c["name"]: c for c in pod["spec"]["containers"]}
+    assert by_name["opencode"]["image"] == override
+    spec.harness_image = None
+    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO)
+           if d["kind"] == "Pod"][0]
+    by_name = {c["name"]: c for c in pod["spec"]["containers"]}
+    assert by_name["opencode"]["image"] == veggies_stack.HARNESS_BASE_IMAGE
+
+
+def test_harness_image_override_changes_only_the_image(spec):
+    # The issue's byte-identical-except-image criterion: with the override
+    # set, everything but the opencode container's image field renders
+    # exactly as the default (which the golden file pins separately).
+    spec.harness_image = None
+    default_docs = veggies_stack.render_pod(spec, INFRA_REPO)
+    spec.harness_image = "localhost/veggies-harness-overlay:" + "0" * 16
+    overlay_docs = veggies_stack.render_pod(spec, INFRA_REPO)
+    # the override has an effect at all
+    assert yaml.safe_dump_all(default_docs, sort_keys=True) != \
+        yaml.safe_dump_all(overlay_docs, sort_keys=True)
+
+    def dump_without_opencode_image(docs):
+        for d in docs:
+            for c in d.get("spec", {}).get("containers", []):
+                if c["name"] == "opencode":
+                    c["image"] = "@PINNED@"
+        return yaml.safe_dump_all(docs, sort_keys=True)
+
+    assert dump_without_opencode_image(default_docs) == \
+        dump_without_opencode_image(overlay_docs)
+
+
 def test_only_opencode_publishes_a_port(spec):
     pod = _pod(spec)
     for container in pod["spec"]["containers"]:
