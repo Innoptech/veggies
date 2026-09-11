@@ -45,7 +45,10 @@ Event path (ADR 0033): `.github/workflows/agent-trigger.yml` on the
 self-hosted runners kicks this repo's stack on `agent-task` labels /
 `/opencode` comments via `scripts/stack_kick.py`; runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
-exceptions. No inbound listener on the VPS.
+exceptions. No inbound listener on the VPS. Observability (ADR 0034):
+kicked sessions are titled `#N: <issue>`, the workflow comments the session
+link back onto the issue, and operators watch via `veggies ui` (ssh tunnel
+helper) / `veggies sessions` / the web UI.
 
 ## Repo layout
 

@@ -43,7 +43,10 @@ reviews PRs; agents implement. These rules are not negotiable:
    from vault key `veggies_stack_password`, never per-stack random. Stack
    names are global across hosts (cross-host reuse is refused). The
    permission envelope is allow/deny only - `ask` is banned everywhere in
-   `agent-config/` (ADR 0031, pytest-enforced).
+   `agent-config/` (ADR 0031, pytest-enforced). Observability (ADR 0034):
+   kicked sessions are titled `#N: <issue>`, the workflow comments the
+   session link back onto the issue, and `veggies ui` / `veggies sessions`
+   are the watch path.
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket

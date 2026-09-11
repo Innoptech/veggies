@@ -810,6 +810,149 @@ def cmd_attach(args: argparse.Namespace) -> int:
     return 0  # unreachable
 
 
+# --- web UI / session listing (ADR 0034) ---------------------------------------
+
+
+def port_free(port: int) -> bool:
+    """True if nothing listens on 127.0.0.1:port locally."""
+    import socket
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", port)) != 0
+
+
+def pick_ui_port(stack_port: int, is_free=None) -> int:
+    """Local side of a UI tunnel: stack_port + 1000 (4098 -> 5098), else the
+    next free port. A LOCAL stack already on the same number silently wins
+    an ssh -L bind and every request then hits the wrong stack (verified
+    2026-09-10), so 'free' must mean really free."""
+    is_free = is_free or port_free  # late-bind: tests monkeypatch port_free
+    candidates = [stack_port + 1000, *range(5200, 5300)]
+    for p in candidates:
+        if 1024 < p <= 65535 and is_free(p):
+            return p
+    raise ValueError("no free local port for the tunnel")
+
+
+def _tunnel_file(name: str) -> Path:
+    return state_dir() / "tunnels" / f"{name}.json"
+
+
+def _tunnel_alive(path: Path) -> dict | None:
+    try:
+        info = json.loads(path.read_text())
+        os.kill(int(info["pid"]), 0)
+        return info
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _ui_stop(name: str) -> int:
+    path = _tunnel_file(name)
+    info = _tunnel_alive(path)
+    if info:
+        os.kill(int(info["pid"]), 15)
+        print(f"tunnel to {name} stopped (was :{info['port']})")
+    else:
+        print("no live tunnel on record")
+    path.unlink(missing_ok=True)
+    return 0
+
+
+def cmd_ui(args: argparse.Namespace) -> int:
+    """Easy web UI access: print URL+password; for remote stacks, hold a
+    background ssh -L tunnel (pidfile in the state dir) so the terminal
+    stays free."""
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
+    if args.stop:
+        return _ui_stop(args.name)
+    password = record.get("password", "")
+    if not record["host"]:
+        url = f"http://127.0.0.1:{record['port']}"
+        pid = None
+    else:
+        path = _tunnel_file(args.name)
+        info = _tunnel_alive(path)
+        if info:
+            local, pid = info["port"], int(info["pid"])
+        else:
+            local = args.port or pick_ui_port(record["port"])
+            proc = subprocess.Popen(
+                ["ssh", "-N", "-L",
+                 f"{local}:127.0.0.1:{record['port']}", record["host"]],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"pid": proc.pid, "port": local}))
+            pid = proc.pid
+            # Wait until the tunnel actually serves (auth-checked) or die.
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                if probe_api(None, local, password,
+                             "/config?directory=/workspace") is not None:
+                    break
+                if proc.poll() is not None:
+                    path.unlink(missing_ok=True)
+                    raise ValueError(
+                        f"ssh tunnel to {record['host']} died - "
+                        f"check `ssh {record['host']}`")
+                time.sleep(0.5)
+        url = f"http://127.0.0.1:{local}"
+    print(f"web UI: {url}  (user: opencode, password: {password})")
+    if pid:
+        print(f"tunnel pid {pid}; close with: veggies ui {args.name} --stop")
+    if args.open_browser and shutil.which("xdg-open"):
+        subprocess.Popen(["xdg-open", url], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 0
+
+
+def format_sessions(sessions: list, status: dict,
+                    issue: int | None = None) -> str:
+    """Pure table: one row per session; kicked sessions carry '#N:' titles
+    (ADR 0034), so --issue filters on the title prefix."""
+    rows = []
+    for s in sessions:
+        sid = str(s.get("id", ""))
+        title = str(s.get("title") or "(untitled)")
+        if issue is not None and f"#{issue}:" not in title:
+            continue
+        st = (status.get(sid) or {}).get("type", "idle") \
+            if isinstance(status, dict) else "idle"
+        ts = (s.get("time") or {}).get("updated") or \
+            (s.get("time") or {}).get("created")
+        when = ""
+        if isinstance(ts, (int, float)):
+            when = datetime.fromtimestamp(ts / 1000, tz=timezone.utc) \
+                .strftime("%m-%d %H:%M")
+        rows.append((sid, st, when, title))
+    if not rows:
+        return "no sessions" + (f" for issue #{issue}" if issue else "")
+    out = [f"{'SESSION':<26} {'STATE':<6} {'UPDATED':<12} TITLE"]
+    for sid, st, when, title in rows:
+        out.append(f"{sid:<26} {st:<6} {when:<12} {title[:60]}")
+    return "\n".join(out)
+
+
+def cmd_sessions(args: argparse.Namespace) -> int:
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
+    password = record.get("password", "")
+    q = "?directory=/workspace"
+    sessions = api_call(record["host"], record["port"], password, "GET",
+                        f"/session{q}")
+    if not isinstance(sessions, list):
+        raise ValueError(f"stack {args.name!r} API unreachable "
+                         f"(veggies status {args.name})")
+    status = api_call(record["host"], record["port"], password, "GET",
+                      f"/session/status{q}")
+    print(format_sessions(sessions, status if isinstance(status, dict) else {},
+                          args.issue))
+    return 0
+
+
 def cmd_logs(args: argparse.Namespace) -> int:
     record = State().get(args.name)
     if record is None:
@@ -1082,6 +1225,21 @@ def main(argv: list[str] | None = None) -> int:
     p_attach = sub.add_parser("attach", help="attach the opencode TUI to a stack")
     p_attach.add_argument("name")
     p_attach.set_defaults(func=cmd_attach)
+
+    p_ui = sub.add_parser("ui", help="print the web UI URL; tunnel remote stacks")
+    p_ui.add_argument("name")
+    p_ui.add_argument("--port", type=int, default=None,
+                      help="local tunnel port (default: stack port + 1000)")
+    p_ui.add_argument("--stop", action="store_true", help="close the tunnel")
+    p_ui.add_argument("--open", action="store_true", dest="open_browser",
+                      help="xdg-open the URL")
+    p_ui.set_defaults(func=cmd_ui)
+
+    p_sessions = sub.add_parser("sessions", help="list sessions on a stack")
+    p_sessions.add_argument("name")
+    p_sessions.add_argument("--issue", type=int, default=None,
+                            help="only sessions titled '#N: ...'")
+    p_sessions.set_defaults(func=cmd_sessions)
 
     p_logs = sub.add_parser("logs", help="pod logs (or one container)")
     p_logs.add_argument("name")

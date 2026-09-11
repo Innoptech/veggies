@@ -42,6 +42,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0031](0031-no-ask-anywhere.md) | No ask anywhere: agent frontmatter joins the permission envelope | accepted |
 | [0032](0032-dev-toolchain-in-harness-image.md) | Dev toolchain baked into the harness image | accepted |
 | [0033](0033-issue-triggered-agent-kicks.md) | Issue-triggered agent kicks via GitHub Actions on the self-hosted runners | accepted |
+| [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted |
 
 ## Deviation ledger (vs the original brief)
 
