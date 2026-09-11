@@ -348,7 +348,7 @@ label.
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in its
-own worktree (ADR 0036, see below) through the mandated pipeline (ADR
+own worktree (ADR 0037, see below) through the mandated pipeline (ADR
 0036): it posts a plan as an issue comment BEFORE writing code (veto the
 direction by commenting, while it works), executes through task subagents,
 runs the `adversarial-review` subagent on the diff, and opens a PR. On
