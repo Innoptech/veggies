@@ -38,9 +38,13 @@ jobs:
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, linux, x64, veggies]
     env:
-      # GraphQL addComment is the only comment API covering discussions,
-      # and it takes issues too - one mutation for every feedback step.
+      # addComment takes issue/PR subjects only; discussions need
+      # addDiscussionComment (verified 2026-09-11, run 34602194185: the
+      # session-link step got 200 + errors[] and failed the job - ADR 0039).
       ADD_COMMENT: 'mutation($subjectId: ID!, $body: String!) { addComment(input: {subjectId: $subjectId, body: $body}) { clientMutationId } }'
+      ADD_DISCUSSION_COMMENT: >-
+        mutation($discussionId: ID!, $body: String!)
+        { addDiscussionComment(input: {discussionId: $discussionId, body: $body}) { clientMutationId } }
     concurrency:
       # one kick per subject at a time; a re-label/re-comment queues behind,
       # not parallel. Prefixed by event: issue and discussion numbers are
@@ -80,19 +84,21 @@ jobs:
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"
 
-      # The subject (issue or discussion) is where people look - tell it
-      # which session is working it and how to watch (ADR 0034). GITHUB_TOKEN
-      # comments; the bot PAT is not involved. The password is never posted,
-      # only how to read it. Commenting is GraphQL addComment: the only API
-      # that covers discussions, and it takes issues too (ADR 0038). The
+      # The issue is where people look - tell it which session is working it
+      # and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
+      # not involved. The password is never posted, only how to read it. The
       # session comment is the user-facing value, so it runs BEFORE the
       # best-effort label housekeeping below (verified 2026-09-11: a failed
-      # DELETE swallowed the success comment).
-      - name: Comment the session link on the subject
-        if: success() && steps.kick.outputs.rc == '0'
+      # DELETE swallowed the success comment). Issues only: a discussion kick
+      # gets the minimal ack below instead - the session link lives on the
+      # issues the agent creates (ADR 0039).
+      - name: Comment the session link on the issue
+        if: >-
+          success() && steps.kick.outputs.rc == '0' &&
+          github.event_name != 'discussion_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SUBJECT_ID: ${{ github.event.issue.node_id }}
         run: |
           set -euo pipefail
           sid="${{ steps.kick.outputs.session_id }}"
@@ -102,17 +108,10 @@ jobs:
           # base64url(/workspace), no padding (ADR 0034).
           dirseg=$(printf '/workspace' | base64 | tr '+/' '-_' | tr -d '=')
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ "${{ github.event_name }}" = "discussion_comment" ]; then
-            body="**veggies agent kicked** - session \`${sid}\` is distilling this discussion into issues on stack \`veggie\`."
-            tail="The agent reads the whole thread, opens one issue per piece of work"
-            tail="$tail (plan / happy path / criteria of success), and comments the issue"
-            tail="$tail links back here. [Workflow log](${run_url})."
-          else
-            issue_n="${{ github.event.issue.number }}"
-            body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
-            tail="The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
-            tail="$tail that closes this issue. [Workflow log](${run_url})."
-          fi
+          issue_n="${{ github.event.issue.number }}"
+          body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
+          tail="The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
+          tail="$tail that closes this issue. [Workflow log](${run_url})."
           body="$body"$'\n\n'"Watch it live:"
           body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
           body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
@@ -120,6 +119,30 @@ jobs:
           body="$body"$'\n\n'"$tail"
           jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
             '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
+          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            --data @/tmp/comment.json https://api.github.com/graphql)
+          echo "$resp"
+          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
+
+      # Discussion kicks get a minimal ack only (ADR 0039): no session link,
+      # no watch instructions - the real feedback is the agent's closing
+      # comment listing the issues it created.
+      - name: Ack the kick on the discussion
+        if: >-
+          success() && steps.kick.outputs.rc == '0' &&
+          github.event_name == 'discussion_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUBJECT_ID: ${{ github.event.discussion.node_id }}
+        run: |
+          set -euo pipefail
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body="**veggies agent kicked** - distilling this discussion into issues;"
+          body="$body"$' each created issue links back here, and the agent comments'
+          body="$body"$' the issue links below when done. [Workflow log]('"${run_url})."
+          jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" \
+            '{query: $q, variables: {discussionId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
           resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             --data @/tmp/comment.json https://api.github.com/graphql)
@@ -150,11 +173,15 @@ jobs:
             -o /dev/null -w "unlabel http %{http_code}\n" "$api"
 
 
+      # rc 3 is the issue-mode done-guard (ADR 0035); discussion mode has no
+      # done-guard (ADR 0038), so this step is issue-only by construction.
       - name: Comment when the issue is already handled
-        if: success() && steps.kick.outputs.rc == '3'
+        if: >-
+          success() && steps.kick.outputs.rc == '3' &&
+          github.event_name != 'discussion_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SUBJECT_ID: ${{ github.event.issue.node_id }}
         run: |
           set -euo pipefail
           body="**veggies kick skipped** - already handled: ${{ steps.kick.outputs.skip_reason }}."
@@ -179,8 +206,15 @@ jobs:
           body="$body"$' Check \`veggies status veggie\` and that the Actions variable'
           body="$body"$' \`VEGGIES_STACK_PORT\` matches \`veggies ls\`.'
           body="$body"$' [Workflow log]('"${run_url})."
-          jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
-            '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
+          # failure feedback must land on the actual subject: discussions
+          # take addDiscussionComment, issues take addComment (ADR 0039).
+          if [ "${{ github.event_name }}" = "discussion_comment" ]; then
+            jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
+              '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
+          else
+            jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
+              '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
+          fi
           resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             --data @/tmp/comment.json https://api.github.com/graphql)
