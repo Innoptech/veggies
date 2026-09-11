@@ -243,6 +243,14 @@ def test_squid_allowlist_base_matches_role():
     assert veggies_stack.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
 
 
+def test_squid_allowlist_covers_actions_log_upload():
+    # GitHub Actions uploads job logs/artifacts to Azure results storage
+    # (*.blob.core.windows.net - docs.github.com self-hosted-runner network
+    # requirements); a deny loses all run logs (issue #25). The equality
+    # drift test above forces the ansible role's allowlist to match.
+    assert ".blob.core.windows.net" in veggies_stack.SQUID_ALLOWLIST_BASE
+
+
 def test_model_endpoints_match_group_vars_example():
     text = (ROOT / "ansible/inventory/group_vars/all.yml.example").read_text()
     assert yaml.safe_load(text)["egress_model_endpoints"] == veggies_stack.SQUID_MODEL_ENDPOINTS
@@ -424,6 +432,67 @@ def test_toolbox_render_and_mcp_entry():
     entry = tb.mcp_entry(ctx)
     assert entry["type"] == "remote" and entry["url"].endswith(":7000/mcp")
     assert "mcp-toolbox-server.py" in tb.config_files(ctx)
+
+
+def test_parse_repo_config_supervision():
+    cfg, warnings = veggies_stack.parse_repo_config("supervision: supervisor\n")
+    assert cfg == {"selections": {"supervision": "supervisor"}}
+    assert warnings == []
+    with pytest.raises(ValueError, match="unknown supervision implementation"):
+        veggies_stack.parse_repo_config("supervision: bogus\n")
+    with pytest.raises(ValueError, match="'supervision' must be a string"):
+        veggies_stack.parse_repo_config("supervision: [x]\n")
+
+
+def test_supervision_is_opt_in_and_order_stable(spec):
+    # default stacks are untouched (the golden file proves the render)
+    assert "supervisor" not in [c.name for c in veggies_stack.stack_components(spec)]
+    spec.selections = {"supervision": "supervisor"}
+    names = [c.name for c in veggies_stack.stack_components(spec)]
+    assert names == ["opencode", "litellm", "squid", "supervisor"]
+    # the v0 `components:` path can name it too
+    by_name = veggies_stack.StackSpec(
+        name="t", repo="/tmp/x",
+        components=["opencode", "litellm", "squid", "supervisor"])
+    assert [c.name for c in veggies_stack.stack_components(by_name)][-1] == "supervisor"
+    # and it flows into the pod render + health wait
+    pod = _pod(spec)
+    assert [c["name"] for c in pod["spec"]["containers"]] == names
+    assert veggies.container_names(spec)[-1] == "veggies-demo-supervisor"
+
+
+def test_supervisor_component_render(spec):
+    """The always-on critic sidecar (ADR 0036): loopback-only, hardened,
+    zero egress, reusing existing pod secrets (never declaring its own)."""
+    spec.selections = {"supervision": "supervisor"}
+    ctx = veggies_stack.build_context(spec, INFRA_REPO)
+    sup = ctx.components[-1]
+    assert sup.provides == "supervision"
+    container = sup.render(ctx)
+    assert "ports" not in container  # pod loopback only, never published
+    assert container["securityContext"] == veggies_stack.HARDENED
+    assert sup.secrets(spec) == []  # reuses harness + router secrets
+    by_name = {e["name"]: e for e in container["env"]}
+    assert by_name["OPENCODE_SERVER_PASSWORD"]["valueFrom"]["secretKeyRef"] == \
+        {"name": "veggies-demo-opencode", "key": "password"}
+    assert by_name["LITELLM_MASTER_KEY"]["valueFrom"]["secretKeyRef"] == \
+        {"name": "veggies-demo-litellm", "key": "master_key"}
+    assert by_name["OPENCODE_URL"]["value"] == "http://127.0.0.1:4096"
+    assert by_name["ROUTER_URL"]["value"] == "http://127.0.0.1:4000/v1"
+    # zero egress by construction: no proxy env reaches the container
+    assert not set(by_name) & {"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"}
+    # unbuffered logs: the pod log is the ONLY operator surface (PASS/STOP
+    # are log-only by design), block-buffered prints would hide verdicts
+    assert by_name["PYTHONUNBUFFERED"]["value"] == "1"
+    # the heartbeat lives on a dedicated emptyDir the agent cannot write
+    assert sup.volumes(ctx) == [{"name": "supervisor-tmp", "emptyDir": {}}]
+    mounts = {m["name"]: m["mountPath"] for m in container["volumeMounts"]}
+    assert mounts["supervisor-tmp"] == "/tmp"
+    files = sup.config_files(ctx)
+    assert files["supervisor.py"] == (INFRA_REPO / "cli/supervisor.py").read_text()
+    assert "supervise-daemon.py" in files
+    (probe,) = sup.probes(spec)
+    assert probe.label == "critic" and probe.kind == "exec"
 
 
 def test_render_opencode_json_mcp_block():
@@ -957,7 +1026,11 @@ def test_remote_spec_paths(spec):
 def test_remote_render_has_no_local_paths(spec):
     spec.host = "veggies"
     text = veggies.render_yaml(spec, INFRA_REPO)
-    assert str(INFRA_REPO) not in text
+    # Prefix form: the harness's in-pod workspace constant is the literal
+    # "/workspace", which IS the infra checkout path in the stack's own
+    # clone - a bare `str(INFRA_REPO) not in text` false-positives there
+    # (verified 2026-09-11 in the issue-26 session).
+    assert str(INFRA_REPO) + "/" not in text
     assert "/home/stacks/" in text
 
 
@@ -1109,5 +1182,8 @@ def test_render_matches_golden(monkeypatch):
         name="demo", repo="/tmp/veggies-test-state/demo-repo", mode="mount", port=4096
     )
     golden = (ROOT / "tests/golden/pod.yaml").read_text()
-    rendered = veggies.render_yaml(fixed, INFRA_REPO).replace(str(ROOT), "@ROOT@")
+    # Prefix replace: a blanket replace of ROOT breaks when the checkout IS
+    # "/workspace" (the stack's own clone) - it would also rewrite the
+    # harness's constant in-pod `mountPath: /workspace`.
+    rendered = veggies.render_yaml(fixed, INFRA_REPO).replace(str(ROOT) + "/", "@ROOT@/")
     assert rendered == golden

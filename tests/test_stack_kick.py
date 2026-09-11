@@ -50,6 +50,23 @@ def test_build_prompt_contains_issue_and_rules():
     assert "mask ci" in p
 
 
+def test_build_prompt_mandates_the_pipeline():
+    """Issue #26 / ADR 0036: a kicked session must run the full pipeline -
+    plan first, subagent execution, adversarial review, verified checks -
+    not just dive into code."""
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    # 1. plan first, posted back to the issue for human review
+    assert "writing-plans" in p
+    assert f"gh issue comment 12" in p
+    # 2. subagent execution, not a solo main loop
+    assert "subagent" in p
+    # 3. adversarial review of the diff (the vendored different-model
+    # subagent) before pushing
+    assert "adversarial-review" in p
+    # 4. verified claims only
+    assert "mask ci" in p
+
+
 def test_build_prompt_truncates_and_defaults():
     p = stack_kick.build_prompt("o/r", "1", "t", "x" * 9000, "u")
     assert len(p) < 9000

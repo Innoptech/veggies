@@ -32,15 +32,22 @@ reviews PRs; agents implement. These rules are not negotiable:
    (schema v1: model, components or capability keys, mcps, github). MCP servers are
    opt-in sidecars on pod loopback selected via `mcps:` (ADR 0018); a
    component wires them in via `mcp_entry()`/`egress_domains()` hooks.
-   Supervision = `veggies supervise` (ADR 0028): the critic loop is ours,
-   judge calls exec inside the litellm container so the master key never
-   leaves the pod. (The canvas control plane was retired - ADR 0028; if a
-   component ever needs the podman socket again, that ADR's history and
-   0025 document the verified cost.)
-   Events (ADR 0033): `.github/workflows/agent-trigger.yml` kicks the repo
-   stack on `agent-task` labels / `/opencode` comments via
-   `scripts/stack_kick.py`; `github: true` stacks take the serve password
-   from vault key `veggies_stack_password`, never per-stack random. Stack
+    Supervision = `veggies supervise` (ADR 0028): the critic loop is ours,
+    judge calls exec inside the litellm container so the master key never
+    leaves the pod. Kicked sessions are instead supervised in-pod by the
+    opt-in `supervision: supervisor` component (ADR 0036): an always-on
+    sidecar judges each finish over pod loopback and posts async
+    refinements; PASS/STOP stay log-only (any posted message re-runs the
+    agent). (The canvas control plane was retired - ADR 0028; if a
+    component ever needs the podman socket again, that ADR's history and
+    0025 document the verified cost.)
+    Events (ADR 0033): `.github/workflows/agent-trigger.yml` kicks the repo
+    stack on `agent-task` labels / `/opencode` comments via
+    `scripts/stack_kick.py`; the kick prompt mandates the pipeline (plan
+    posted on the issue first, task subagents, adversarial-review subagent
+    on the diff, `mask ci` - ADR 0036). `github: true` stacks take the
+    serve password from vault key `veggies_stack_password`, never
+    per-stack random. Stack
    names are global across hosts (cross-host reuse is refused). The
    permission envelope is allow/deny only - `ask` is banned everywhere in
    `agent-config/` (ADR 0031, pytest-enforced).    Observability (ADR 0034):

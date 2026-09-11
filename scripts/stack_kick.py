@@ -2,8 +2,10 @@
 """Kick a veggies stack from a GitHub issue (ADR 0033).
 
 Creates a fresh opencode session on the repo's long-lived stack and durably
-queues the issue as a prompt; the agent works it autonomously (branch,
-code, `mask ci`, PR). Used by .github/workflows/agent-trigger.yml on the
+queues the issue as a prompt; the agent works it autonomously through the
+mandated pipeline (plan posted on the issue, subagent execution,
+adversarial review, `mask ci`, PR - ADR 0036). Used by
+.github/workflows/agent-trigger.yml on the
 self-hosted runners, and by hand from an operator machine:
 
     ssh -L 4099:127.0.0.1:4099 veggies   # if the stack is remote
@@ -81,12 +83,27 @@ Rules of engagement:
   origin/main - the clone may be stale.
 - python/mask/ansible/tofu/tflint/pre-commit/pytest are preinstalled in
   this image - do NOT run `mask setup` or build a venv.
-- `SKIP=actionlint-docker mask ci` must pass before you push (the docker
-  hook and molecule cannot run in this environment - note that in the PR
-  body).
 - Push the branch and open a PR with `gh pr create` whose body contains
   "Closes #{number}". The PR is the deliverable - work is not done until
   it exists and points at the issue.
+
+Workflow (mandatory, in order - this project exists to run the full
+pipeline, not to dive straight into code):
+1. Plan: invoke the superpowers `brainstorming` skill to pin down the
+   issue's intent (no human is available to answer - decide and record
+   assumptions), then `writing-plans` for a step-by-step plan. Post the
+   plan as a comment on the issue (`gh issue comment {number} --body
+   "..."`) BEFORE writing code, so a human can veto the direction cheaply.
+2. Subagents: execute the plan through the `task` tool (superpowers
+   `subagent-driven-development`) - dispatch implementation to subagents
+   (swe-expert, tdd-tester, ...) instead of doing everything in the main
+   loop.
+3. Adversarial review: before pushing, dispatch the `adversarial-review`
+   subagent on the full diff (it runs a different model on purpose).
+   Fix, or explicitly rebut in the PR body, every critical/major finding.
+4. Verify: `SKIP=actionlint-docker mask ci` must pass before you push
+   (the docker hook and molecule cannot run in this environment - note
+   that in the PR body). Claim only what you actually ran.
 - NEVER fork the repo or push anywhere but origin. If push is denied,
   report the exact missing token permission in your final message (the
   operator grants it) and stop.

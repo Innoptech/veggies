@@ -20,6 +20,10 @@ SQUID_ALLOWLIST_BASE = [
     "api.github.com",
     ".githubusercontent.com",
     "codeload.github.com",
+    # Actions job logs/artifacts upload to Azure results storage (GitHub's
+    # self-hosted-runner network requirements; issue #25). Broad suffix:
+    # the storage-account prefix (productionresultssaN...) is not enumerable.
+    ".blob.core.windows.net",
     "registry.npmjs.org",
     "pypi.org",
     "files.pythonhosted.org",
@@ -32,6 +36,12 @@ SQUID_ALLOWLIST_BASE = [
     "auth.docker.io",
     "production.cloudflare.docker.com",
     "registry.opentofu.org",  # tofu provider downloads (in-container mask ci)
+    # Go toolchain + module fetches: pre-commit's golang hooks (gitleaks)
+    # bootstrap their own Go during in-container `mask ci` (ADR 0036).
+    "go.dev",
+    "dl.google.com",
+    "proxy.golang.org",
+    "sum.golang.org",
 ]
 SQUID_MODEL_ENDPOINTS = ["api.fireworks.ai"]  # group_vars egress_model_endpoints
 
