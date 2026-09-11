@@ -2,7 +2,8 @@
 # image lacks (verified 2026-09-04: alpine-based, root, no git/node),
 # plus gh for github-enabled stacks (ADR 0030): gh reads GH_TOKEN and
 # api.github.com is already on the squid allowlist.
-# ADR 0032: the dogfooding toolchain (python/mask/ansible/tofu/tflint)
+# ADR 0032: the dogfooding toolchain (python/mask/ansible/tofu/tflint,
+# plus gitleaks/actionlint for the networkless pre-commit hooks, ADR 0044)
 # lives in the image - the runtime rootfs is read-only, so nothing can be
 # installed later. The agent runs the repo's own checks in-container
 # (`mask ci`, minus molecule: the podman socket stays banned, ADR 0028).
@@ -56,3 +57,23 @@ RUN set -eux; cd /tmp; \
 # discovery doc (issue #50). ENV so every in-pod tofu run - any dogfooded
 # repo, not just mask ci here - tolerates cold egress.
 ENV TF_REGISTRY_CLIENT_TIMEOUT=120
+
+# gitleaks + actionlint: the pre-commit hooks run these via language: system
+# (issue #48, ADR 0045) - hook time involves zero network fetches. Same
+# version+sha256 pin discipline as above.
+ARG GITLEAK_VERSION=8.30.1
+ARG GITLEAK_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+ARG ACTIONLINT_VERSION=1.7.12
+ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+RUN set -eux; cd /tmp; \
+    curl -fsSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAK_VERSION}/gitleaks_${GITLEAK_VERSION}_linux_x64.tar.gz"; \
+    echo "${GITLEAK_SHA256}  gitleaks.tar.gz" | sha256sum -c -; \
+    tar xzf gitleaks.tar.gz gitleaks; \
+    mv gitleaks /usr/local/bin/gitleaks; \
+    curl -fsSL -o actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"; \
+    echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -; \
+    tar xzf actionlint.tar.gz actionlint; \
+    mv actionlint /usr/local/bin/actionlint; \
+    chmod +x /usr/local/bin/gitleaks /usr/local/bin/actionlint; \
+    rm -f /tmp/gitleaks.tar.gz /tmp/actionlint.tar.gz
+ (feat(image): bake gitleaks 8.30.1 + actionlint 1.7.12, version+sha256 pinned (issue #48))
