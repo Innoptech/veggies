@@ -31,6 +31,7 @@ egress_allowlist_base:
   - registry-1.docker.io # docker hub pulls
   - auth.docker.io # docker hub auth
   - production.cloudflare.docker.com # docker hub CDN
+  - registry.opentofu.org # tofu provider downloads (ADR 0032: in-container mask ci)
 
 # Source ACL for the proxy: loopback, link-local (container gateway), tailnet,
 # and RFC1918. The role appends the host's own public IPv4 /32 at converge

@@ -42,6 +42,8 @@
         that:
           - "'api.github.com' in (egress_allowlist_content.content | b64decode)"
           - "'api.fireworks.ai' in (egress_allowlist_content.content | b64decode)"
+          # in-container `mask ci` (tofu init) rides the proxy too
+          - "'registry.opentofu.org' in (egress_allowlist_content.content | b64decode)"
 
     - name: Squid config installed
       ansible.builtin.stat:
