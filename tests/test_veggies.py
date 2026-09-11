@@ -513,7 +513,9 @@ def test_state_records_password(tmp_path):
 
 def test_opencode_containerfile_pin_format():
     text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
-    assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
+    # tag as ARG (the tool-pin manifest attests it), digest literal in FROM
+    assert "ARG OPENCODE_VERSION=1.18.27" in text
+    assert "FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}@sha256:" in text
 
 
 # --- session worktrees (ADR 0037) ---------------------------------------------

@@ -3,7 +3,9 @@ by version AND sha256 in three places - the harness image
 (deploy/images/opencode.Containerfile), the CI workflow env
 (.github/workflows/infra-ci.yml), and `mask setup` (maskfile.md). All three
 must agree, or a bump lands in one surface and breaks another three months
-later. Also pins the converted hooks' shape: gitleaks/actionlint are
+later. The image additionally attests the pins at runtime via
+/etc/veggies-tool-pins (kick gate, ADR 0053), bound here so the manifest
+can never drift from the ARGs. Also pins the converted hooks' shape: gitleaks/actionlint are
 language: system under repo: local - hook time involves zero network
 fetches (tofu-fmt precedent). Also guards Containerfile syntax itself: CI
 builds no image, so an unparsable line would otherwise surface only as a
@@ -37,6 +39,10 @@ ASSETS = {
     "TFLINT": "tflint_linux_amd64.zip",
 }
 
+# the kick gate's manifest (issue #87, ADR 0053) attests the four pinned
+# gate tools plus mask (it runs the in-pod gate) and the opencode base
+MANIFEST_TOOLS = (*TOOLS, "MASK", "OPENCODE")
+
 
 def _containerfile_pins():
     text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
@@ -57,6 +63,17 @@ def test_containerfile_carries_all_pins():
     for tool, (version, sha) in TOOLS.items():
         assert args.get(f"{tool}_VERSION") == version, tool
         assert args.get(f"{tool}_SHA256") == sha, tool
+
+
+def test_containerfile_writes_the_tool_pin_manifest():
+    """Issue #87 / ADR 0053: the kick gate compares the live image's
+    /etc/veggies-tool-pins against these pins - a tool missing from the
+    manifest printf silently drops out of the gate."""
+    text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
+    assert "/etc/veggies-tool-pins" in text
+    for tool in MANIFEST_TOOLS:
+        assert f"{tool}_VERSION=" in text, tool  # the manifest's label
+        assert f'"${{{tool}_VERSION}}"' in text, tool  # printf'd from the ARG
 
 
 def test_workflow_env_matches_containerfile():
