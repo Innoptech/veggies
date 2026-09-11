@@ -279,12 +279,14 @@ self-driving: no human invokes anything. Refinements arrive as `[critic]
 message re-runs the agent, so a visible marker would loop forever). Watch
 it: `veggies logs <name> supervisor -f` (one `critic: <title> score ...
 -> pass|refine` line per judgment) and `veggies status <name>` (the
-`critic` probe shows the heartbeat age). The loop config rides env
-defaults in the daemon (SUPERVISE_JUDGE_MODEL=deepseek-v4,
-SUPERVISE_THRESHOLD=0.6, SUPERVISE_MAX_ITERS=2, SUPERVISE_INTERVAL=15s);
-keep the judge model different from the stack's author model. Judgment
-state is in-memory: a pod recreate simply never judges sessions created
-before the restart - run `veggies supervise` by hand if one matters.
+`critic` probe shows the heartbeat age). The loop's defaults live in the
+daemon (judge deepseek-v4, threshold 0.6, max 2 refinements, 15s poll) -
+keep the judge model different from the stack's author model; changing a
+default is a PR, like everything else here. Sessions that predate the
+daemon start are skipped with one log line each (the gate being off must
+be distinguishable from the gate passing), and judgment state is
+in-memory: a pod recreate simply never judges sessions created before
+the restart - run `veggies supervise` by hand if one matters.
 
 ### Open PRs from a stack (github: true)
 

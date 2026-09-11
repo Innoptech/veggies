@@ -203,6 +203,60 @@ def test_judge_garbage_marks_judged_without_posting():
     assert len(judge.calls) == 1
 
 
+def test_failed_refinement_post_is_retried_next_pass():
+    """The refinement is the one action this loop exists for: a failed POST
+    must leave the finish unjudged (and the score unrecorded) so the next
+    pass re-judges and re-posts - never a silently dropped gate."""
+    s, st, m = kicked("s1")
+    api = FakeApi([s], st, m)
+    real = api.__call__
+    attempts = {"n": 0}
+
+    def flaky(method, path, body=None):
+        if method == "POST":
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ConnectionError("opencode busy bootstrapping")
+        return real(method, path, body)
+
+    judge = judge_script({"score": 0.4, "issues": []}, {"score": 0.4, "issues": []})
+    state, _ = tick(flaky, judge)
+    assert api.posts == []
+    assert state["s1"]["scores"] == []  # nothing half-recorded
+    state, _ = tick(flaky, judge, state)
+    assert len(api.posts) == 1  # retried, and it landed
+    assert state["s1"]["scores"] == [0.4]  # exactly once
+
+
+def test_transient_judge_errors_leave_the_finish_unjudged():
+    """Router restarts/timeouts/5xx are not deterministic garbage: the
+    finish stays unjudged and is retried next pass (the gate reappears
+    when the router does)."""
+    s, st, m = kicked("s1")
+    api = FakeApi([s], st, m)
+    judge = judge_script(ConnectionError("litellm restarting"),
+                         {"score": 0.9, "issues": []})
+    state, _ = tick(api, judge)
+    assert api.posts == []
+    tick(api, judge, state)  # same finish, router back: judged now
+    assert len(judge.calls) == 2
+
+
+def test_predated_sessions_are_skipped_loudly_once():
+    """The accepted ADR 0036 limitation (no back-catalog judging) must be
+    observable: one log line per skipped session, not silence, not spam."""
+    s, st, m = kicked("s1", created=NOW - 60_000)
+    api = FakeApi([s], st, m)
+    judge = judge_script({"score": 0.1, "issues": []})
+    logs, announced = [], set()
+    for _ in range(2):
+        daemon.tick(api, judge, {}, start_ms=NOW, threshold=0.6,
+                    max_iters=2, log=logs.append, announced=announced)
+    skips = [l for l in logs if "predates supervisor start" in l]
+    assert len(skips) == 1 and "s1" in skips[0]
+    assert judge.calls == []
+
+
 def test_one_bad_session_does_not_stall_the_pass():
     s1, st1, m1 = kicked("s1", title="#1: first", msg_id="a1")
     s2, st2, m2 = kicked("s2", title="#2: second", msg_id="a1")

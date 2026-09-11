@@ -52,22 +52,33 @@ def _render(ctx: PodContext) -> dict:
             {"name": "ROUTER_URL", "value": router.base_url},
             # /stack-config mounts readOnly: never attempt bytecode cache.
             {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},
+            # PASS/STOP are log-only by design, so the pod log is the only
+            # operator surface - python block-buffers stdout on a pipe and
+            # would hide every verdict behind ~8KB of silence.
+            {"name": "PYTHONUNBUFFERED", "value": "1"},
         ],
         "volumeMounts": [
             {"name": "stack-config", "mountPath": "/stack-config", "readOnly": True},
-            {"name": "tmp", "mountPath": "/tmp"},
+            # Dedicated, agent-unwritable: the heartbeat is the liveness
+            # signal for the component that watches the agent - it must
+            # not sit on the shared tmp emptyDir the supervisee can write.
+            {"name": "supervisor-tmp", "mountPath": "/tmp"},
         ],
-        "resources": {"limits": {"memory": "128Mi"}},
+        # Message JSON is held whole per judgment; 256Mi keeps a long
+        # session's transcript comfortably inside the limit.
+        "resources": {"limits": {"memory": "256Mi"}},
         "securityContext": HARDENED,
         # The daemon rewrites the heartbeat at the top of every pass; a
-        # wedged pass (e.g. a hung judge call) goes unhealthy within 5 min.
-        # The first beat lands before any IO, so `veggies up`'s
-        # wait_healthy is not held up by the judge.
+        # wedged pass (e.g. a hung judge call) goes unhealthy within
+        # 15 min. The window is generous because a slow-but-working pass
+        # (90s messages GET + 180s judge + 90s POST, per session,
+        # sequentially) must not read as dead. The first beat lands before
+        # any IO, so `veggies up`'s wait_healthy is not held by the judge.
         "livenessProbe": {
             "exec": {"command": [
                 "python", "-c",
                 "import os,sys,time; sys.exit(0 if time.time()"
-                "-os.path.getmtime('/tmp/supervise.heartbeat') < 300 else 1)"]},
+                "-os.path.getmtime('/tmp/supervise.heartbeat') < 900 else 1)"]},
             "initialDelaySeconds": 15,
             "periodSeconds": 30,
         },
@@ -75,7 +86,9 @@ def _render(ctx: PodContext) -> dict:
 
 
 def _volumes(ctx: PodContext) -> list[dict]:
-    return []  # stack-config is squid's declaration (first declaration wins)
+    # stack-config is squid's declaration (first declaration wins); the
+    # supervisor's /tmp is its own (see the mount comment).
+    return [{"name": "supervisor-tmp", "emptyDir": {}}]
 
 
 def _config_files(ctx: PodContext) -> dict[str, str]:

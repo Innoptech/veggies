@@ -92,8 +92,8 @@ pipeline, not to dive straight into code):
 1. Plan: invoke the superpowers `brainstorming` skill to pin down the
    issue's intent (no human is available to answer - decide and record
    assumptions), then `writing-plans` for a step-by-step plan. Post the
-   plan as a comment on the issue (`gh issue comment {number}`) BEFORE
-   writing code, so a human can veto the direction cheaply.
+   plan as a comment on the issue (`gh issue comment {number} --body
+   "..."`) BEFORE writing code, so a human can veto the direction cheaply.
 2. Subagents: execute the plan through the `task` tool (superpowers
    `subagent-driven-development`) - dispatch implementation to subagents
    (swe-expert, tdd-tester, ...) instead of doing everything in the main
