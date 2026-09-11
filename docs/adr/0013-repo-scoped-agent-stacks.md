@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-04
 ---
 
-# 0013. Repo-scoped agent stacks, summoned by the `garden` CLI
+# 0013. Repo-scoped agent stacks, summoned by the `veggies` CLI (renamed from garden, 0015)
 
 ## Context and problem statement
 
