@@ -59,6 +59,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted |
 | [0049](0049-no-ask-merged-roster-and-instruction-discovery.md) | No-ask over the merged roster; repo instruction files stay configuration-free | accepted |
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
+| [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 
 ## Deviation ledger (vs the original brief)
 
