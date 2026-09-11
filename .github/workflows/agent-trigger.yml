@@ -60,21 +60,6 @@ jobs:
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"
 
-      - name: Clear the agent-task label
-        # One-shot trigger semantics (ADR 0035): a kicked or skipped issue
-        # is handled; re-adding the label is the deliberate retrigger.
-        # On failure the label stays, so the intent survives.
-        if: >-
-          success() && (steps.kick.outputs.rc == '0' || steps.kick.outputs.rc == '3')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          api="https://api.github.com/repos"
-          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/labels/agent-task"
-          curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" "$api" > /dev/null
-
       # The issue is where people look - tell it which session is working it
       # and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
       # not involved. The password is never posted, only how to read it.
@@ -101,10 +86,33 @@ jobs:
           body="$body"$' that closes this issue. '"[Workflow log](${run_url})."
           jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
           api="https://api.github.com/repos"
-          api="$api/${{ github.repository }}/issues/${issue_n}/comments"
+          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
           curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             --data @/tmp/comment.json "$api" > /dev/null
+
+      # The session comment is the user-facing value; label clearing is
+      # best-effort housekeeping and must never eat it (verified 2026-09-11:
+      # a failed DELETE swallowed the success comment even though the label
+      # WAS removed - so: continue-on-error + loud status print, and the
+      # success comment above runs first).
+      - name: Clear the agent-task label
+        # One-shot trigger semantics (ADR 0035): a kicked or skipped issue
+        # is handled; re-adding the label is the deliberate retrigger.
+        # On kick failure the label stays, so the intent survives.
+        if: >-
+          always() && (steps.kick.outputs.rc == '0' || steps.kick.outputs.rc == '3')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          api="https://api.github.com/repos"
+          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/labels/agent-task"
+          curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -o /dev/null -w "unlabel http %{http_code}\n" "$api"
+
 
       - name: Comment when the issue is already handled
         if: success() && steps.kick.outputs.rc == '3'
