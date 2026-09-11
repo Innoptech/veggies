@@ -17,6 +17,27 @@ fi
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pre-commit install
+# Pinned lint/infra binaries for the language:system pre-commit hooks and
+# mask's tofu/tflint tasks (ADR 0032/0044): the header's "~/.local/bin"
+# claim made true. Keep versions+sha256 in sync with
+# deploy/images/opencode.Containerfile - tests/test_tool_pins.py enforces.
+mkdir -p "$HOME/.local/bin"
+(
+  cd "$(mktemp -d)"
+  curl -fsSL -o tofu.zip "https://github.com/opentofu/opentofu/releases/download/v1.12.6/tofu_1.12.6_linux_amd64.zip"
+  echo "5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8  tofu.zip" | sha256sum -c -
+  unzip -q tofu.zip tofu
+  curl -fsSL -o tflint.zip "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip"
+  echo "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537  tflint.zip" | sha256sum -c -
+  unzip -q tflint.zip tflint
+  curl -fsSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+  echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+  tar xzf gitleaks.tar.gz gitleaks
+  curl -fsSL -o actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+  echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+  tar xzf actionlint.tar.gz actionlint
+  install -m 0755 tofu tflint gitleaks actionlint "$HOME/.local/bin/"
+)
 echo "Done. Now create ~/.config/infra/vault-password (chmod 600) - see README."
 ```
 
