@@ -176,31 +176,61 @@ def run(cmd: list[str], *, input_text: str | None = None, check: bool = True,
     )
 
 
-def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
-    """git-clone command for the VPS. Private github.com repos get the vault
-    token via extraHeader, with the -c pair BEFORE "clone": a trailing -c is
-    git-clone's own --config and would PERSIST the header into the new repo's
-    .git/config (pod-readable at /workspace; verified 2026-09-10, git 2.54),
-    while a leading -c is command-scoped - it covers the clone's internal
-    fetch and is never written out. The token still rides the VPS process
-    list briefly - see docs/threat-model.md. Public repos must NOT get the
-    token - an org-blocked or limited-scope token fails even public clones
-    (verified 2026-09-08), so probe anonymously first. All traffic via the
-    substrate proxy: the stacks user is direct-egress-denied."""
+def github_https_url(repo_url: str) -> str:
+    """Pure: git@github.com: -> https://github.com/. SSH from the VPS is dead
+    by design (squid CONNECT allowlist is 443-only, no keys for the stacks
+    user); the HTTPS form rides the substrate proxy and, in github-enabled
+    pods, the GH_TOKEN credential helper."""
     if repo_url.startswith("git@github.com:"):
-        # SSH from pods is dead by design (squid CONNECT allowlist is 443-only,
-        # no keys in-container); the HTTPS form rides the proxy and, when the
-        # stack opts in, the GH_TOKEN credential helper.
-        repo_url = "https://github.com/" + repo_url[len("git@github.com:"):]
+        return "https://github.com/" + repo_url[len("git@github.com:"):]
+    return repo_url
+
+
+def remote_repo_needs_token(host: str, repo_url: str) -> bool:
+    """Probe the repo anonymously (through the substrate proxy) to decide
+    whether the vault token must ride along. Public repos must NOT get the
+    token - an org-blocked or limited-scope token fails even public clones
+    (verified 2026-09-08)."""
+    return host_run(host, ["git", "-c", f"http.proxy={REMOTE_PROXY}",
+                           "ls-remote", repo_url, "HEAD"],
+                    check=False).returncode != 0
+
+
+def remote_git_prefix(host: str, repo_url: str) -> list[str]:
+    """git argv prefix for network ops on the VPS: the substrate proxy (the
+    stacks user is direct-egress-denied) plus, for private github.com repos,
+    the vault token via extraHeader. The -c pairs lead the subcommand on
+    purpose: a TRAILING -c on clone is git-clone's own --config and would
+    PERSIST the header into the new repo's .git/config (pod-readable at
+    /workspace; verified 2026-09-10, git 2.54), while a leading -c is
+    command-scoped and never written out. The token still rides the VPS
+    process list briefly - see docs/threat-model.md."""
     cmd = ["git", "-c", f"http.proxy={REMOTE_PROXY}"]
-    if repo_url.startswith("https://github.com/"):
-        public = host_run(host, ["git", "-c", f"http.proxy={REMOTE_PROXY}",
-                                 "ls-remote", repo_url, "HEAD"],
-                          check=False).returncode == 0
-        if not public:
-            token = vault_key("github_token", VAULT_GITHUB)
-            cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
-    return cmd + ["clone", repo_url, clone_dir]
+    if repo_url.startswith("https://github.com/") and \
+            remote_repo_needs_token(host, repo_url):
+        token = vault_key("github_token", VAULT_GITHUB)
+        cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
+    return cmd
+
+
+def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
+    """git-clone command for the VPS (auth/proxy: remote_git_prefix)."""
+    repo_url = github_https_url(repo_url)
+    return remote_git_prefix(host, repo_url) + ["clone", repo_url, clone_dir]
+
+
+def clone_pull_argv(clone_dir: str, *, proxy: str | None = None,
+                    token: str | None = None) -> list[str]:
+    """Pure: fast-forward the shared clone checkout. --ff-only is a tripwire,
+    not a limitation: sessions are forbidden to touch /workspace (ADR 0037),
+    so a non-ff pull means something dirtied the shared checkout - fail loud,
+    never reset --hard over the evidence."""
+    cmd = ["git", "-C", clone_dir]
+    if proxy:
+        cmd += ["-c", f"http.proxy={proxy}"]
+    if token:
+        cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
+    return cmd + ["pull", "--ff-only"]
 
 
 _REMOTE_UID: dict[str, str] = {}
@@ -787,6 +817,87 @@ def cmd_down(args: argparse.Namespace) -> int:
     return 0
 
 
+def busy_titles(sessions: object, status: object) -> list[str]:
+    """Pure: titles of the busy sessions, given the /session and
+    /session/status payloads. Anything off-shape means 'cannot tell',
+    which is the guard's degrade-to-proceed case, not an error."""
+    if not isinstance(sessions, list) or not isinstance(status, dict):
+        return []
+    return [str(s.get("title") or s.get("id", "?"))
+            for s in sessions if isinstance(s, dict)
+            and (status.get(s.get("id", "")) or {}).get("type") == "busy"]
+
+
+def busy_sessions(record: dict) -> list[str]:
+    """Titles of sessions currently busy on the stack. Any API failure
+    degrades to [] (proceed), same posture as the kick's in-flight guard -
+    and a DOWN stack must stay syncable anyway."""
+    password = record.get("password", "")
+    if not password:
+        return []
+    q = "?directory=/workspace"
+    sessions = probe_api(record["host"], record["port"], password,
+                         f"/session{q}")
+    status = probe_api(record["host"], record["port"], password,
+                       f"/session/status{q}")
+    return busy_titles(sessions, status)
+
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    """Sync a clone-mode stack with its repo, then re-up (ADR 0014): pull
+    the clone (workspace + the veggies.yml `up` reads), re-ship the stack
+    config from THIS checkout, rebuild changed images, recreate the pod.
+    The one-command 'feature merged -> live on the stack' path. Kicked
+    sessions never wait for this: their bootstrap fetches and branches off
+    origin/main per kick (ADR 0037)."""
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
+    if record["mode"] != "clone":
+        raise ValueError(
+            f"stack {args.name!r} is mount-mode: the workspace IS your live "
+            "checkout - a plain `veggies up` (re-ships config and images) is "
+            "all there is to sync")
+    host, clone_dir = record["host"], record["repo"]
+    busy = busy_sessions(record)
+    if busy and not args.force:
+        raise ValueError(
+            f"stack {args.name!r} has busy sessions: {', '.join(busy)} - "
+            "sync recreates the pod and would kill them; wait for them, "
+            "or --force")
+    origin = host_run(host, ["git", "-C", clone_dir, "remote", "get-url",
+                             "origin"], capture=True).stdout.strip()
+    print(f"==> pull {clone_dir} ({host or 'this machine'})")
+    if host:
+        url = github_https_url(origin)
+        token = None
+        if url.startswith("https://github.com/") and \
+                remote_repo_needs_token(host, url):
+            token = vault_key("github_token", VAULT_GITHUB)
+        pull = clone_pull_argv(clone_dir, proxy=REMOTE_PROXY, token=token)
+    else:
+        pull = clone_pull_argv(clone_dir)
+    host_run(host, pull)
+    # agent-config/images ship from THIS checkout at re-up - say so when it
+    # is not the pushed main the operator may think they are syncing.
+    infra_repo = Path(__file__).parent.parent.resolve()
+    heads = run(["git", "-C", str(infra_repo), "rev-parse", "HEAD",
+                 "@{upstream}"], check=False, capture=True)
+    if heads.returncode == 0 and len(heads.stdout.split()) == 2 and \
+            len(set(heads.stdout.split())) != 1:
+        print("warning: this checkout is not at its upstream - the re-up "
+              "ships agent-config/images from THIS tree, not origin/main",
+              file=sys.stderr)
+    up_args = argparse.Namespace(
+        repo=origin, name=args.name, host=host, model=None, clone=True,
+        # The recorded opt-in rides along so a --github CLI-upped stack
+        # cannot silently lose its credentials; veggies.yml can only ever
+        # ADD it here. Dropping github stays a down + up.
+        github=record.get("github", False),
+        no_attach=True, no_install=False, yes=True)
+    return cmd_up(up_args)
+
+
 def cmd_supervise(args: argparse.Namespace) -> int:
     """Watch an opencode session; judge each finish with a different model
     and inject a refinement message when below threshold (ADR 0028).
@@ -1370,6 +1481,14 @@ def main(argv: list[str] | None = None) -> int:
     p_down.add_argument("--purge", action="store_true",
                         help="also delete volumes, secrets, config and state")
     p_down.set_defaults(func=cmd_down)
+
+    p_sync = sub.add_parser("sync", help="pull a clone-mode stack's repo, "
+                            "then re-up (workspace + config + images go live)")
+    p_sync.add_argument("name")
+    p_sync.add_argument("--force", action="store_true",
+                        help="sync even while sessions are busy (recreating "
+                        "the pod kills them)")
+    p_sync.set_defaults(func=cmd_sync)
 
     p_attach = sub.add_parser("attach", help="attach the opencode TUI to a stack")
     p_attach.add_argument("name")
