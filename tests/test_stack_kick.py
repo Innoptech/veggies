@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 _spec = importlib.util.spec_from_file_location(
     "stack_kick", Path(__file__).parent.parent / "scripts/stack_kick.py")
@@ -394,3 +395,138 @@ def test_main_discussion_mode_without_token_uses_payload_only(
     text = json.loads(calls[1].data)["parts"][0]["text"]
     assert "(no description)" in text
     assert "thread" in capsys.readouterr().err
+
+
+# --- Elaborate mode (issue #33 / ADR 0039): a /elaborate discussion
+# comment kicks a session that posts five persona POV comments ---------
+
+
+def test_build_elaborate_prompt_carries_thread_personas_and_posting():
+    p = stack_kick.build_elaborate_prompt(
+        "o/r", "4", "MCP roadmap", "Let us plan MCP support",
+        "https://x/d/4", [("alice", "what about mcp?"), ("bob", "later")])
+    assert "#4" in p and "MCP roadmap" in p
+    assert "Let us plan MCP support" in p and "https://x/d/4" in p
+    assert "@alice" in p and "what about mcp?" in p and "@bob" in p
+    # all five personas are dispatched by agent-name, with role-titles
+    assert len(stack_kick.PERSONAS) == 5
+    for name, role in stack_kick.PERSONAS:
+        assert name in p and role in p
+    # the session dispatches the personas; it does not write the POVs
+    assert "task subagent" in p
+    # attribution: every comment starts with **<Role> POV**
+    assert "**<Role> POV**" in p and "**CTO POV**" in p
+    # posting is GraphQL addComment on the discussion node id (0038
+    # two-step: REST for the node id, GraphQL for the comment)
+    assert "gh api repos/o/r/discussions/4 --jq .node_id" in p
+    assert "addComment" in p
+    # degradation posture, same as 0038
+    assert "missing token permission" in p
+
+
+def test_build_elaborate_prompt_never_branches_or_creates_issues():
+    """The deliverable is the five persona comments - no branch, no PR,
+    no issues, no labels. Issue creation is distill's job (ADR 0038), so
+    none of its machinery may leak into the elaborate prompt."""
+    p = stack_kick.build_elaborate_prompt("o/r", "4", "t", "b", "u", [])
+    assert "agent/issue-" not in p
+    assert "gh issue create" not in p
+    assert "do not branch" in p
+
+
+def test_build_elaborate_prompt_defaults_and_empty_thread():
+    p = stack_kick.build_elaborate_prompt("o/r", "1", "t", "", "u", [])
+    assert "(no description)" in p and "(no comments yet)" in p
+
+
+def test_build_elaborate_prompt_trigger_comment_section():
+    # same as distill: a token-less manual kick still sees the triggering
+    # comment.
+    p = stack_kick.build_elaborate_prompt(
+        "o/r", "3", "t", "b", "u", [], comment="/elaborate go",
+        comment_author="josee")
+    assert "Triggered by a comment from @josee" in p
+    assert "/elaborate go" in p
+
+
+def test_main_discussion_elaborate_command_routes_and_retitles(
+        monkeypatch, calls):
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "DISCUSSION_BODY": "db",
+                 "DISCUSSION_COMMAND": "elaborate",
+                 "REPO": "o/r", "GITHUB_TOKEN": "t"}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
+                        lambda r, n, t: [("alice", "hi")])
+    assert stack_kick.main() == 0
+    create, prompt = calls
+    assert json.loads(create.data) == {"title": "D#7 elaborate: dt"}
+    text = json.loads(prompt.data)["parts"][0]["text"]
+    # the elaborate prompt, not distill's issue-creation one
+    assert "domain-expert" in text and "addComment" in text
+    assert "gh issue create" not in text
+
+
+def test_persona_roster_files_exist_and_are_subagents():
+    """Every persona the elaborate prompt dispatches must exist in the
+    stack's agent roster as a subagent - a missing or mis-moded file
+    means the kicked session names an agent that cannot be dispatched."""
+    agents = Path(__file__).parent.parent / "agent-config/agents"
+    for name, _role in stack_kick.PERSONAS:
+        f = agents / f"{name}.md"
+        assert f.is_file(), f"missing persona agent file: {f.name}"
+        parts = f.read_text().split("---", 2)
+        assert len(parts) == 3, f"{f.name}: missing frontmatter"
+        front = yaml.safe_load(parts[1])
+        assert front.get("mode") == "subagent", f"{f.name}: not a subagent"
+
+
+# --- Elaborate mode (issue #33): a /elaborate discussion comment kicks a
+# session whose persona subagents each post a POV comment ---------------
+
+def test_elaborate_prompt_carries_thread_roster_and_posting_rules():
+    p = stack_kick.build_elaborate_prompt(
+        "o/r", "4", "MCP roadmap", "Let us plan MCP support",
+        "https://x/d/4", [("alice", "what about mcp?"), ("bob", "later")])
+    assert "#4" in p and "MCP roadmap" in p and "Let us plan MCP support" in p
+    assert "@alice" in p and "what about mcp?" in p
+    for agent, role in stack_kick.PERSONAS:
+        assert agent in p and role in p  # the session must know the roster
+    assert "task" in p.lower()  # one task subagent per persona
+    assert "addComment" in p  # GraphQL posting instructions
+    assert "**Domain expert POV**" in p  # attribution format, verbatim
+    # elaborate kicks never branch/PR and never create issues
+    assert "agent/issue-" not in p and "gh issue create" not in p
+
+def test_elaborate_prompt_defaults_and_trigger_comment():
+    p = stack_kick.build_elaborate_prompt("o/r", "1", "t", "", "u", [],
+                                            comment="/elaborate",
+                                            comment_author="josee")
+    assert "(no description)" in p and "(no comments yet)" in p
+    assert "Triggered by a comment from @josee" in p
+
+def test_persona_roster_matches_agent_files():
+    agents = Path(__file__).parent.parent / "agent-config/agents"
+    on_disk = {p.stem for p in agents.glob("*.md")}
+    rostered = {name for name, _ in stack_kick.PERSONAS}
+    assert rostered <= on_disk  # every rostered persona exists as a file
+
+def test_main_elaborate_command_routes_and_titles(monkeypatch, calls, tmp_path):
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                   "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                   "DISCUSSION_URL": "u", "DISCUSSION_BODY": "db",
+                   "DISCUSSION_COMMAND": "elaborate",
+                   "REPO": "o/r", "GITHUB_TOKEN": "t",
+                   "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
+                        lambda r, n, t: [("alice", "hi")])
+    assert stack_kick.main() == 0
+    create, prompt = calls
+    assert json.loads(create.data) == {"title": "D#7 elaborate: dt"}
+    text = json.loads(prompt.data)["parts"][0]["text"]
+    assert "addComment" in text and "hi" in text
