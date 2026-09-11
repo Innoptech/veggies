@@ -193,6 +193,33 @@ def test_opencode_json_stack_variant(spec):
     assert rendered == source
 
 
+def _scalars(node):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            yield from _scalars(k)
+            yield from _scalars(v)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _scalars(item)
+    else:
+        yield node
+
+
+def test_no_ask_anywhere():
+    # ADR 0031: unattended sessions park forever on `ask` - the whole
+    # vendored envelope (global config + agent frontmatter) is allow/deny
+    # only, and `question` is denied explicitly (its default is ask).
+    cfg = json.loads((INFRA_REPO / "agent-config/opencode.json").read_text())
+    assert "ask" not in set(_scalars(cfg["permission"]))
+    assert cfg["permission"]["question"] == "deny"
+    for agent in sorted((INFRA_REPO / "agent-config/agents").glob("*.md")):
+        parts = agent.read_text().split("---", 2)
+        assert len(parts) == 3, f"{agent.name}: missing frontmatter"
+        front = yaml.safe_load(parts[1])
+        assert "ask" not in set(_scalars(front.get("permission") or {})), \
+            f"{agent.name}: permission ask parks headless sessions"
+
+
 def test_squid_conf_matches_prod_shape():
     conf = veggies_stack.render_squid_conf()
     assert "http_access deny all" in conf
