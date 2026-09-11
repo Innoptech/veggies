@@ -47,14 +47,17 @@ read M from the PR's branch name and fall back to `veggies costs <stack> --issue
 ## Relay, never re-derive
 
 Report the output as printed: header total (`Issue #M: $X across N sessions (K calls)`), the SESSION_ID/CALLS/
-TOKENS_IN/TOKENS_OUT/SPEND/TITLE cascade, per-title subtotal lines, the per-model table, the daily bars, and
+TOKENS_IN/TOKENS_OUT/SPEND/TITLE cascade, per-title subtotal lines, the per-model table, the spend bars, and
 evidence lines such as the unpriced count. Never re-sum numbers in prose. Read the cascade correctly:
 
-- A kick-session row includes the plan, persona refinement, task subagents, adversarial review and CI retries:
-  the metering plugin walks parentID upward, so subagent spend attributes to the root `#N:` session title. These
-  phases are NOT separable - never promise a per-phase breakdown.
-- Supervisor judge/refinement passes re-run the same session, growing the same row.
-- Re-kicks mint new session_ids under the same title: separate rows plus a per-title subtotal.
+- One row = one (session_id, title). The kick session's own row is its direct calls (main loop, CI retries);
+  supervisor judge calls stamp the judged session's id + title, and refinements re-run the same session: both
+  grow that row.
+- Plan/persona refinement, task subagents and adversarial review run in child sessions: the metering plugin
+  walks parentID upward for the TITLE but stamps the child's own session_id - separate same-titled rows, folded
+  by the per-title subtotal and header total. Re-kicks mint new session_ids under the same title: also new rows.
+- Several same-titled rows therefore do NOT prove a re-kick - subagent fan-out has the same shape - and no
+  phase is separable beyond row granularity: never promise a per-phase breakdown.
 
 ## Provenance and blind spots (attach every time)
 
