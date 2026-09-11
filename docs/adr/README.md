@@ -50,6 +50,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0039](0039-discussion-feedback-contract.md) | Discussion feedback: agent-owned results, workflow-owned acks | accepted |
 | [0040](0040-self-trigger-guard.md) | Self-trigger guard: bot exclusion, command-anchored keyword, in-flight done-guard | accepted |
 | [0041](0041-discussion-elaboration-persona-roster.md) | Discussion elaboration: a persona POV roster answers /elaborate | accepted |
+| [0042](0042-multi-role-plan-review.md) | Multi-role plan review: the persona roster reviews every kicked plan | accepted |
 
 ## Deviation ledger (vs the original brief)
 

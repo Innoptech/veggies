@@ -410,8 +410,12 @@ The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in its
 own worktree (ADR 0037, see below) through the mandated pipeline (ADR
 0036): it posts a plan as an issue comment BEFORE writing code (veto the
-direction by commenting, while it works), executes through task subagents,
-runs the `adversarial-review` subagent on the diff, and opens a PR. On
+direction by commenting, while it works). The plan is first refined by
+the persona roster (ADR 0042 - the same roster `/elaborate` uses): one
+task subagent per persona reviews the draft, and the posted comment
+carries a `## Role review` section with each role's input or explicit
+no-objection. It then executes through task subagents, runs the
+`adversarial-review` subagent on the diff, and opens a PR. On
 stacks with `supervision: supervisor` the in-pod critic additionally
 judges every finish and injects refinements (see the supervision section).
 Plumbing: Actions variable

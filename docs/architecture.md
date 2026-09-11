@@ -53,9 +53,12 @@ posts one attributed POV comment per persona back on the discussion - the
 comments are the deliverable (no branch, no PR). Runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
 exceptions. No inbound listener on the VPS. The issue kick prompt mandates
-the full pipeline (ADR 0036): plan first (posted as an issue comment before
-code), execution through task subagents, an adversarial-review subagent
-pass on the diff before pushing, and verified checks. Observability (ADR
+the full pipeline (ADR 0036/0042): plan first - a draft refined by one
+task subagent per persona in the shared `agent-config/agents/` roster
+and posted as an issue comment, with each role's input or explicit
+no-objection, before code - execution through task subagents, an
+adversarial-review subagent pass on the diff before pushing, and
+verified checks. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
 (`D#N elaborate: <title>` for persona-roster runs), the
 workflow comments the session link back on issues (discussions get a
