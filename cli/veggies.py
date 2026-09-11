@@ -970,6 +970,10 @@ def cmd_ui(args: argparse.Namespace) -> int:
         url = f"http://127.0.0.1:{local}"
     print(f"web UI: {url}/{ui_dir_segment()}  "
           f"(user: opencode, password: {password})")
+    # Home is the all-sessions view, but its project list is browser-local
+    # (no server registration API in opencode 1.18.27, verified): add
+    # /workspace once per browser. Deep links below bypass that entirely.
+    print(f"home:   {url}/  (per-browser: Add project -> /workspace once)")
     if pid:
         print(f"tunnel pid {pid}; close with: veggies ui {args.name} --stop")
     # Deep links to live sessions: after tunneling, the API is loopback-
