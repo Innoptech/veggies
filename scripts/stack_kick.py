@@ -5,8 +5,9 @@
 Creates a fresh opencode session on the repo's long-lived stack and durably
 queues the prompt; an issue kick works it autonomously in its own
 git worktree (/workspace/.veggies/wt/issue-N, ADR 0037) through the
-mandated pipeline (plan posted on the issue, subagent execution,
-adversarial review, `mask ci`, PR - ADR 0036), a discussion kick distills
+mandated pipeline (plan refined by the persona roster and posted on the
+issue, subagent execution, adversarial review, `mask ci`, PR -
+ADR 0036/0042), a discussion kick distills
 the thread into issues (plan / happy path / criteria of success). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
@@ -136,10 +137,25 @@ Rules of engagement:
 Workflow (mandatory, in order - this project exists to run the full
 pipeline, not to dive straight into code):
 1. Plan: invoke the superpowers `brainstorming` skill to pin down the
-   issue's intent (no human is available to answer - decide and record
-   assumptions), then `writing-plans` for a step-by-step plan. Post the
-   plan as a comment on the issue (`gh issue comment {number} --body
-   "..."`) BEFORE writing code, so a human can veto the direction cheaply.
+   issue's intent (no human is available to answer - decide, and record
+   assumptions), then `writing-plans` for a step-by-step DRAFT plan. Then
+   the multi-role review (ADR 0042) - plans here are written by a
+   committee, not a solo author: dispatch ONE `task` subagent per persona
+   in the roster ({personas}), in parallel. Each persona agent
+   (agent-config/agents/<name>.md - mode: subagent, read-only) reviews
+   ONLY the draft plan through its own lens and returns its POV as text;
+   a POV with no concrete challenge counts as that role's explicit
+   no-objection. If the harness does not know a persona agent on this
+   stack (an old bootstrap predates it), read its
+   agent-config/agents/<name>.md file and apply that lens by hand,
+   noting the fallback in the `## Role review` section. Consolidate:
+   every challenge either changes the plan or is answered in the comment.
+   Post the consolidated plan as a comment on the issue
+   (`gh issue comment {number} --body "..."`) with a "## Role review"
+   section carrying one bullet per role - its input or its explicit
+   no-objection - BEFORE writing code, so a human can veto the direction
+   cheaply. Never post a plan that has not survived every persona in the
+   roster.
 2. Subagents: execute the plan through the `task` tool (superpowers
    `subagent-driven-development`) - dispatch implementation to subagents
    (swe-expert, tdd-tester, ...) instead of doing everything in the main
@@ -345,8 +361,9 @@ def build_prompt(repo: str, number: str, title: str, body: str,
     """Pure: the kick prompt for one issue (label trigger) or for a
     comment on it (comment trigger - the comment text rides along)."""
     body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
-    prompt = PROMPT_TEMPLATE.format(repo=repo, number=number, title=title,
-                                    body=body, url=url)
+    prompt = PROMPT_TEMPLATE.format(
+        repo=repo, number=number, title=title, body=body, url=url,
+        personas=", ".join(f"`{n}` ({r})" for n, r in PERSONAS))
     if comment.strip():
         prompt += COMMENT_SECTION.format(author=comment_author or "?",
                                          comment=comment.strip()[:2000])
