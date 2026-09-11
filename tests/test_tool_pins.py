@@ -1,4 +1,4 @@
-"""Pin-drift guard (issue #48, ADR 0044): the dev-tool binaries are pinned
+"""Pin-drift guard (issue #48, ADR 0045): the dev-tool binaries are pinned
 by version AND sha256 in three places - the harness image
 (deploy/images/opencode.Containerfile), the CI workflow env
 (.github/workflows/infra-ci.yml), and `mask setup` (maskfile.md). All three
@@ -91,7 +91,7 @@ def test_lint_hooks_are_local_system():
     for hook_id in ("gitleaks", "actionlint"):
         assert hook_id in by_id, f"{hook_id} hook missing"
         assert by_id[hook_id]["language"] == "system"
-    # the converted entries mirror upstream v8.30.1 / v1.7.12 (ADR 0044)
+    # the converted entries mirror upstream v8.30.1 / v1.7.12 (ADR 0045)
     gitleaks = by_id["gitleaks"]
     assert gitleaks["entry"] == \
         "gitleaks git --pre-commit --redact --staged --verbose"

@@ -18,7 +18,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pre-commit install
 # Pinned lint/infra binaries for the language:system pre-commit hooks and
-# mask's tofu/tflint tasks (ADR 0032/0044): the header's "~/.local/bin"
+# mask's tofu/tflint tasks (ADR 0032/0045): the header's "~/.local/bin"
 # claim made true. Keep versions+sha256 in sync with
 # deploy/images/opencode.Containerfile - tests/test_tool_pins.py enforces.
 mkdir -p "$HOME/.local/bin"
