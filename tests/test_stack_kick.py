@@ -434,11 +434,6 @@ def test_build_elaborate_prompt_never_branches_or_creates_issues():
     assert "do not branch" in p
 
 
-def test_build_elaborate_prompt_defaults_and_empty_thread():
-    p = stack_kick.build_elaborate_prompt("o/r", "1", "t", "", "u", [])
-    assert "(no description)" in p and "(no comments yet)" in p
-
-
 def test_build_elaborate_prompt_trigger_comment_section():
     # same as distill: a token-less manual kick still sees the triggering
     # comment.
@@ -447,26 +442,6 @@ def test_build_elaborate_prompt_trigger_comment_section():
         comment_author="josee")
     assert "Triggered by a comment from @josee" in p
     assert "/elaborate go" in p
-
-
-def test_main_discussion_elaborate_command_routes_and_retitles(
-        monkeypatch, calls):
-    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
-                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
-                 "DISCUSSION_URL": "u", "DISCUSSION_BODY": "db",
-                 "DISCUSSION_COMMAND": "elaborate",
-                 "REPO": "o/r", "GITHUB_TOKEN": "t"}.items():
-        monkeypatch.setenv(k, v)
-    _clear_issue_env(monkeypatch)
-    monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
-                        lambda r, n, t: [("alice", "hi")])
-    assert stack_kick.main() == 0
-    create, prompt = calls
-    assert json.loads(create.data) == {"title": "D#7 elaborate: dt"}
-    text = json.loads(prompt.data)["parts"][0]["text"]
-    # the elaborate prompt, not distill's issue-creation one
-    assert "domain-expert" in text and "addComment" in text
-    assert "gh issue create" not in text
 
 
 def test_persona_roster_files_exist_and_are_subagents():
@@ -491,9 +466,6 @@ def test_persona_roster_files_exist_and_are_subagents():
                 f"got {front['permission'].get(key)!r}")
 
 
-# --- Elaborate mode (issue #33): a /elaborate discussion comment kicks a
-# session whose persona subagents each post a POV comment ---------------
-
 def test_elaborate_prompt_carries_thread_roster_and_posting_rules():
     p = stack_kick.build_elaborate_prompt(
         "o/r", "4", "MCP roadmap", "Let us plan MCP support",
@@ -508,6 +480,7 @@ def test_elaborate_prompt_carries_thread_roster_and_posting_rules():
     # elaborate kicks never branch/PR and never create issues
     assert "agent/issue-" not in p and "gh issue create" not in p
 
+
 def test_elaborate_prompt_defaults_and_trigger_comment():
     p = stack_kick.build_elaborate_prompt("o/r", "1", "t", "", "u", [],
                                             comment="/elaborate",
@@ -515,11 +488,13 @@ def test_elaborate_prompt_defaults_and_trigger_comment():
     assert "(no description)" in p and "(no comments yet)" in p
     assert "Triggered by a comment from @josee" in p
 
+
 def test_persona_roster_matches_agent_files():
     agents = Path(__file__).parent.parent / "agent-config/agents"
     on_disk = {p.stem for p in agents.glob("*.md")}
     rostered = {name for name, _ in stack_kick.PERSONAS}
     assert rostered <= on_disk  # every rostered persona exists as a file
+
 
 def test_main_elaborate_command_routes_and_titles(monkeypatch, calls, tmp_path):
     out = tmp_path / "gh_out"
@@ -538,3 +513,30 @@ def test_main_elaborate_command_routes_and_titles(monkeypatch, calls, tmp_path):
     assert json.loads(create.data) == {"title": "D#7 elaborate: dt"}
     text = json.loads(prompt.data)["parts"][0]["text"]
     assert "addComment" in text and "hi" in text
+
+
+@pytest.mark.parametrize("command", ["distill", "Elaborate", "elaborate2"])
+def test_main_discussion_non_elaborate_command_stays_distill(
+        command, monkeypatch, calls, tmp_path):
+    """Routing is exact-match on "elaborate" (ADR 0039): any other
+    DISCUSSION_COMMAND value - including near-misses - keeps the distill
+    path (ADR 0038), never the persona roster."""
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "DISCUSSION_BODY": "db",
+                 "DISCUSSION_COMMAND": command,
+                 "REPO": "o/r", "GITHUB_TOKEN": "t",
+                 "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
+                        lambda r, n, t: [("alice", "hi")])
+    assert stack_kick.main() == 0
+    create, prompt = calls
+    # distill: ADR 0034-style title, issue-creation mission, no roster
+    assert json.loads(create.data) == {"title": "D#7: dt"}
+    text = json.loads(prompt.data)["parts"][0]["text"]
+    assert "gh issue create" in text
+    for name, _role in stack_kick.PERSONAS:
+        assert name not in text, f"distill prompt leaked persona {name}"
