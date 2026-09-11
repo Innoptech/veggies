@@ -244,7 +244,7 @@ def test_squid_allowlist_base_matches_role():
 
 
 def test_squid_allowlist_excludes_googleapis_storage():
-    # ADR 0045: proxy.golang.org redirects module zips to signed
+    # ADR 0046: proxy.golang.org redirects module zips to signed
     # storage.googleapis.com URLs - the domain is all of GCS and stays OFF
     # the allowlist (baking pinned binaries was the chosen fix, issue #48).
     # This guards the in-repo BASE lists only - a live host could still add

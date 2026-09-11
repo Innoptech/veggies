@@ -37,7 +37,7 @@ SQUID_ALLOWLIST_BASE = [
     "production.cloudflare.docker.com",
     "registry.opentofu.org",  # tofu provider downloads (in-container mask ci)
     # Go toolchain + module fetches for ad-hoc Go tooling in-pod. The
-    # golang pre-commit hooks are gone (image-baked binaries, ADR 0045);
+    # golang pre-commit hooks are gone (image-baked binaries, ADR 0046);
     # the entries stay - narrow domains, and the next Go-based tool would
     # need them. storage.googleapis.com (where proxy.golang.org redirects
     # module zips) stays OFF on purpose: the domain fronts all of GCS.

@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          fetch-depth: 0 # gitleaks diffs the index against HEAD (see ADR 0045)
+          fetch-depth: 0 # gitleaks diffs the index against HEAD (see ADR 0046)
       - uses: opentofu/setup-opentofu@v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
@@ -45,7 +45,7 @@ jobs:
         run: |
           mkdir -p ~/.config/infra
           printf 'ci-dummy-not-a-real-secret\n' > ~/.config/infra/vault-password
-      - name: Install gitleaks + actionlint (checksum-pinned, ADR 0045)
+      - name: Install gitleaks + actionlint (checksum-pinned, ADR 0046)
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"

@@ -38,7 +38,7 @@ into GitHub write access (`github: true` in veggies.yml): the pod carries
 the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
 from the vault (ADR 0033). The opencode image also carries the dev
 toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
-0032/0045) so agents run the repo's own checks in-pod; molecule is
+0032/0046) so agents run the repo's own checks in-pod; molecule is
 excluded (no podman socket, ADR 0028).
 
 Event path (ADR 0033/0038/0041): `.github/workflows/agent-trigger.yml` on
