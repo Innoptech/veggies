@@ -23,7 +23,11 @@ def _backup_paths() -> list:
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/backup/defaults/main.yml").read_text()
     )
-    return defaults["backup_paths"]
+    paths = defaults["backup_paths"]
+    # membership below must stay element-exact: a scalar-string backup_paths
+    # would degrade `in` to a substring match while breaking the role's join.
+    assert isinstance(paths, list)
+    return paths
 
 
 def test_state_dir_inside_backup_paths():
