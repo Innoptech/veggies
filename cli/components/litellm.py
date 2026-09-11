@@ -41,11 +41,18 @@ def _render(ctx: PodContext) -> dict:
             secret_env("LITELLM_MASTER_KEY", spec.secret_litellm, "master_key"),
             secret_env("LITELLM_SALT_KEY", spec.secret_litellm, "salt_key"),
             secret_env("FIREWORKS_API_KEY", spec.secret_litellm, "fireworks_api_key"),
+            # ADR 0044: the cost callback stamps each JSONL line with this.
+            {"name": "VEGGIES_STACK", "value": spec.name},
+            # /agent-config mounts readOnly: never attempt bytecode cache.
+            {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},
             # litellm calls providers through the egress proxy too: on the
             # VPS the per-UID nftables rules drop anything else.
         ] + [{"name": k, "value": v} for k, v in ctx.service("egress").env.items()],
         "volumeMounts": [
             {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
+            # ADR 0044 cost log: NOT readOnly - the only writable hostPath
+            # this container gets.
+            {"name": "costs", "mountPath": "/costs"},
             {"name": "tmp", "mountPath": "/tmp"},
         ],
         "resources": {"limits": {"memory": "768Mi"}},
@@ -71,6 +78,8 @@ def _volumes(ctx: PodContext) -> list[dict]:
     )
     return [
         {"name": "agent-config", "hostPath": {"path": litellm_cfg, "type": "Directory"}},
+        # ADR 0044: durable per-call cost log; survives down/up/sync; inside the backup role's backup_paths.
+        {"name": "costs", "hostPath": {"path": f"{spec.state_root()}/{spec.name}/costs", "type": "Directory"}},
     ]
 
 
@@ -85,8 +94,13 @@ def _secrets(spec: StackSpec) -> list[SecretSpec]:
 def _config_files(ctx: PodContext) -> dict[str, str]:
     if not ctx.spec.is_remote:
         return {}  # local: agent-config/litellm is live-mounted instead
-    # No infra checkout on the VPS: ship the litellm config as a copy.
-    return {"config.yaml": (ctx.infra_repo / "agent-config/litellm/config.yaml").read_text()}
+    # No infra checkout on the VPS: ship the litellm config as a copy. The
+    # callback rides along: litellm imports custom_callbacks.py from the
+    # config file's own directory (verified upstream).
+    return {
+        "config.yaml": (ctx.infra_repo / "agent-config/litellm/config.yaml").read_text(),
+        "custom_callbacks.py": (ctx.infra_repo / "agent-config/litellm/custom_callbacks.py").read_text(),
+    }
 
 
 COMPONENT = Component(
