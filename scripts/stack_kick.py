@@ -185,9 +185,16 @@ Rules of engagement:
   (merge/rebase); force-push only with --force-with-lease.
 - python/mask/ansible/tofu/tflint/pre-commit/pytest are preinstalled in
   this image - do NOT run `mask setup` or build a venv.
-- Push the branch and open a PR with `gh pr create` whose body contains
-  "Closes #{number}". The PR is the deliverable - work is not done until
-  it exists and points at the issue.
+- Draft-first PR (ADR 0044): the PR exists from the FIRST commit, not at
+  the end. Right after the plan comment lands and implementation begins,
+  push the branch and open a DRAFT: `gh pr create --draft` whose body
+  contains "Closes #{number}". If a PR for agent/issue-{number} already
+  exists (a re-kick continuing earlier work), do not create another -
+  reconcile the branch and keep pushing to it. Push early and often: the
+  draft's CI runs on every push and is the feedback loop for the checks
+  this environment cannot run (molecule, the docker pre-commit hook).
+  The PR is the deliverable - work is not done until it exists, points
+  at the issue, and is marked ready.
 
 Workflow (mandatory, in order - this project exists to run the full
 pipeline, not to dive straight into code):
@@ -219,6 +226,26 @@ pipeline, not to dive straight into code):
    subagent on the full diff (it runs a different model on purpose).
    Fix, or explicitly rebut in the PR body, every critical/major finding.
 {verify_step}
+5. Ready LAST - "ready" means green AND mergeable against CURRENT main
+   (branch protection requires linear history and up-to-date branches -
+   a behind-main PR cannot merge):
+   a. `git fetch origin && git rebase origin/main` inside this session's
+      own worktree - a no-op when main never moved. After any rebase:
+      re-run the step-4 verify gate (a rebase invalidates the green
+      earned pre-rebase) and push with --force-with-lease. If the
+      force-push rewrites a branch a human already approved, comment on
+      the PR that the rebase dismissed the review (branch protection
+      does it silently) and re-approval is needed.
+   b. `gh pr checks --watch` - the draft's CI on the final head must be
+      green; fix and re-push on red, never mark ready on pending.
+   c. `gh pr view --json mergeable` must read MERGEABLE. UNKNOWN is
+      transient (GitHub computes it async) - wait a few seconds and
+      re-read, NEVER rebase on UNKNOWN; CONFLICTING means back to a.
+   d. Only now: `gh pr ready` - the final act; the done-guard treats
+      the issue as handled from this moment. If anything must change
+      afterwards (a supervisor refinement, a review comment), convert
+      back first (`gh pr ready --undo`), rework, and re-run this whole
+      gate - never push new commits onto a ready PR.
 - NEVER fork the repo or push anywhere but origin. If push is denied,
   report the exact missing token permission in your final message (the
   operator grants it) and stop.
