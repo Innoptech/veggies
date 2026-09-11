@@ -1,7 +1,9 @@
 """Per-call cost metering writer for the litellm proxy (ADR 0022/0047).
 
 The pinned litellm proxy loads this module via the config key
-`litellm_settings.callbacks: custom_callbacks.proxy_handler_instance`
+`litellm_settings.callbacks: ["custom_callbacks.proxy_handler_instance"]`
+(list form - a bare string would replace litellm.callbacks, evicting the
+proxy's built-in budget limiter).
 (litellm imports the module from the config file's directory). One JSON
 line per completed/failed model call is appended to a size-rotated JSONL
 file (default /costs/costs.jsonl, host-mounted into the container).
