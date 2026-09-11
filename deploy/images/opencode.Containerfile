@@ -1,18 +1,20 @@
-# veggies opencode image: official image + git, which the official
-# image lacks (verified 2026-09-04: alpine-based, root, no git/node),
-# plus gh for github-enabled stacks (ADR 0030): gh reads GH_TOKEN and
-# api.github.com is already on the squid allowlist.
-# ADR 0032: the dogfooding toolchain (python/mask/ansible/tofu/tflint,
-# plus gitleaks/actionlint for the networkless pre-commit hooks, ADR 0047)
-# lives in the image - the runtime rootfs is read-only, so nothing can be
-# installed later. The agent runs the repo's own checks in-container
-# (`mask ci`, minus molecule: the podman socket stays banned, ADR 0028).
-# Base pinned by tag AND digest; bump both together.
-FROM ghcr.io/anomalyco/opencode:1.18.27@sha256:1eedcb5d4439130e35f5cf76d87c786c4eeb12dc7afebd79663f6c8341fa8505
+# veggies opencode image: THIS REPO's harness variant (ADR 0053) - the
+# pinned shared base (harness only: opencode serve, git, gh) plus this
+# repo's ADR 0032 dogfood toolchain (python/mask/ansible/tofu/tflint, plus
+# gitleaks/actionlint for the networkless pre-commit hooks, ADR 0047). The
+# runtime rootfs is read-only, so nothing can be installed later. The agent
+# runs the repo's own checks in-container (`mask ci`, minus molecule: the
+# podman socket stays banned, ADR 0028).
+# The base is built first by `ensure_images` from
+# deploy/images/opencode-base.Containerfile - this file is NOT
+# standalone-buildable (a bare `podman build` would try to pull from a
+# registry literally named localhost). The overlay pins the base by tag;
+# the base pins the upstream image by tag+digest. Bump all four spots
+# together (both Containerfiles, IMAGE_OPENCODE_BASE/IMAGE_OPENCODE in
+# cli/components/opencode.py) - tests/test_veggies.py enforces the lockstep.
+FROM localhost/veggies-opencode-base:1.18.27
 
-# Build-time proxy args: on the VPS the stacks user is direct-egress-denied,
-# so image builds must ride the filtering proxy. buildah exposes ARGs to RUN
-# steps as env (both cases: apk/pip read lowercase, curl reads either).
+# Build-time proxy args (same contract as opencode-base.Containerfile).
 ARG HTTP_PROXY=""
 ARG HTTPS_PROXY=""
 ARG http_proxy=""
@@ -21,7 +23,7 @@ ARG NO_PROXY=""
 
 # bash: mask targets and scripts/check_vault_encrypted.sh are bash, not
 # busybox sh. unzip/curl: release fetch below.
-RUN apk add --no-cache git openssh-client github-cli bash curl unzip python3 py3-pip
+RUN apk add --no-cache bash curl unzip python3 py3-pip
 
 # Python side pinned to requirements-dev.txt (molecule excluded on
 # purpose). Alpine's python is externally-managed; this is an image build,
@@ -31,7 +33,7 @@ RUN pip install --break-system-packages --no-cache-dir \
     yamllint==1.38.0 pytest==9.1.1
 
 # Static binaries, version + sha256 pinned (same supply-chain discipline
-# as the base image digest). mask ships a musl build for alpine.
+# as the upstream base image digest). mask ships a musl build for alpine.
 ARG MASK_VERSION=0.11.7
 ARG MASK_SHA256=5c9fed48ecd6a9cbbf7332d67258930c0b2fcc18689850ce617b899c0eeae0c9
 ARG TOFU_VERSION=1.12.6
