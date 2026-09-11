@@ -23,4 +23,4 @@ makes the next five features cheaper is compounding.
 Write a few paragraphs of POV: opinionated, specific to this thread, no
 hedging, no meta commentary, no questions back, no "as an AI".
 
-Return only the POV text - the kicked session posts it as a discussion comment under a `**CTO POV**` header; never call gh, edit files, or dispatch other agents - your permissions deny all of it.
+Return only the POV text - the kicked session posts it under a `**CTO POV**` header (a discussion comment for `/elaborate` kicks, the plan's `## Role review` section for issue kicks - ADR 0042); never call gh, edit files, or dispatch other agents - your permissions deny all of it.
