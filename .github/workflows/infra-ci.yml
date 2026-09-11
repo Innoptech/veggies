@@ -68,6 +68,9 @@ jobs:
             ansible:
               - 'ansible/**'
               - 'ansible.cfg'
+              # root symlink to ansible/requirements.yml - content changes hit
+              # ansible/**; this line covers the symlink itself (repoint/delete)
+              - 'requirements.yml'
               - 'requirements-dev.txt'
               - '.ansible-lint'
               - '.github/workflows/infra-ci.yml'

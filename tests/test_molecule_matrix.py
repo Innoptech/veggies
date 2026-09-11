@@ -54,6 +54,7 @@ def test_role_change_expands_through_converge_deps():
         "ansible/molecule/",  # the shared-input entry itself
         "ansible/molecule/fedora44-systemd.Containerfile",  # a file inside it
         "ansible/requirements.yml",
+        "requirements.yml",  # root symlink to ansible/requirements.yml
         "requirements-dev.txt",
         ".github/workflows/infra-ci.yml",
         "ansible.cfg",
@@ -194,6 +195,7 @@ def test_pull_request_requires_files_file():
 EXPECTED_ANSIBLE_FILTER = {
     "ansible/**",
     "ansible.cfg",
+    "requirements.yml",  # root symlink to ansible/requirements.yml
     "requirements-dev.txt",
     ".ansible-lint",
     ".github/workflows/infra-ci.yml",
@@ -227,6 +229,7 @@ def test_dorny_ansible_filter_is_exactly_the_expected_set():
     [
         "ansible/roles/base/tasks/main.yml",  # ansible/** role path
         "ansible.cfg",
+        "requirements.yml",  # the root symlink itself (repoint/delete)
         "requirements-dev.txt",
         ".github/workflows/infra-ci.yml",
     ],

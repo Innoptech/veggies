@@ -30,6 +30,7 @@ import yaml
 SHARED_INPUTS = (
     "ansible/molecule/",               # shared fedora44-systemd Containerfile
     "ansible/requirements.yml",        # collections, symlinked into every scenario as collections.yml
+    "requirements.yml",                # root symlink to ansible/requirements.yml - a repoint/delete is a collections-input change
     "requirements-dev.txt",            # molecule + plugin toolchain pins
     ".github/workflows/infra-ci.yml",  # the harness itself - workflow changes prove the full matrix
     "ansible.cfg",                     # repo-root ansible config (conservative)
