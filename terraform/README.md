@@ -5,7 +5,7 @@ One root module (this directory) composing child modules:
 | Path      | Status        | Contents |
 |-----------|---------------|----------|
 | `./`      | active        | versions, providers, variables, local-state note |
-| `github/` | active        | branch protection, required checks, environments, Actions secrets, runner group |
+| `github/` | active        | branch rulesets (merge policy + opt-in merge queue), required checks, environments, Actions secrets, runner group |
 | `ovh/`    | **scaffold**  | Public Cloud instance/SG/volume/cloud-init - gated by `var.enable_ovh`, **never applied** until the migration plan is executed (today's host `veggies` is a manually-rented VPS) |
 
 ## State

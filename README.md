@@ -11,6 +11,9 @@ is reviewable code in this repo.
 Label an issue `agent-task` and the repo's own agent stack works it in the
 open on a draft PR - commits and CI land there as it goes - and marks it
 ready only when it is green and merges cleanly against main (ADR 0046).
+Approved PRs then merge through GitHub's native merge queue (ADR 0053) - the
+agents out-produce their reviewer, so the queue, not the operator, owns the
+update-branch ritual.
 
 ## Quickstart
 

@@ -925,3 +925,31 @@ Troubleshooting:
   basename) has no valid DNS-1123 characters; pass `--name`.
 - `!! running as root`: warning only - stacks assume a rootless user
   (systemd --user, linger); use a normal account.
+
+## 10. When agents out-produce reviewers: the merge queue
+
+Agent PRs land at machine pace; `strict` required checks plus linear history
+used to make every merge invalidate every other open PR - the operator was
+the rebase monkey for the automation (discussion #71). On opted-in repos
+(ADR 0053) the default branch now requires GitHub's native merge queue; the
+merge button is replaced by "Merge when ready".
+
+The daily loop: review the diff -> approve -> "Merge when ready" -> walk
+away. GitHub assembles the merge group (main plus queued PRs), runs the
+required checks once on the combined tree, and merges serially. Nothing is
+bypassed: the queue enforces the same required checks and review rules.
+
+Eviction: a PR whose checks fail on the combined tree is ejected without
+disturbing the rest of the line. For an agent PR the fix loop is a
+`/opencode` comment or a fresh `agent-task` label - flaky CI converts
+directly into kick spend, so treat evictions as CI-health signals, not
+background noise. If groups start evicting on the 60-minute check timeout
+(`check_response_timeout_minutes` in terraform/github/repos.tf), raise the
+timeout before shrinking the batch.
+
+Opting another repo in: add it to `merge_queue_repos` ONLY after the repo's
+required-check workflows trigger on `merge_group` - otherwise every queued
+merge stalls Pending forever (the always-report invariant,
+terraform/github/README.md). This repo's own queue is declared in
+terraform/github/repos.tf with the `merge_group` trigger in
+.github/workflows/infra-ci.yml.
