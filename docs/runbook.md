@@ -220,7 +220,11 @@ Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies sync <name>` (clone-mode stacks: pull + re-up, see below).
 Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over the
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
-`components`, capability keys, `mcps`, `github`; ADR 0016/0023).
+`components`, capability keys, `mcps`, `github`; ADR 0016/0023). A repo's
+own agent files need no key at all: keep your CLAUDE.md (or AGENTS.md) and
+your `.claude/`/`.opencode/` agents and skills - the harness discovers
+them as-is, project over global (ADR 0019/0044). Installing a stack never
+means converting the repo.
 
 ### Syncing a stack with the repo
 
@@ -299,9 +303,13 @@ around; `ask` in a headless session parks forever (verified 2026-09-09,
   `secrets/*.yml`: unreadable (vault ciphertext never enters transcripts).
 - `doom_loop` (3 identical tool calls) denies - the agent must change
   approach instead of burning tokens.
-- ADR 0031: NO permission value anywhere in `agent-config/` may be `ask`
-  (pytest-enforced) - that includes per-agent frontmatter, which overrides
-  the global block. `question` is denied too: a blocking question fails
+- ADR 0031/0044: NO permission value may be `ask` - not in
+  `agent-config/`, not in per-agent frontmatter, and not in the repo's own
+  project tier (root `opencode.json[c]`, `.opencode/`, compat dirs), which
+  overrides the global block. Pytest enforces the vendored tiers plus this
+  repo's own; on the kicked path, `scripts/stack_kick.py` refuses the kick
+  and the workflow comments the offending file onto the issue. `question`
+  is denied too: a blocking question fails
   fast instead of parking; agents say what they need in their final
   message.
 - Widen a rule: one pattern line in `agent-config/opencode.json`, PR,

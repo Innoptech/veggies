@@ -47,6 +47,10 @@ egress: squid
 # github: true            # opt-in: GH_TOKEN + gh in the pod for pushes/PRs (ADR 0030)
 ```
 
+A repo keeps its own conventions: CLAUDE.md/AGENTS.md and
+`.claude/`/`.opencode/` agents and skills are discovered as-is, zero
+config - installing a stack never means converting the repo (ADR 0019/0044).
+
 ## Docs
 
 | Doc | What |
