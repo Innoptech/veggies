@@ -3,7 +3,7 @@
 # plus gh for github-enabled stacks (ADR 0030): gh reads GH_TOKEN and
 # api.github.com is already on the squid allowlist.
 # ADR 0032: the dogfooding toolchain (python/mask/ansible/tofu/tflint,
-# plus gitleaks/actionlint for the networkless pre-commit hooks, ADR 0044)
+# plus gitleaks/actionlint for the networkless pre-commit hooks, ADR 0045)
 # lives in the image - the runtime rootfs is read-only, so nothing can be
 # installed later. The agent runs the repo's own checks in-container
 # (`mask ci`, minus molecule: the podman socket stays banned, ADR 0028).

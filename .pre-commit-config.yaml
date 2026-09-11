@@ -25,7 +25,7 @@ repos:
 
   # gitleaks + actionlint run image-baked (pod/CI) or ~/.local/bin (host,
   # `mask setup`) binaries: language: system -> zero network at hook time
-  # (issue #48, ADR 0044; tofu-fmt precedent). Entries are identical to
+  # (issue #48, ADR 0045; tofu-fmt precedent). Entries are identical to
   # the upstream v8.30.1 / v1.7.12 hooks except `language` (description
   # fields and upstream's minimum_pre_commit_version are dropped) -
   # behavior unchanged.

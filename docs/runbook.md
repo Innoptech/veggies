@@ -365,7 +365,7 @@ HTTPS. Sessions in the stack can push branches and open PRs as the bot.
 The opencode image carries python3/pip, `mask`, `ansible`/`ansible-vault`,
 `tofu`, `tflint`, `gitleaks`, `actionlint`, `pre-commit`, `pytest`,
 `yamllint` - the agent runs the repo's own checks inside the stack, and
-since ADR 0044 every hook in `mask ci` runs in-pod with zero skips.
+since ADR 0045 every hook in `mask ci` runs in-pod with zero skips.
 The declared in-pod verify gate is `mask ci` (AGENTS.md rule 3's
 `veggies-verify-gate` marker, ADR 0045; see "Declaring a repo's verify
 gate" below). Molecule was never part of `mask ci` and stays
@@ -377,11 +377,8 @@ agreement. A stale `SKIP=actionlint-docker` is now a harmless no-op -
 the hook id is `actionlint` today and pre-commit ignores unknown SKIP
 ids. The python hooks (yamllint, ansible-lint,
 pre-commit-hooks) still pip-install into pre-commit's cache on a cold
-cache - expected; pypi is allowlisted, and ADR 0044 names their
-conversion as the follow-up. Behind slow proxy egress `tofu init` can
-exceed its default per-request timeout - `TF_REGISTRY_CLIENT_TIMEOUT=180`
-fixes it (observed in-pod 2026-09-11); do not rationalize a red
-tofu-validate. In-container checks are a CLONE-stack story (the VPS
+cache - expected; pypi is allowlisted, and ADR 0045 names their
+conversion as the follow-up. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
 run host-side there instead. On merging hook/binary changes, rebuild the
