@@ -32,6 +32,12 @@ variable "files_branch" {
   default     = "infra/agent-trigger"
 }
 
+variable "source_branch" {
+  type        = string
+  description = "Branch the delivery branch is cut from (the governed repos share one default branch; matches the branch-protection pattern in repos.tf)."
+  default     = "main"
+}
+
 variable "workflow_content" {
   type        = string
   description = "Content of .github/workflows/agent-trigger.yml. The parent reads the master copy with file() - never templatefile(), the workflow is full of `$${{ }}`."
