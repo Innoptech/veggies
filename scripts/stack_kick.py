@@ -35,6 +35,35 @@ import urllib.request
 
 TIMEOUT = 60
 BODY_LIMIT = 4000
+SKIP_DONE = 3  # exit code: issue already handled (ADR 0035)
+
+
+def gh_api(token: str, path: str) -> object:
+    """GET api.github.com with a Bearer token (the done-guard; the kick
+    itself never touches GitHub)."""
+    req = urllib.request.Request(
+        f"https://api.github.com{path}",
+        headers={"Authorization": f"Bearer {token}",
+                 "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read())
+
+
+def done_reason(repo: str, number: str, token: str) -> str | None:
+    """Why this issue should NOT be (re-)kicked, or None. 'Done' = the issue
+    is closed, or an agent/issue-N PR already exists (any state - open means
+    in flight, merged means shipped). Re-kicking a done issue burns a
+    session and produces duplicate branches (ADR 0035)."""
+    issue = gh_api(token, f"/repos/{repo}/issues/{number}")
+    if issue.get("state") != "open":
+        return f"issue state is {issue.get('state')}"
+    owner = repo.split("/", 1)[0]
+    prs = gh_api(token, f"/repos/{repo}/pulls"
+                        f"?head={owner}:agent/issue-{number}&state=all&per_page=1")
+    if prs:
+        pr = prs[0]
+        return f"PR {pr.get('html_url')} already exists ({pr.get('state')})"
+    return None
 
 PROMPT_TEMPLATE = """You are the veggies agent for {repo}, working unattended in the stack's clone at /workspace.
 
@@ -130,6 +159,27 @@ def main() -> int:
         print(f"missing env: {', '.join(missing)}", file=sys.stderr)
         return 2
     url = os.environ["STACK_URL"].rstrip("/")
+    # Done-guard (ADR 0035): never re-kick a handled issue. Needs a GitHub
+    # token (the workflow's own GITHUB_TOKEN); without one, warn and proceed
+    # - a manual kick is the operator's call.
+    gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if gh_token:
+        try:
+            reason = done_reason(os.environ["REPO"],
+                                 os.environ["ISSUE_NUMBER"], gh_token)
+        except Exception as e:  # the guard degrades, it never blocks
+            print(f"guard check failed ({e}); proceeding", file=sys.stderr)
+            reason = None
+        if reason:
+            print(f"SKIP: {reason}")
+            print(f"SKIP_REASON={reason}")
+            if os.environ.get("GITHUB_OUTPUT"):
+                with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                    f.write(f"skip_reason={reason}\n")
+            return SKIP_DONE
+    else:
+        print("no GITHUB_TOKEN/GH_TOKEN in env; done-guard skipped",
+              file=sys.stderr)
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
     prompt = build_prompt(os.environ["REPO"], os.environ["ISSUE_NUMBER"],
                           os.environ["ISSUE_TITLE"],
