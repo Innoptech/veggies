@@ -243,6 +243,14 @@ def test_squid_allowlist_base_matches_role():
     assert veggies_stack.SQUID_ALLOWLIST_BASE == defaults["egress_allowlist_base"]
 
 
+def test_squid_allowlist_covers_actions_log_upload():
+    # GitHub Actions uploads job logs/artifacts to Azure results storage
+    # (*.blob.core.windows.net - docs.github.com self-hosted-runner network
+    # requirements); a deny loses all run logs (issue #25). The equality
+    # drift test above forces the ansible role's allowlist to match.
+    assert ".blob.core.windows.net" in veggies_stack.SQUID_ALLOWLIST_BASE
+
+
 def test_model_endpoints_match_group_vars_example():
     text = (ROOT / "ansible/inventory/group_vars/all.yml.example").read_text()
     assert yaml.safe_load(text)["egress_model_endpoints"] == veggies_stack.SQUID_MODEL_ENDPOINTS
