@@ -67,13 +67,25 @@ Rules of engagement:
   unexecuted.
 """
 
+COMMENT_SECTION = """
+Triggered by a comment from @{author} on the issue:
+\"\"\"
+{comment}
+\"\"\"
+"""
+
 
 def build_prompt(repo: str, number: str, title: str, body: str,
-                 url: str) -> str:
-    """Pure: the kick prompt for one issue."""
+                 url: str, comment: str = "", comment_author: str = "") -> str:
+    """Pure: the kick prompt for one issue (label trigger) or for a
+    comment on it (comment trigger - the comment text rides along)."""
     body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
-    return PROMPT_TEMPLATE.format(repo=repo, number=number, title=title,
-                                  body=body, url=url)
+    prompt = PROMPT_TEMPLATE.format(repo=repo, number=number, title=title,
+                                    body=body, url=url)
+    if comment.strip():
+        prompt += COMMENT_SECTION.format(author=comment_author or "?",
+                                         comment=comment.strip()[:2000])
+    return prompt
 
 
 def api(url: str, password: str, method: str, path: str,
@@ -92,9 +104,11 @@ def api(url: str, password: str, method: str, path: str,
     return json.loads(raw) if raw.strip() else {}
 
 
-def kick(url: str, password: str, prompt: str) -> str:
-    """Create a session and fire the prompt async. Returns session id."""
-    created = api(url, password, "POST", "/session", {})
+def kick(url: str, password: str, prompt: str, title: str = "") -> str:
+    """Create a session and fire the prompt async. Returns session id.
+    The title shows in the web UI session list (ADR 0034)."""
+    created = api(url, password, "POST", "/session",
+                  {"title": title} if title else {})
     sid = created.get("id")
     if not sid:
         raise RuntimeError(f"session create returned no id: {created!r}")
@@ -116,18 +130,25 @@ def main() -> int:
         print(f"missing env: {', '.join(missing)}", file=sys.stderr)
         return 2
     url = os.environ["STACK_URL"].rstrip("/")
+    title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
     prompt = build_prompt(os.environ["REPO"], os.environ["ISSUE_NUMBER"],
                           os.environ["ISSUE_TITLE"],
                           os.environ.get("ISSUE_BODY", ""),
-                          os.environ["ISSUE_URL"])
+                          os.environ["ISSUE_URL"],
+                          comment=os.environ.get("COMMENT_BODY", ""),
+                          comment_author=os.environ.get("COMMENT_AUTHOR", ""))
     try:
-        sid = kick(url, os.environ["STACK_PASSWORD"], prompt)
+        sid = kick(url, os.environ["STACK_PASSWORD"], prompt, title=title)
     except (urllib.error.URLError, RuntimeError, TimeoutError,
             json.JSONDecodeError) as e:
         print(f"kick failed: {e}", file=sys.stderr)
         return 1
     print(f"session queued: {sid} on {url} "
           f"(issue #{os.environ['ISSUE_NUMBER']})")
+    print(f"SESSION_ID={sid}")  # machine-readable, one per line
+    if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"session_id={sid}\n")
     return 0
 
 
