@@ -11,7 +11,13 @@ permissions:
 
 env:
   TOFU_VERSION: "1.12.6"
+  TOFU_SHA256: "5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8"
   TFLINT_VERSION: "0.64.0"
+  TFLINT_SHA256: "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537"
+  GITLEAK_VERSION: "8.30.1"
+  GITLEAK_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
   PYTHON_VERSION: "3.14"
 
 jobs:
@@ -22,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          fetch-depth: 0 # gitleaks scans full history
+          fetch-depth: 0 # gitleaks diffs the index against HEAD (see ADR 0044)
       - uses: opentofu/setup-opentofu@v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
@@ -39,6 +45,18 @@ jobs:
         run: |
           mkdir -p ~/.config/infra
           printf 'ci-dummy-not-a-real-secret\n' > ~/.config/infra/vault-password
+      - name: Install gitleaks + actionlint (checksum-pinned, ADR 0044)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAK_VERSION}/gitleaks_${GITLEAK_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAK_SHA256}  gitleaks_${GITLEAK_VERSION}_linux_x64.tar.gz" | sha256sum -c -
+          tar xzf "gitleaks_${GITLEAK_VERSION}_linux_x64.tar.gz" gitleaks
+          install -m 0755 gitleaks /usr/local/bin/gitleaks
+          curl -sfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
+          tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
+          install -m 0755 actionlint /usr/local/bin/actionlint
       - run: pre-commit run --all-files --show-diff-on-failure
 
   tofu:
