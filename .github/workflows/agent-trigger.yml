@@ -3,7 +3,9 @@ name: agent-trigger
 
 # ADR 0033: an issue labeled `agent-task`, or a trusted comment containing
 # /opencode, kicks this repo's long-lived veggies stack into a fresh
-# session that works the issue autonomously and opens a PR.
+# session that works the issue autonomously: opens a DRAFT PR at its
+# first commit and marks it ready only when checks are green and it
+# merges cleanly against main (ADR 0044).
 # ADR 0038: a trusted /opencode comment on a *discussion* kicks a session
 # that reads the whole thread and distills it into issues (plan / happy
 # path / criteria of success).
@@ -26,7 +28,7 @@ on:
 
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
-  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035)
+  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0044)
   discussions: write # read the thread for the prompt; comment the session link back (ADR 0038)
 
 jobs:
@@ -38,10 +40,12 @@ jobs:
     # olgam4 may trigger. The self-kick loop is bounded instead by this
     # command anchoring, the in-flight guard (both modes, stack_kick.py)
     # and the issue done-guard; the hard bot exclusion returns with the
-    # GitHub App identity.
+    # GitHub App identity. PR comments never kick - `/opencode` recovery
+    # lives on the issue; the first-class PR path is deferred (ADR 0044).
     if: >-
       (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
       (github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/opencode') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'discussion_comment' &&
@@ -128,8 +132,10 @@ jobs:
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           issue_n="${{ github.event.issue.number }}"
           body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
-          tail="The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
-          tail="$tail that closes this issue. [Workflow log](${run_url})."
+          tail="The agent branches \`agent/issue-${issue_n}\` and opens a DRAFT PR early -"
+          tail="$tail commits and CI land there as it works. It marks the PR ready only"
+          tail="$tail when checks are green and it merges cleanly against main (ADR 0044)."
+          tail="$tail [Workflow log](${run_url})."
           body="$body"$'\n\n'"Watch it live:"
           body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
           body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
