@@ -10,7 +10,7 @@ admin_ssh_public_keys: [] # TODO(you): e.g. ["ssh-ed25519 AAAA... you@workstatio
 
 # --- Interim gates (ADR 0024) --------------------------------------------
 tailscale_enabled: true # false while no tailnet exists; public SSH stays open (hardened)
-backup_enabled: true    # false until backup_repo + restic creds are real
+backup_enabled: true    # false until backup_repo + restic creds are real (re-entry procedure: runbook section 6, ADR 0053)
 # MUST stay true while tailscale_enabled=false, or converge locks you out:
 base_public_ssh: false
 

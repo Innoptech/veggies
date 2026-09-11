@@ -17,8 +17,8 @@ state) lives in ADR 0002/0020.
 | Egress | squid proxy + per-UID nftables; agents reach an allowlist only |
 | Models | per-stack LiteLLM in the pod; the Fireworks key is held only by the proxy (podman secret); agents get revocable virtual keys |
 | Secrets | ansible-vault files committed encrypted to git |
-| State | local, gitignored, restic-backed-up |
-| Backups | restic to OVH Object Storage (deferred until a bucket exists - ADR 0024) |
+| State | local, gitignored; inside the backup role's backup_paths, but the restic gate is off today (ADR 0024/0053) |
+| Backups | restic to OVH Object Storage (gated off until the operator runs the section-6 first-enable procedure - ADR 0024/0053) |
 
 ## Stacks
 
