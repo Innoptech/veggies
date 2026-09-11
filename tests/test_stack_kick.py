@@ -57,11 +57,13 @@ def test_build_prompt_truncates_and_defaults():
 
 
 def test_kick_creates_session_then_queues_prompt(calls):
-    sid = stack_kick.kick("http://h:1", "pw", "do it")
+    sid = stack_kick.kick("http://h:1", "pw", "do it", title="#9: t")
     assert sid == "ses_test"
     create, prompt = calls
     assert create.full_url == "http://h:1/session?directory=/workspace"
     assert create.get_method() == "POST"
+    # titled session: the web UI list reads like an issue list (ADR 0034)
+    assert json.loads(create.data) == {"title": "#9: t"}
     # basic auth header carries opencode:<password>
     import base64
     assert create.headers["Authorization"] == "Basic " + base64.b64encode(
@@ -70,6 +72,33 @@ def test_kick_creates_session_then_queues_prompt(calls):
         "http://h:1/session/ses_test/prompt_async?directory=/workspace"
     body = json.loads(prompt.data)
     assert body == {"parts": [{"type": "text", "text": "do it"}]}
+
+
+def test_kick_without_title_sends_empty_create(calls):
+    stack_kick.kick("http://h:1", "pw", "do it")
+    create, _ = calls
+    assert json.loads(create.data) == {}
+
+
+def test_build_prompt_comment_section():
+    p = stack_kick.build_prompt("o/r", "3", "t", "b", "u",
+                                comment="please also check the tests",
+                                comment_author="josee")
+    assert "Triggered by a comment from @josee" in p
+    assert "please also check the tests" in p
+    # no comment -> no section
+    assert "Triggered by" not in stack_kick.build_prompt("o/r", "3", "t", "b", "u")
+
+
+def test_main_writes_github_output(monkeypatch, calls, tmp_path, capsys):
+    out = tmp_path / "github_output"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    assert stack_kick.main() == 0
+    assert "session_id=ses_test" in out.read_text()
+    assert "SESSION_ID=ses_test" in capsys.readouterr().out
 
 
 def test_kick_rejects_idless_create(calls, monkeypatch):
