@@ -59,22 +59,26 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
    - `TODO(verify)`: the exact litellm per-call log export mechanism on
      the pinned `v1.99.1` image - nothing in
      `agent-config/litellm/config.yaml` enables it today, and the
-     container currently mounts no host path. Resolved by the metering
-     implementation (follow-up issue #46); upstream docs were unreachable
-     when this ADR was written.
+     container currently mounts no host path for logs (the live-mounted
+     agent-config of decision 5 is config, not state). Resolved by the
+     metering implementation (follow-up issue #46); upstream docs were
+     unreachable when this ADR was written.
 3. **Attribution: no new metadata store - the existing title/PR
    conventions are the axis.**
-   - Sessions are titled `#N: <issue>` / `D#N: <discussion>` (ADR 0034);
-     PRs follow `agent/issue-N` (ADR 0035). Cost-per-PR = the sum over
-     every `#N:`-titled session: the initial kick, supervisor refinements
-     (same session re-run, ADR 0036), and re-kicks (new sessions, ADR
-     0035).
+   - Sessions are titled `#N: <issue>` (ADR 0034) or, for
+     discussion-phase work, `D#N: <discussion>` (ADR 0038; `D#N
+     elaborate:` in ADR 0041); PRs follow `agent/issue-N` (ADR 0035).
+     Cost-per-PR = the sum over every `#N:`-titled session: the initial
+     kick, supervisor refinements (same session re-run, ADR 0036), and
+     re-kicks (new sessions, ADR 0035).
    - Decided requirement (the correlation mechanism): **every router call
      carries its session title in litellm per-call metadata.** The
      opencode harness stamps its session title; the supervisor judge
-     stamps the judged session's title - verified today it sends none
-     (`cli/supervisor.py` `JUDGE_EXEC_SCRIPT` posts only model/messages),
-     so judge spend is currently unattributable. `TODO(verify)`: the
+     stamps the judged session's title. Neither stamp exists today -
+     verified: `cli/components/opencode.py` wires only the apiKey, and
+     `cli/supervisor.py` `JUDGE_EXEC_SCRIPT` posts only model/messages,
+     so judge spend is currently unattributable. Both stamping changes
+     land with the metering implementation (#46). `TODO(verify)`: the
      exact metadata/tags field and its presence in the exported per-call
      logs on `v1.99.1` - resolved in #46.
    - Boundary: `D#N` discussion-phase spend (elaborations, distillations)
@@ -87,7 +91,7 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
      with the litellm master key (`cli/components/opencode.py`,
      `cli/components/supervisor.py`), so key-level attribution is
      impossible today and titles are the only axis. This narrows ADR
-     0011's "revocable virtual keys" consequence: while the master key is
+     0011's "revocable agent keys" consequence: while the master key is
      the only key, the pod boundary is the revocation boundary.
 4. **Reporting surface: a `veggies costs` subcommand - CLI-first, not
    dashboard-first.** Per-PR, per-session, and since-date rollups computed
@@ -149,4 +153,6 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
   [0028](0028-retire-canvas-own-the-critic-loop.md); conventions the
   attribution axis rides: [0034](0034-session-observability.md),
   [0035](0035-one-shot-labels-and-done-guard.md),
-  [0036](0036-always-on-critic-for-kicked-sessions.md).
+  [0036](0036-always-on-critic-for-kicked-sessions.md),
+  [0038](0038-discussion-triggered-issue-distillation.md),
+  [0041](0041-discussion-elaboration-persona-roster.md).
