@@ -184,7 +184,7 @@ def test_repo_is_the_only_code_mount(spec):
 
 
 def test_litellm_costs_hostpath_mount(spec):
-    # ADR 0044: per-call cost log on a durable per-stack host dir - the only
+    # ADR 0047: per-call cost log on a durable per-stack host dir - the only
     # writable hostPath the litellm container gets.
     pod = _pod(spec)
     litellm = next(c for c in pod["spec"]["containers"] if c["name"] == "litellm")
@@ -1308,7 +1308,7 @@ def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
 
 
 def test_up_creates_costs_dir_before_stack_config(monkeypatch, tmp_path):
-    # ADR 0044: hostPath type: Directory fails kube play on a missing source,
+    # ADR 0047: hostPath type: Directory fails kube play on a missing source,
     # so cmd_up mkdirs the costs dir right before write_stack_config (whose
     # chcon -R on the stack dir then labels it too).
     monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
@@ -1378,7 +1378,7 @@ def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_pa
 
 
 def test_down_purge_warns_before_deleting_cost_history(monkeypatch, tmp_path, capsys):
-    # ADR 0044: the costs dir is durable history - warn once before purge
+    # ADR 0047: the costs dir is durable history - warn once before purge
     # deletes it, but never block.
     monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
     veggies.State().add(
@@ -1397,7 +1397,7 @@ def test_down_purge_warns_before_deleting_cost_history(monkeypatch, tmp_path, ca
                         lambda host, path, kind="f": path == costs)
     veggies.cmd_down(argparse.Namespace(name="c", purge=True))
     out = capsys.readouterr().out
-    assert (f"!! purge deletes {costs} (cost history, ADR 0044) - "
+    assert (f"!! purge deletes {costs} (cost history, ADR 0047) - "
             "export first if it matters") in out
     assert rmtree  # the warning never blocks the purge
 

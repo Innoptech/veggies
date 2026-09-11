@@ -41,7 +41,7 @@ def _render(ctx: PodContext) -> dict:
             secret_env("LITELLM_MASTER_KEY", spec.secret_litellm, "master_key"),
             secret_env("LITELLM_SALT_KEY", spec.secret_litellm, "salt_key"),
             secret_env("FIREWORKS_API_KEY", spec.secret_litellm, "fireworks_api_key"),
-            # ADR 0044: the cost callback stamps each JSONL line with this.
+            # ADR 0047: the cost callback stamps each JSONL line with this.
             {"name": "VEGGIES_STACK", "value": spec.name},
             # /agent-config mounts readOnly: never attempt bytecode cache.
             {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},
@@ -50,7 +50,7 @@ def _render(ctx: PodContext) -> dict:
         ] + [{"name": k, "value": v} for k, v in ctx.service("egress").env.items()],
         "volumeMounts": [
             {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
-            # ADR 0044 cost log: NOT readOnly - the only writable hostPath
+            # ADR 0047 cost log: NOT readOnly - the only writable hostPath
             # this container gets.
             {"name": "costs", "mountPath": "/costs"},
             {"name": "tmp", "mountPath": "/tmp"},
@@ -78,7 +78,7 @@ def _volumes(ctx: PodContext) -> list[dict]:
     )
     return [
         {"name": "agent-config", "hostPath": {"path": litellm_cfg, "type": "Directory"}},
-        # ADR 0044: durable per-call cost log; survives down/up/sync; inside the backup role's backup_paths.
+        # ADR 0047: durable per-call cost log; survives down/up/sync; inside the backup role's backup_paths.
         {"name": "costs", "hostPath": {"path": f"{spec.state_root()}/{spec.name}/costs", "type": "Directory"}},
     ]
 
