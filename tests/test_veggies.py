@@ -264,6 +264,16 @@ def test_no_ask_anywhere():
         assert veggies_stack.ask_violations_in_markdown(
             agent.read_text(), f"agent-config/agents/{agent.name}") == [], \
             f"{agent.name}: permission ask parks headless sessions"
+    # same scan for the vendored skills - ADR 0031/0049 scope spans skills
+    # too; every file is SKILL.md, so failure messages name the parent dir.
+    skills = sorted((INFRA_REPO / "agent-config/skills").glob("*/SKILL.md"))
+    assert skills, "agent-config/skills glob empty - did the dir move?"
+    for skill in skills:
+        assert len(skill.read_text().split("---", 2)) == 3, \
+            f"{skill.parent.name}: missing frontmatter"
+        assert veggies_stack.ask_violations_in_markdown(
+            skill.read_text(), f"agent-config/skills/{skill.parent.name}/SKILL.md") == [], \
+            f"{skill.parent.name}: permission ask parks headless sessions"
     # The project tier of THIS repo (none today; live forever after - the
     # fixtures below prove the scan bites the moment one appears).
     assert veggies_stack.scan_project_tier(INFRA_REPO) == []
