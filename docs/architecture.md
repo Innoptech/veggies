@@ -35,7 +35,17 @@ Components implement capability contracts (`cli/capabilities.py`) and are
 selected per repo via `veggies.yml`; per-repo agent rosters and skills are
 discovered from `.opencode/` in the mounted repo (ADR 0019). Stacks may opt
 into GitHub write access (`github: true` in veggies.yml): the pod carries
-the bot PAT as `GH_TOKEN` + `gh` (ADR 0030).
+the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
+from the vault (ADR 0033). The opencode image also carries the dev
+toolchain (python/mask/ansible/tofu/tflint - ADR 0032) so agents run the
+repo's own checks in-pod; molecule is excluded (no podman socket, ADR
+0028).
+
+Event path (ADR 0033): `.github/workflows/agent-trigger.yml` on the
+self-hosted runners kicks this repo's stack on `agent-task` labels /
+`/opencode` comments via `scripts/stack_kick.py`; runners reach the stack
+API over the host gateway, allowed by the egress role's per-user dport
+exceptions. No inbound listener on the VPS.
 
 ## Repo layout
 
@@ -53,8 +63,8 @@ agent-config/    vendored agent baseline: opencode.json, agents/, skills/,
 cli/             the veggies CLI: veggies.py, veggies_stack.py,
                  capabilities.py, components/
 deploy/          Containerfiles + component payloads (MCP toolbox server)
-scripts/         tfvars_from_vault.py, vault_get.py
+scripts/         tfvars_from_vault.py, vault_get.py, stack_kick.py
 tests/           pytest suite + machine-generated golden pod.yaml
 docs/            architecture.md, runbook.md, threat-model.md, adr/
-.github/workflows/  infra-ci.yml
+.github/workflows/  infra-ci.yml, agent-trigger.yml
 ```

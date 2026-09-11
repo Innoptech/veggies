@@ -243,13 +243,15 @@ around; `ask` in a headless session parks forever (verified 2026-09-09,
   `secrets/*.yml`: unreadable (vault ciphertext never enters transcripts).
 - `doom_loop` (3 identical tool calls) denies - the agent must change
   approach instead of burning tokens.
+- ADR 0031: NO permission value anywhere in `agent-config/` may be `ask`
+  (pytest-enforced) - that includes per-agent frontmatter, which overrides
+  the global block. `question` is denied too: a blocking question fails
+  fast instead of parking; agents say what they need in their final
+  message.
 - Widen a rule: one pattern line in `agent-config/opencode.json`, PR,
-  `veggies up` (recreate). Per-agent frontmatter overrides win over the
-  global block (opencode's documented merge order).
+  `veggies up` (recreate).
 - If a session still stalls, `veggies supervise` prints pending
-  permissions/questions once each; answer them in the web UI. Known
-  residual: the `question` tool can still park a headless session
-  (deliberate - ADR 0029).
+  permissions/questions once each; answer them in the web UI.
 
 ### Supervision: the critic loop (ADR 0028)
 
@@ -282,6 +284,74 @@ HTTPS. Sessions in the stack can push branches and open PRs as the bot.
   repos - the same `github_token` in secrets/github.yml that clone uses.
 - Applies at recreate: `veggies up`. The up output shows
   `github:  GH_TOKEN + gh push/PR access enabled (ADR 0030)` when enabled.
+- On github-enabled stacks the serve password is the vault key
+  `veggies_stack_password` (not per-stack random) so the repo's
+  `VEGGIES_STACK_PASSWORD` Actions secret stays valid across re-ups
+  (ADR 0033).
+
+### The in-container toolchain (ADR 0032)
+
+The opencode image carries python3/pip, `mask`, `ansible`/`ansible-vault`,
+`tofu`, `tflint`, `pre-commit`, `pytest`, `yamllint` - the agent runs the
+repo's own checks inside the stack. Two exclusions: molecule (no podman
+socket in-pod, ADR 0028) and the `actionlint-docker` pre-commit hook
+(needs a docker daemon, and it has no `files:` filter so every
+`pre-commit run --all-files` hits it) - in-container, run checks as
+`SKIP=actionlint-docker mask ci`. CI on GitHub-hosted runners still covers
+the skipped hook. In-container checks are a CLONE-stack story (the VPS
+stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
+is the host's and shadows the image's tools on the maskfile's PATH -
+run host-side there instead. Smoke-test a fresh image:
+`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version'`.
+
+### Issue-triggered agent kicks (ADR 0033)
+
+`.github/workflows/agent-trigger.yml` (self-hosted runners, this repo)
+kicks the repo's long-lived stack when:
+
+- an issue gets the `agent-task` label, or
+- an OWNER/MEMBER/COLLABORATOR comment contains `/opencode`.
+
+The job runs `scripts/stack_kick.py`: create session, fire the issue as an
+async prompt, exit in milliseconds. The agent then works the issue in the
+stack's clone and opens a PR. Plumbing: Actions variable
+`VEGGIES_STACK_HOST`/`VEGGIES_STACK_PORT` + secret `VEGGIES_STACK_PASSWORD`
+(all tofu-managed from the vault); the runner reaches the stack at
+`http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound
+ports on the VPS; allowed by `egress_extra_local_dports` in the egress
+role).
+
+TODO(you): the bot PAT (account `olgam4`, fine-grained) is missing four
+repository permissions on Innoptech/veggies, all verified 2026-09-10:
+`Contents: write` (agent push denied - the issue-#15 run committed
+`agent/issue-15` in the VPS clone but could not push), `Pull requests:
+write`, and `Secrets: write` + `Variables: write` (the tofu apply of the
+stack secret/variables 403s). Grant all four, then re-run
+`mask tofu-apply` and re-kick the issue. Until then use the manual kick
+below.
+
+Watch a kicked run (the demo path):
+
+```bash
+veggies ls                                   # confirm the stack + port
+ssh -N -L 5098:127.0.0.1:<port> veggies      # then open http://127.0.0.1:5098
+veggies supervise veggie --session <id>      # critic loop, from the web UI session list
+veggies logs veggie -f                       # raw pod logs
+```
+
+Tunnel gotcha (verified 2026-09-10): if a LOCAL stack already publishes the
+same port, `ssh -L <port>:...` cannot bind it - and anything pointed at
+`127.0.0.1:<port>` silently talks to the LOCAL stack instead. Use a
+distinct local side (5098 above) or `veggies down` the local stack first.
+
+Manual fallback (workflow down, demo must go on): run `scripts/stack_kick.py`
+by hand - the header comment has the exact env. From the operator machine,
+tunnel first or run it on the VPS (`ssh veggies`, then STACK_URL is
+`http://127.0.0.1:<port>`).
+
+Re-up caveat: the Actions variable `VEGGIES_STACK_PORT` must match the
+live stack (`veggies ls`); the password can never drift (both sides read
+the same vault key).
 
 ### Teammate onboarding (stack user, not operator)
 
