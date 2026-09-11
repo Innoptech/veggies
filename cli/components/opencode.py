@@ -24,11 +24,16 @@ from capabilities import (
     secret_env,
 )
 
-# Derived image (official + git, deploy/images/opencode.Containerfile); the
-# official one has no git (verified 2026-09-04). Base pinned by tag+digest.
-# Instruction-file discovery (AGENTS.md/CLAUDE.md auto-loaded from the mounted
-# repo, first match walking up) verified in 1.18.27 session/instruction.ts -
-# re-verify that list when bumping this image (ADR 0049).
+# Harness images (ADR 0053): the slim BASE (official image + git/gh -
+# deploy/images/opencode-base.Containerfile) is every stack's harness;
+# THIS REPO's image overlays it with the ADR 0032 dogfood toolchain
+# (deploy/images/opencode.Containerfile). The base pins the upstream image
+# by tag+digest; the overlay pins the base by tag (a locally-built image
+# has no stable digest to pin). Instruction-file discovery (AGENTS.md/
+# CLAUDE.md auto-loaded from the mounted repo, first match walking up)
+# verified in 1.18.27 session/instruction.ts - re-verify that list when
+# bumping these images (ADR 0049).
+IMAGE_OPENCODE_BASE = "localhost/veggies-opencode-base:1.18.27"
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096
 
@@ -219,5 +224,7 @@ COMPONENT = Component(
     config_files=_config_files,
     probes=_probes,
     attach=_attach,
-    build=BuildSpec(IMAGE_OPENCODE, "deploy/images/opencode.Containerfile"),
+    build=BuildSpec(IMAGE_OPENCODE, "deploy/images/opencode.Containerfile",
+                    base=BuildSpec(IMAGE_OPENCODE_BASE,
+                                   "deploy/images/opencode-base.Containerfile")),
 )

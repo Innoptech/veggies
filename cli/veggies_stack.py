@@ -47,6 +47,7 @@ from permission_envelope import (  # noqa: E402
 # Re-exported for tests and cli/veggies.py (single import surface).
 IMAGE_LITELLM = litellm.IMAGE_LITELLM
 IMAGE_OPENCODE = opencode.IMAGE_OPENCODE
+IMAGE_OPENCODE_BASE = opencode.IMAGE_OPENCODE_BASE
 IMAGE_SQUID = squid.IMAGE_SQUID
 SQUID_ALLOWLIST_BASE = squid.SQUID_ALLOWLIST_BASE
 SQUID_MODEL_ENDPOINTS = squid.SQUID_MODEL_ENDPOINTS
