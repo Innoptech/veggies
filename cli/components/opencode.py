@@ -104,6 +104,16 @@ def _render(ctx: PodContext) -> dict:
             "mkdir -p /root/.config/infra; "
             "[ -f /root/.config/infra/vault-password ] || "
             "printf 'ci-dummy-not-a-real-secret\\n' > /root/.config/infra/vault-password; "
+            # Publish the image's tool-pin manifest (issue #87, ADR 0053)
+            # where the serve API can read it - the kick gate's only
+            # channel to the live stack. rm -f first: a rollback to a
+            # pre-manifest image must go loud (manifest absent), never
+            # false-pass a stale one. Tolerant: pre-manifest images carry
+            # no /etc file and must still start.
+            "mkdir -p /workspace/.veggies; "
+            "rm -f /workspace/.veggies/image-tool-pins; "
+            "[ ! -f /etc/veggies-tool-pins ] || "
+            "cp /etc/veggies-tool-pins /workspace/.veggies/image-tool-pins; "
             + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"
         ],
