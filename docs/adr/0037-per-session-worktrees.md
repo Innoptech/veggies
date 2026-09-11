@@ -3,17 +3,18 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0036. Per-session git worktrees inside the shared clone
+# 0037. Per-session git worktrees inside the shared clone
 
 ## Context and problem statement
 
 Every session on a stack - kicked via ADR 0033, supervised via ADR 0028, or
 attached by a human - shares the one checkout mounted at `/workspace`.
 Parallel sessions then overwrite each other's files and clobber each
-other's git state. Verified live 2026-09-11 while working issue #27: a
-session's freshly-created branch vanished and the shared checkout switched
-branches mid-task because another session ran its own `git checkout`; two
-earlier sessions had already improvised ad-hoc worktrees under `/tmp`.
+other's git state. Observed live 2026-09-11 while working issue #27: with
+three agent sessions active in the same clone, one session's
+freshly-created branch vanished mid-task and the shared checkout switched
+branches under it; two earlier sessions had already improvised ad-hoc
+worktrees under `/tmp`.
 
 ## Decision drivers
 
@@ -47,15 +48,23 @@ earlier sessions had already improvised ad-hoc worktrees under `/tmp`.
 ## Decision outcome
 
 Option A. `scripts/stack_kick.py`'s prompt mandates a mechanical
-bootstrap: fetch, `git worktree add -B agent/issue-N
-/workspace/.veggies/wt/issue-N origin/main`, exclude `.veggies/` via
-`.git/info/exclude`, then work only inside the worktree. `-B` gives
-deterministic fresh-or-reset semantics AND refuses when another live
-session holds the branch - the concurrency tripwire; the prompt's fallback
-is a `-2` suffix, never removing someone else's worktree. `veggies up`
-also writes the `info/exclude` line (`ensure_worktree_exclude`, both modes,
-local and remote) so hand-attached sessions on not-yet-re-upped stacks are
-covered too. The session directory stays `/workspace`.
+bootstrap: fetch, `git worktree add --lock --reason ... -B agent/issue-N
+/workspace/.veggies/wt/issue-N origin/main`, exclude `/.veggies/` via
+`.git/info/exclude`, then work only inside the worktree using absolute
+paths (opencode's file tools resolve relative paths against the session
+dir `/workspace`, not the shell's cwd). `-B` gives deterministic
+fresh-or-reset semantics AND refuses ("already used by worktree") when
+another live session holds the branch - the concurrency tripwire; the
+prompt's fallback is a `-2` suffix, never `-f`/`--force` (which overrides
+the tripwire) and never removing someone else's worktree. `--lock` makes
+a live session's tree refuse a bare `worktree remove --force` (verified
+2026-09-11, git 2.54: a locked worktree needs the deliberate double
+`-f -f`). Exclusion is two-layer: `/.veggies/` is committed to THIS repo's
+`.gitignore` (our own clones' hygiene), and `veggies up` writes the same
+line to any stack repo's `.git/info/exclude` (`ensure_worktree_exclude`,
+both modes, local and remote, common-dir aware) because mutating a mounted
+repo's tracked `.gitignore` would be wrong. The session directory stays
+`/workspace`.
 
 ## Consequences
 
@@ -72,12 +81,17 @@ covered too. The session directory stays `/workspace`.
 - Accepted: a crashed run leaves a stale worktree holding the branch; the
   re-kick lands on the `-2` suffix, which the done-guard's
   `head=agent/issue-N` PR lookup (0035) does not match - the issue-closed
-  half of the guard still applies. Operators clean stale worktrees with
-  `git worktree remove` (runbook §9); clone-mode `down --purge` removes the
-  whole clone, worktrees included.
+  half of the guard still applies. Cleanup subtlety: `git worktree remove`
+  does NOT delete the branch - it survives with any unpushed commits, and
+  the next kick's `-B` then resets it to `origin/main`, discarding them.
+  Rescue work BEFORE removing a stale tree (`git branch backup-N
+  agent/issue-N`); the runbook says so. Clone-mode `down --purge` removes
+  the whole clone, worktrees included.
 - Mount mode: worktrees live inside the operator's own repo (excluded from
   status by the same `info/exclude` line); `down --purge` never touches a
-  mounted repo, so cleanup stays manual there.
+  mounted repo, so cleanup stays manual there. The exclusion also means
+  casual `git status` hides the worktrees - `git worktree list` shows them
+  (runbook §9).
 
 ## Links
 

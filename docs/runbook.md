@@ -410,30 +410,43 @@ by hand - the header comment has the exact env. From the operator machine,
 tunnel first or run it on the VPS (`ssh veggies`, then STACK_URL is
 `http://127.0.0.1:<port>`).
 
-### Session worktrees (ADR 0036)
+### Session worktrees (ADR 0037)
 
 Sessions on a stack share one clone, so every kicked session works in its
 own git worktree: `/workspace/.veggies/wt/issue-N` on branch
-`agent/issue-N` (the kick prompt mandates the bootstrap; `veggies up`
-excludes `.veggies/` via the clone's `.git/info/exclude`, so worktrees
-never show up in anyone's `git status`). The shared checkout at
-`/workspace` itself is read-only for kicked sessions.
+`agent/issue-N`, created `--lock`ed by the kick prompt's bootstrap. The
+shared checkout at `/workspace` itself is read-only for kicked sessions.
+`/.veggies/` is excluded two ways: committed in this repo's `.gitignore`,
+and written per-clone to `.git/info/exclude` by `veggies up` (so worktrees
+never show up in anyone's `git status`; `git worktree list` shows them).
 
-Inspect and clean up on the stack's host (clone mode shown; in mount mode
-the worktrees live in YOUR repo and cleanup is yours):
+Inspect on the stack's host - locally `~/.local/state/veggies/clones/<name>`,
+on the VPS as the stacks user:
 
 ```bash
-git -C ~/.local/state/veggies/clones/<name> worktree list
-git -C ~/.local/state/veggies/clones/<name> worktree remove --force \
-    .veggies/wt/issue-N        # frees the agent/issue-N branch too
+sudo -u stacks git -C /home/stacks/.local/state/veggies/clones/<name> worktree list
 ```
 
-Remove a worktree only when no live session owns it (check `veggies
-sessions <name>` first) - removing a live session's tree is exactly the
-clobbering this design exists to prevent. A crashed run leaves the
-worktree behind; the re-kick then takes the `-2` suffix and says so in its
-PR body. `down --purge` on a clone-mode stack deletes the whole clone,
-worktrees included.
+Clean up a stale worktree (a crashed run leaves one behind):
+
+```bash
+# 1. check no live session owns it
+veggies sessions <name>
+# 2. rescue unpushed work FIRST if it matters - removing the worktree does
+#    NOT delete the branch, and the next kick's `-B` resets the surviving
+#    branch to origin/main, discarding unpushed commits
+sudo -u stacks git -C /home/stacks/.local/state/veggies/clones/<name> \
+    branch backup-issue-N agent/issue-N    # optional rescue
+# 3. locked trees need the deliberate double -f
+sudo -u stacks git -C /home/stacks/.local/state/veggies/clones/<name> \
+    worktree remove -f -f .veggies/wt/issue-N
+```
+
+Never remove a live session's tree - that is exactly the clobbering this
+design exists to prevent. While the stale tree exists, a re-kick takes the
+`-2` suffix and says so in its PR body. `down --purge` on a clone-mode
+stack deletes the whole clone, worktrees included; in mount mode the
+worktrees live in YOUR repo and cleanup is yours.
 
 Re-up caveat: the Actions variable `VEGGIES_STACK_PORT` must match the
 live stack (`veggies ls`); the password can never drift (both sides read
