@@ -1,6 +1,6 @@
 output "governed_repos" {
-  description = "Repositories with branch protection applied."
-  value       = sort(keys(github_branch_protection.main))
+  description = "Repositories with the default-branch ruleset applied."
+  value       = sort(keys(github_repository_ruleset.main))
 }
 
 output "environment_name" {
