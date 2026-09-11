@@ -80,10 +80,12 @@ reviews PRs; agents implement. These rules are not negotiable:
    (ADR 0034):
    kicked sessions are titled `#N: <issue>`, the workflow comments the
    session link back onto the issue, and `veggies ui` / `veggies sessions`
-   are the watch path. `agent-task` is a one-shot label (ADR 0035): the
-   workflow clears it on kick/skip, and the done-guard never re-kicks an
-   issue that is closed or has a merged or ready `agent/issue-N` PR - an
-   open draft no longer blocks re-kicks (ADR 0046).
+   are the watch path; `veggies costs` reads the ADR 0051 spend log for
+   per-issue/PR and since-date rollups. `agent-task` is a one-shot label
+   (ADR 0035): the workflow clears it on kick/skip, and the done-guard
+   never re-kicks an issue that is closed or has a merged or ready
+   `agent/issue-N` PR - an open draft no longer blocks re-kicks
+   (ADR 0046).
    `veggies prepare` pre-stages images with build logs; `mask demo-stack`
    is the one-command clean-VPS-to-stack path (runbook §1).
    Session isolation (ADR 0037): every kicked session works in its own git

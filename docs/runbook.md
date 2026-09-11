@@ -353,6 +353,40 @@ be distinguishable from the gate passing), and judgment state is
 in-memory: a pod recreate simply never judges sessions created before
 the restart - run `veggies supervise` by hand if one matters.
 
+### Spend reporting: veggies costs (ADR 0022/0051)
+
+`veggies costs <name> [--since YYYY-MM-DD] [--weekly] [--issue N | --pr N
+| --session SUBSTR]` reads the per-call spend log
+`<state_root>/<name>/spend.jsonl*` (state_root: `~/.local/state/veggies`
+local, `/home/stacks/.local/state/veggies` on the VPS; rotated
+`spend.jsonl.<N>` segments included). The writer is the metering work in
+issue #46, the record contract is pinned in ADR 0051; until a stack has
+the writer, the command prints `no spend log for stack ...` and exits 0.
+
+```bash
+veggies costs veggie                     # per-issue/discussion table + daily bars
+veggies costs veggie --issue 15          # one issue: session cascade + per-model
+veggies costs veggie --session refactor  # same detail, titles matching SUBSTR
+veggies costs veggie --pr 16             # PR -> agent/issue-M via gh, then --issue M
+```
+
+- Default: one row per issue/discussion target plus daily spend bars;
+  past 62 days (or with `--weekly`) the bars go ISO-weekly. The default
+  window starts at the earliest retained record; `--since` sets it.
+- `--issue N`: the full cascade per (session_id, title) - kick,
+  supervisor re-runs and re-kicks as separate session rows with
+  per-title subtotals - plus a per-model breakdown.
+- `--pr N` resolves `agent/issue-M` via operator-side `gh pr view`
+  (needs gh auth), then behaves as `--issue M`.
+- Attribution rides the title conventions (`#N:`, `D#N` - ADR
+  0034/0038/0041); anything off-convention lands in the always-printed
+  `(unattributed)` bucket.
+
+Honesty clause: spend history lives only in that file - `veggies down
+<name> --purge` deletes it with the state root, and local-workstation
+stacks have no backup at all; restic picks it up only once backups
+un-gate (ADR 0024). The number is operational, not an audit trail.
+
 ### Open PRs from a stack (github: true)
 
 Opt-in per repo (ADR 0030): `github: true` in veggies.yml, or `--github`
