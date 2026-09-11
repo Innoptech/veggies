@@ -22,8 +22,12 @@ python3 -m venv .venv
 # claim made true. Keep versions+sha256 in sync with
 # deploy/images/opencode.Containerfile - tests/test_tool_pins.py enforces.
 mkdir -p "$HOME/.local/bin"
+[ "$(uname -sm)" = "Linux x86_64" ] ||
+  { echo "mask setup installs linux/amd64 binaries only - install tofu/tflint/gitleaks/actionlint manually on this host"; exit 1; }
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 (
-  cd "$(mktemp -d)"
+  cd "$tmp"
   curl -fsSL -o tofu.zip "https://github.com/opentofu/opentofu/releases/download/v1.12.6/tofu_1.12.6_linux_amd64.zip"
   echo "5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8  tofu.zip" | sha256sum -c -
   unzip -q tofu.zip tofu
