@@ -408,11 +408,13 @@ kicks the repo's long-lived stack when:
 
 - an issue gets the `agent-task` label, or
 - an OWNER/MEMBER/COLLABORATOR comment **starts with** `/opencode`
-  (command-style; prose mentions never fire) - on an issue (the agent
-  works it, ADR 0033) or on a **discussion** (the agent reads the whole
-  thread and distills it into issues with Plan / Happy path / Criteria of
-  success sections, ADR 0038) - or **starts with** `/elaborate` on a
-  discussion (five persona POV comments, ADR 0041). INTERIM (ADR 0043):
+  (command-style; prose mentions never fire) on an **issue** (the agent
+  works it, ADR 0033) - or, on a **discussion**, **starts with**
+  `/distill` (renamed from `/opencode`, which no longer triggers on
+  discussions): the agent reads the whole thread, distills it into issues
+  with Plan / Happy path / Criteria of success sections, then closes the
+  discussion as resolved (ADR 0038/0050) - or **starts with** `/elaborate`
+  on a discussion (five persona POV comments, ADR 0041). INTERIM (ADR 0043):
   while the agent shares the operator's `olgam4` identity, olgam4 MAY
   trigger - the self-kick loop is bounded by command anchoring, the
   in-flight guard (issues AND discussions now) and the issue done-guard;
@@ -433,9 +435,14 @@ behind main is done-guarded (ready = handled) and PR comments never kick -
 convert it back with `gh pr ready --undo`, then re-kick the issue; the
 session rebases and re-runs the ready-gate.
 A failed kick keeps the label. Discussions have no done-guard: every
-`/opencode` comment is a deliberate kick, and re-kicking an evolving
-discussion is normal (the agent dedupes against issues it already created
-from that discussion; ADR 0038).
+`/distill` (or `/elaborate`) comment is a deliberate kick, and re-kicking
+an evolving discussion is normal (the agent dedupes against issues it
+already created from that discussion; ADR 0038). When the distill summary
+comment lands, the agent closes the discussion as resolved (ADR 0050);
+closing is a completion signal, not a gate - a closed discussion can
+still be commented on and re-kicked with a fresh `/distill`
+(TODO(verify): that `discussion_comment` created fires on a closed
+discussion), and re-distillation dedupes against existing issues.
 
 `/elaborate` on a discussion (ADR 0041) kicks one session that fans out
 to the vendored persona roster and posts one `**<Role> POV**` comment
@@ -469,8 +476,9 @@ role).
 
 TODO(you): the bot PAT (account `olgam4`, fine-grained) is missing
 `Discussions: write` on Innoptech/veggies: the distilling agent's closing
-comment on the source discussion and the `/elaborate` persona POV
-comments (ADR 0041) both degrade to a named-permission final
+comment on the source discussion, its close-as-resolved call
+(`closeDiscussion`, ADR 0050), and the `/elaborate` persona POV
+comments (ADR 0041) all degrade to a named-permission final
 message until granted (the created issues still link the discussion, so
 the back-reference appears regardless). The four permissions verified
 missing on 2026-09-10 (`Contents`/`Pull requests`/`Secrets`/`Variables`

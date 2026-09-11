@@ -60,7 +60,9 @@ reviews PRs; agents implement. These rules are not negotiable:
     block in terraform/github/agent_kicks.tf (ADR 0048) - the workflow and
     stack_kick.py masters stay in this repo and are delivered onto the
     adopted repo's `infra/agent-trigger` branch (this repo itself delivers
-    nothing: manage_files=false); a trusted `/elaborate` discussion comment
+    nothing: manage_files=false); a trusted `/distill` discussion comment
+    distills the thread into issues and closes the discussion as resolved
+    (ADR 0050); a trusted `/elaborate` discussion comment
     instead kicks one session that fans out to the vendored persona roster
     (`agent-config/agents/`: domain-expert, infra-architect, marketer,
     seller, cto) and posts one attributed POV comment per persona (ADR

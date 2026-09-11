@@ -48,16 +48,18 @@ toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
 0032/0047) so agents run the repo's own checks in-pod; molecule is
 excluded (no podman socket, ADR 0028).
 
-Event path (ADR 0033/0038/0041): `.github/workflows/agent-trigger.yml` on
-the self-hosted runners kicks this repo's stack via `scripts/stack_kick.py`
-on `agent-task` labels and `/opencode` comments - on issues (the agent
-works the issue and opens a draft PR) and on discussions (the agent reads the
-fetched thread and distills it into issues: plan / happy path / criteria
-of success). A trusted `/elaborate` discussion comment instead kicks one
-session that fans out to the vendored persona roster (domain expert,
-infra/architecture, marketer, seller, CTO - `agent-config/agents/`) and
-posts one attributed POV comment per persona back on the discussion - the
-comments are the deliverable (no branch, no PR). Runners reach the stack
+Event path (ADR 0033/0038/0041/0050): `.github/workflows/agent-trigger.yml`
+on the self-hosted runners kicks this repo's stack via
+`scripts/stack_kick.py` on `agent-task` labels and command comments:
+`/opencode` on issues (the agent works the issue and opens a draft PR) and
+`/distill` on discussions (the agent reads the fetched thread, distills
+it into issues - plan / happy path / criteria of success - and closes the
+discussion as resolved, ADR 0050). A trusted `/elaborate` discussion
+comment instead kicks one session that fans out to the vendored persona
+roster (domain expert, infra/architecture, marketer, seller, CTO -
+`agent-config/agents/`) and posts one attributed POV comment per persona
+back on the discussion - the comments are the deliverable (no branch, no
+PR). Runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
 exceptions. No inbound listener on the VPS. The issue kick prompt mandates
 the full pipeline (ADR 0036/0042): plan first - a draft refined by one

@@ -46,18 +46,19 @@ changes, and keep this index's titles and statuses in sync.
 | [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted (amended by 0046) |
 | [0036](0036-always-on-critic-for-kicked-sessions.md) | Always-on critic for kicked sessions: in-pod supervisor component | accepted |
 | [0037](0037-per-session-worktrees.md) | Per-session git worktrees inside the shared clone | accepted |
-| [0038](0038-discussion-triggered-issue-distillation.md) | Discussion-triggered kicks: distill a discussion into issues | accepted |
+| [0038](0038-discussion-triggered-issue-distillation.md) | Discussion-triggered kicks: distill a discussion into issues | accepted (amended by 0050) |
 | [0039](0039-discussion-feedback-contract.md) | Discussion feedback: agent-owned results, workflow-owned acks | accepted |
 | [0040](0040-self-trigger-guard.md) | Self-trigger guard: bot exclusion, command-anchored keyword, in-flight done-guard | accepted (amended by 0043) |
 | [0041](0041-discussion-elaboration-persona-roster.md) | Discussion elaboration: a persona POV roster answers /elaborate | accepted |
 | [0042](0042-multi-role-plan-review.md) | Multi-role plan review: the persona roster reviews every kicked plan | accepted |
-| [0043](0043-interim-shared-identity-trigger.md) | Interim: the shared olgam4 identity may trigger kicks | accepted (interim - sunsets at the GitHub App agent identity) |
+| [0043](0043-interim-shared-identity-trigger.md) | Interim: the shared olgam4 identity may trigger kicks | accepted (interim - sunsets at the GitHub App agent identity; extended by 0050) |
 | [0044](0044-live-first-watch-path-no-close-time-deletion.md) | Watch path lists live sessions first; no close-time session deletion | accepted |
 | [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
 | [0046](0046-draft-first-pr-lifecycle.md) | Draft-first PR lifecycle and the redefined done-guard | accepted |
 | [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted |
 | [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted |
 | [0049](0049-no-ask-merged-roster-and-instruction-discovery.md) | No-ask over the merged roster; repo instruction files stay configuration-free | accepted |
+| [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
 
 ## Deviation ledger (vs the original brief)
 
