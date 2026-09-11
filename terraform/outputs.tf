@@ -1,5 +1,5 @@
 output "governed_repos" {
-  description = "Repositories with branch protection applied."
+  description = "Repositories with the default-branch ruleset applied."
   value       = module.github.governed_repos
 }
 
