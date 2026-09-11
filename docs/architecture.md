@@ -44,7 +44,7 @@ repo's own checks in-pod; molecule is excluded (no podman socket, ADR
 Event path (ADR 0033/0038/0041): `.github/workflows/agent-trigger.yml` on
 the self-hosted runners kicks this repo's stack via `scripts/stack_kick.py`
 on `agent-task` labels and `/opencode` comments - on issues (the agent
-works the issue and opens a PR) and on discussions (the agent reads the
+works the issue and opens a draft PR) and on discussions (the agent reads the
 fetched thread and distills it into issues: plan / happy path / criteria
 of success). A trusted `/elaborate` discussion comment instead kicks one
 session that fans out to the vendored persona roster (domain expert,
@@ -60,7 +60,9 @@ no-objection, before code - execution through task subagents, an
 adversarial-review subagent pass on the diff before pushing, and a
 verify step running the repo's declared gate (the `veggies-verify-gate`
 marker in its agent-instruction file, ADR 0045), not a hardcoded
-command. Observability (ADR
+command; then the ready-gate (ADR 0046): green checks and mergeable
+against current main - rebasing first - before `gh pr ready` as the
+final act. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
 (`D#N elaborate: <title>` for persona-roster runs), the
 workflow comments the session link back on issues (discussions get a

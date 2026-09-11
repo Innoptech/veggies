@@ -6,6 +6,9 @@ ephemeral self-hosted GitHub Actions runners, reachable over hardened,
 key-only SSH (Tailscale-only access is deferred - ADR 0024).
 Everything about the machine - access, secrets, network policy, merge policy -
 is reviewable code in this repo.
+Label an issue `agent-task` and the repo's own agent stack works it in the
+open on a draft PR - commits and CI land there as it goes - and marks it
+ready only when it is green and merges cleanly against main (ADR 0044).
 
 ## Quickstart
 
