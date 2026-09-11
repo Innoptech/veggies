@@ -206,27 +206,37 @@ def remote_clone_cmd(host: str, repo_url: str, clone_dir: str) -> list[str]:
 _REMOTE_UID: dict[str, str] = {}
 
 
-def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Run a command on the stack's host. Remote = ssh + passwordless sudo
-    to the stacks user; stdin (kube YAML, secrets) pipes through. ssh
-    re-joins argv with spaces for the remote login shell, so everything is
-    shlex.quoted into ONE string - quoted payloads (sh -c 'a && b') survive
-    exactly (verified 2026-09-08: unquoted, the && chain ran as fedora and
-    died on /home/stacks traversal). env sets HOME/XDG so nologin service
-    users work (no `sudo -i`: it re-parses through the login shell too)."""
-    if host is None:
-        return run(args, **kwargs)
+def _remote_uid(host: str) -> str:
     if host not in _REMOTE_UID:
         _REMOTE_UID[host] = run(
             ["ssh", host, "sudo", "-n", "-u", REMOTE_USER, "id", "-u"],
             capture=True).stdout.strip()
+    return _REMOTE_UID[host]
+
+
+def remote_sh(host: str, args: list[str]) -> str:
+    """The one-string remote command: ssh re-joins argv with spaces for the
+    remote login shell, so everything is shlex.quoted - quoted payloads
+    (sh -c 'a && b') survive exactly (verified 2026-09-08: unquoted, the &&
+    chain ran as fedora and died on /home/stacks traversal). env sets
+    HOME/XDG so nologin service users work (no `sudo -i`: it re-parses
+    through the login shell, and stacks' shell is nologin - verified
+    2026-09-10 when `logs` broke with "account is currently not
+    available"). cd / first: podman chdirs to $cwd."""
     remote = " ".join(shlex.quote(a) for a in
                       ["sudo", "-n", "-u", REMOTE_USER,
                        "env", f"HOME=/home/{REMOTE_USER}",
-                       f"XDG_RUNTIME_DIR=/run/user/{_REMOTE_UID[host]}",
+                       f"XDG_RUNTIME_DIR=/run/user/{_remote_uid(host)}",
                        *args])
-    # cd out of the admin's 0700 home first: podman chdirs to $cwd.
-    return run(["ssh", host, "cd / && " + remote], **kwargs)
+    return "cd / && " + remote
+
+
+def host_run(host: str | None, args: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """Run a command on the stack's host. Remote = ssh + passwordless sudo
+    to the stacks user; stdin (kube YAML, secrets) pipes through."""
+    if host is None:
+        return run(args, **kwargs)
+    return run(["ssh", host, remote_sh(host, args)], **kwargs)
 
 
 def host_podman(host: str | None, *args: str, **kwargs) -> subprocess.CompletedProcess:
@@ -494,6 +504,21 @@ def warn_if_root(host: str | None) -> None:
               file=sys.stderr)
 
 
+def warm_api(host: str | None, port: int, password: str,
+             timeout: int = 180) -> bool:
+    """Absorb opencode's cold bootstrap: the first authenticated API call
+    installs plugins through the proxy (~1 min) and looks like a hang to
+    whoever triggers it (verified 2026-09-10, `veggies status` right after
+    up). Probe until 200 so the stall happens inside `up`, not later."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if probe_api(host, port, password,
+                     "/config?directory=/workspace") is not None:
+            return True
+        time.sleep(3)
+    return False
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
     state = State()
@@ -529,6 +554,15 @@ def cmd_up(args: argparse.Namespace) -> int:
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
     existing = state.get(name)
+    if existing and (existing["host"] or None) != host:
+        # Names are the state primary key: a same-named stack on another
+        # host would silently reuse the port and then overwrite the record
+        # (verified 2026-09-10: re-upping "veggie" on the VPS orphaned the
+        # local stack's record).
+        raise ValueError(
+            f"stack {name!r} already exists on host "
+            f"{existing['host'] or 'local'} - pick another --name or "
+            "`veggies down` it first")
     port = existing["port"] if existing else allocate_port(state.used_ports())
     spec = StackSpec(name=name, repo=repo_path, mode=mode, port=port, host=host,
                      model=args.model or cfg.get("model"),
@@ -598,7 +632,16 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     print("==> waiting for healthy")
     wait_healthy(spec)
+    # kube play's hostPath relabeling is unreliable (label_for_containers has
+    # the history): a replaced pod can leave its *private* MCS categories on
+    # the repo, and the new pod then reads EACCES (verified 2026-09-10 on a
+    # local re-up). Re-assert the shared label now that the pod exists -
+    # chcon applies live to the running pod's mounts, no restart needed.
+    label_for_containers(host, repo_path)
     state.add(spec, password=values["password"])
+    print("==> warming api (first authenticated call cold-boots opencode)")
+    if not warm_api(host, port, values["password"]):
+        print("!! api still cold - first attach/status may take a minute")
 
     print(f"\nstack up: {url}  (user: opencode, password: {values['password']})")
     if host:
@@ -744,6 +787,15 @@ def cmd_attach(args: argparse.Namespace) -> int:
     if record is None:
         raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
     url = stack_url(record)
+    if record["host"]:
+        # The bare hostname only resolves once a tailnet exists (ADR 0024);
+        # until then attach rides a tunnel. Distinct local port: a local
+        # stack on the same number silently wins the bind (verified
+        # 2026-09-10).
+        print(f"remote stack: tunnel first, e.g. "
+              f"`ssh -N -L 5{record['port']}:127.0.0.1:{record['port']} "
+              f"{record['host']}` then attach http://127.0.0.1:5{record['port']}",
+              file=sys.stderr)
     harness = harness_of(spec_from_record(args.name, record))
     if harness is None or harness.attach is None:
         print(f"this stack's harness is not attachable via the CLI; "
@@ -769,8 +821,8 @@ def cmd_logs(args: argparse.Namespace) -> int:
         cmd = ["podman", "pod", "logs"] + (["-f"] if args.follow else []) + \
               [f"veggies-{args.name}"]
     if record["host"]:
-        os.execvp("ssh", ["ssh", record["host"], "sudo", "-n", "-iu",
-                          REMOTE_USER, *cmd])
+        os.execvp("ssh", ["ssh", record["host"],
+                          remote_sh(record["host"], cmd)])
     os.execvp("podman", cmd)
     return 0  # unreachable
 
