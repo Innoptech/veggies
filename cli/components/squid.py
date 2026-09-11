@@ -20,6 +20,10 @@ SQUID_ALLOWLIST_BASE = [
     "api.github.com",
     ".githubusercontent.com",
     "codeload.github.com",
+    # Actions job logs/artifacts upload to Azure results storage (GitHub's
+    # self-hosted-runner network requirements; issue #25). Broad suffix:
+    # the storage-account prefix (productionresultssaN...) is not enumerable.
+    ".blob.core.windows.net",
     "registry.npmjs.org",
     "pypi.org",
     "files.pythonhosted.org",

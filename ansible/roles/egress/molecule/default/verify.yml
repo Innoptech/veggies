@@ -43,6 +43,8 @@
       ansible.builtin.assert:
         that:
           - "'api.github.com' in (egress_allowlist_content.content | b64decode)"
+          # Actions job logs upload to Azure results storage (issue #25)
+          - "'.blob.core.windows.net' in (egress_allowlist_content.content | b64decode)"
           - "'api.fireworks.ai' in (egress_allowlist_content.content | b64decode)"
           # in-container `mask ci` (tofu init) rides the proxy too
           - "'registry.opentofu.org' in (egress_allowlist_content.content | b64decode)"
