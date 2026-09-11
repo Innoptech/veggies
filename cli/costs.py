@@ -67,7 +67,18 @@ def _record(obj: object) -> SpendRecord | None:
     degrades in place (None = unpriced), per ADR 0044 decision 3."""
     if not isinstance(obj, dict):
         return None
-    if not _is_num(obj.get("ts")) or not isinstance(obj.get("model"), str):
+    raw_ts = obj.get("ts")
+    if isinstance(raw_ts, bool) or not isinstance(raw_ts, (int, float)):
+        return None
+    try:
+        ts = float(raw_ts)
+    except (OverflowError, ValueError, TypeError):
+        return None  # e.g. an int too large to convert to float
+    # ts feeds datetime.fromtimestamp: non-finite or beyond datetime.max's
+    # epoch (253402300800) would raise there - malformed, not fatal.
+    if not math.isfinite(ts) or abs(ts) > 253402300800:
+        return None
+    if not isinstance(obj.get("model"), str):
         return None
     if not _is_int(obj.get("prompt_tokens")) or \
             not _is_int(obj.get("completion_tokens")):
@@ -78,11 +89,18 @@ def _record(obj: object) -> SpendRecord | None:
     if not isinstance(session, str):
         return None
     spend = obj.get("spend")
-    # json.loads accepts NaN/Infinity: non-finite would poison every sum,
-    # so it degrades to unpriced like any other missing/bad spend.
-    priced = float(spend) if _is_num(spend) and math.isfinite(spend) else None
+    # json.loads accepts NaN/Infinity, and a huge int overflows float() -
+    # both degrade to unpriced, never a traceback or a poisoned sum.
+    priced = None
+    if _is_num(spend):
+        try:
+            priced = float(spend)
+        except OverflowError:
+            priced = None
+    if priced is not None and not math.isfinite(priced):
+        priced = None
     return SpendRecord(
-        ts=float(obj["ts"]), model=obj["model"],
+        ts=ts, model=obj["model"],
         prompt_tokens=int(obj["prompt_tokens"]),
         completion_tokens=int(obj["completion_tokens"]),
         spend=priced,
@@ -100,7 +118,9 @@ def parse_spend_log(text: str) -> ParseResult:
             continue
         try:
             obj = json.loads(line)
-        except json.JSONDecodeError:
+        except ValueError:
+            # JSONDecodeError is a ValueError subclass; this clause also
+            # catches 4300+-digit int literals hiding in ignored extra keys.
             skipped += 1
             continue
         rec = _record(obj)
@@ -239,7 +259,8 @@ def render_summary(rows: list[TargetRow], *, since: date, today: date,
                    weekly: bool) -> str:
     total = sum(r.spend for r in rows)
     calls = sum(r.calls for r in rows)
-    header = (f"spend since {since.isoformat()} ({(today - since).days} days)"
+    days = max(0, (today - since).days)  # a future --since never shows -N
+    header = (f"spend since {since.isoformat()} ({days} days)"
               f", {money(total)} total, {calls} calls")
     if earliest:  # default window: the start IS the oldest record we have
         header += ", earliest retained record"
@@ -247,7 +268,8 @@ def render_summary(rows: list[TargetRow], *, since: date, today: date,
         header += f", {len(segments)} segments ({', '.join(segments)})"
     lines = [header]
     if skipped:
-        lines.append(f"skipped: {skipped} malformed lines")
+        # skipped spans the whole log; unpriced is window-scoped - say so
+        lines.append(f"skipped: {skipped} malformed lines (whole log)")
     if unpriced:
         lines.append(f"unpriced: {unpriced} record(s) missing spend "
                      "(rendered ?, excluded from totals)")
@@ -277,7 +299,7 @@ def _priced(recs: list[SpendRecord]) -> float | None:
 
 
 def render_detail(records: list[SpendRecord], *, subject: str,
-                  unpriced: int) -> str:
+                  unpriced: int, weekly: bool = False) -> str:
     """Per-(session_id, title) cascade + per-model + daily bars for one
     filter. session_id is part of the group key: re-kicks mint new sessions
     under the same `#N:` title (ADR 0035), so title alone cannot separate
@@ -321,5 +343,5 @@ def render_detail(records: list[SpendRecord], *, subject: str,
                      f"{sum(r.prompt_tokens for r in recs):>9} "
                      f"{sum(r.completion_tokens for r in recs):>10} "
                      f"{money(_priced(recs)):>10}")
-    lines += ["", render_bars(rollup(records, weekly=False), weekly=False)]
+    lines += ["", render_bars(rollup(records, weekly=weekly), weekly=weekly)]
     return "\n".join(lines)

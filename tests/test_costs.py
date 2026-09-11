@@ -142,6 +142,30 @@ def test_parse_wrong_typed_required_fields_are_malformed(bad):
     assert res.records == [] and res.skipped == 1
 
 
+@pytest.mark.parametrize("raw_ts", [
+    "Infinity", "-Infinity", "NaN",  # non-finite: must not reach fromtimestamp
+    "1e18",                          # finite but beyond datetime.max epoch
+    "9" * 400,                     # 400-digit int: float() overflows
+])
+def test_parse_out_of_range_ts_is_malformed(raw_ts):
+    line = ('{"ts": ' + raw_ts + ', "model": "m", "prompt_tokens": 1, '
+            '"completion_tokens": 1, "spend": 0.1, "session": "", '
+            '"session_id": "ses_x"}')
+    res = costs.parse_spend_log(line)
+    assert res.records == [] and res.skipped == 1
+
+
+def test_parse_huge_int_spend_is_unpriced_not_fatal():
+    # a 400-digit JSON int overflows float(); spend degrades to unpriced,
+    # never a traceback
+    line = ('{"ts": 1, "model": "m", "prompt_tokens": 1, '
+            '"completion_tokens": 1, "spend": ' + "9" * 400 +
+            ', "session": "", "session_id": "ses_x"}')
+    res = costs.parse_spend_log(line)
+    assert res.skipped == 0 and res.unpriced == 1
+    assert res.records[0].spend is None
+
+
 # --- attribute -------------------------------------------------------------------
 
 
@@ -325,6 +349,14 @@ def test_render_summary_table_order_total_row_and_inferred_share():
     assert lines[target_idx + 3].startswith("(unattributed)")
     total_line = next(ln for ln in lines if ln.startswith("total ("))
     assert total_line == "total (2 issues, 4 calls)  $6.60"
+
+
+def test_render_summary_clamps_negative_days():
+    out = costs.render_summary([], since=date(2099, 1, 1),
+                               today=date(2026, 9, 11), earliest=False,
+                               segments=["spend.jsonl"], skipped=0,
+                               unpriced=0, bars=[], weekly=False)
+    assert "(0 days)" in out.splitlines()[0]
 
 
 # --- render_bars ---------------------------------------------------------------------------
@@ -685,3 +717,138 @@ def test_main_costs_pr_without_gh_cli(tmp_path, monkeypatch, capsys):
     rc = veggies.main(["costs", "demo", "--pr", "61"])
     err = capsys.readouterr().err
     assert rc == 1 and "gh" in err and "--issue" in err
+
+
+# --- adversarial-review hardening (issue #47) ------------------------------------
+
+
+def test_main_costs_bad_ts_lines_are_skipped_not_fatal(local_stack, capsys):
+    bad = [('{"ts": ' + v + ', "model": "m", "prompt_tokens": 1, '
+            '"completion_tokens": 1, "spend": 0.1, "session": "", '
+            '"session_id": "s"}') for v in ("Infinity", "NaN", "9" * 400)]
+    _write_segments(local_stack, {"spend.jsonl": "\n".join(
+        bad + [_line(session_id="ok", spend=1.0)])})
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "skipped: 3 malformed lines (whole log)" in out
+    assert "$1.00 total, 1 calls" in out.splitlines()[0]
+
+
+def test_main_costs_huge_int_in_extra_key_skips_one_line(local_stack, capsys):
+    # a 5000-digit int literal exceeds the int-parse limit even in an
+    # ignored key; that line is skipped, the report still renders
+    line = ('{"ts": 1, "model": "m", "prompt_tokens": 1, '
+            '"completion_tokens": 1, "spend": 0.1, "session": "", '
+            '"session_id": "s", "raw": ' + "9" * 5000 + "}")
+    _write_segments(local_stack, {"spend.jsonl": line + "\n"
+                                  + _line(session_id="ok", spend=1.0)})
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "skipped: 1 malformed lines (whole log)" in out
+    assert "$1.00 total, 1 calls" in out.splitlines()[0]
+
+
+@pytest.mark.parametrize("payload", [
+    "null", "[]", '{"headRefName": null}', '{"headRefName": 123}',
+])
+def test_main_costs_pr_odd_gh_json_is_clean_error(tmp_path, monkeypatch,
+                                                  capsys, payload):
+    _pr_stack(tmp_path, monkeypatch)
+
+    def fake_run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, stdout=payload,
+                                           stderr="")
+
+    monkeypatch.setattr(veggies, "run", fake_run)
+    monkeypatch.setattr(veggies.shutil, "which", lambda c: "/usr/bin/gh")
+    rc = veggies.main(["costs", "demo", "--pr", "61"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "veggies: error:" in err and "--issue" in err
+
+
+def test_main_costs_remote_midread_failure_is_an_error(tmp_path, monkeypatch,
+                                                       capsys):
+    # rc!=0 that is NOT the script's own exit-3 sentinel (rotation race /
+    # dropped read) must not masquerade as "no spend log yet"
+    _remote_stack(tmp_path, monkeypatch)
+    monkeypatch.setattr(veggies, "host_run", lambda *a, **k:
+                        subprocess.CompletedProcess(
+                            a, 4, stdout="segments:spend.jsonl\npartial",
+                            stderr=""))
+    rc = veggies.main(["costs", "rem"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "veggies: error:" in err and "exit 4" in err
+
+
+def test_main_costs_unreadable_segment_is_clean_error(local_stack,
+                                                      monkeypatch, capsys):
+    _write_segments(local_stack, {"spend.jsonl": _line(session_id="s1")})
+    doomed = local_stack / "spend.jsonl.1"
+    doomed.write_text(_line(session_id="s2"))
+    doomed.chmod(0)  # tests run as root: the patch below does the failing
+    real_read_text = Path.read_text
+
+    def guarded(self, *a, **k):
+        if self == doomed:
+            raise PermissionError(13, "Permission denied")
+        return real_read_text(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", guarded)
+    rc = veggies.main(["costs", "demo"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "veggies: error:" in err
+    assert "cannot read spend segment" in err and "Permission denied" in err
+
+
+def test_main_costs_empty_segment_adds_no_phantom_skip(local_stack, capsys):
+    _write_segments(local_stack, {
+        "spend.jsonl": "",  # an empty non-final segment
+        "spend.jsonl.1": _line(session_id="s1", spend=1.0),
+    })
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "skipped:" not in out  # no fabricated blank line at the seam
+    header = out.splitlines()[0]
+    assert "2 segments (spend.jsonl, spend.jsonl.1)" in header
+    assert "$1.00 total, 1 calls" in header
+
+
+def test_main_costs_detail_honors_weekly(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": _line(
+        session="#47: x", session_id="s1", spend=1.0)})
+    rc = veggies.main(["costs", "demo", "--issue", "47", "--weekly"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "weekly (" in out
+
+
+def test_main_costs_malformed_only_log_has_no_earliest_suffix(local_stack,
+                                                              capsys):
+    _write_segments(local_stack, {"spend.jsonl": "{bad json\n\"nope\""})
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    header = out.splitlines()[0]
+    assert "0 calls" in header and "earliest retained record" not in header
+    assert "skipped: 2 malformed lines (whole log)" in out
+
+
+def test_main_costs_future_since_is_a_clear_message(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": _line(session_id="s1")})
+    rc = veggies.main(["costs", "demo", "--since", "2099-01-01"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "no spend records since 2099-01-01" in out
+
+
+@pytest.mark.parametrize("repo", ["git@github.com", "https://github.com"])
+def test_main_costs_pr_degenerate_repo_url(tmp_path, monkeypatch, capsys,
+                                           repo):
+    _pr_stack(tmp_path, monkeypatch, repo=repo)
+    monkeypatch.setattr(veggies.shutil, "which", lambda c: "/usr/bin/gh")
+    monkeypatch.setattr(veggies, "run",
+                        lambda *a, **k: pytest.fail("gh must not run"))
+    rc = veggies.main(["costs", "demo", "--pr", "61"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "--issue" in err
