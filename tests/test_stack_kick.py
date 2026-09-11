@@ -397,7 +397,7 @@ def test_main_discussion_mode_without_token_uses_payload_only(
     assert "thread" in capsys.readouterr().err
 
 
-# --- Elaborate mode (issue #33 / ADR 0039): a /elaborate discussion
+# --- Elaborate mode (issue #33 / ADR 0041): a /elaborate discussion
 # comment kicks a session that posts five persona POV comments ---------
 
 
@@ -416,10 +416,11 @@ def test_build_elaborate_prompt_carries_thread_personas_and_posting():
     assert "task subagent" in p
     # attribution: every comment starts with **<Role> POV**
     assert "**<Role> POV**" in p and "**CTO POV**" in p
-    # posting is GraphQL addComment on the discussion node id (0038
-    # two-step: REST for the node id, GraphQL for the comment)
+    # posting is GraphQL addDiscussionComment on the discussion node id
+    # (0038 two-step: REST for the node id, GraphQL for the comment;
+    # discussions reject addComment - ADR 0039)
     assert "gh api repos/o/r/discussions/4 --jq .node_id" in p
-    assert "addComment" in p
+    assert "addDiscussionComment" in p and "addComment(" not in p
     # degradation posture, same as 0038
     assert "missing token permission" in p
 
@@ -448,7 +449,7 @@ def test_persona_roster_files_exist_and_are_subagents():
     """Every persona the elaborate prompt dispatches must exist in the
     stack's agent roster as a subagent - a missing or mis-moded file
     means the kicked session names an agent that cannot be dispatched.
-    Personas also stay read-only (ADR 0039): the envelope is
+    Personas also stay read-only (ADR 0041): the envelope is
     allow-by-default, so edit/bash/task/webfetch must each be an explicit
     deny - a missing key silently inherits allow."""
     agents = Path(__file__).parent.parent / "agent-config/agents"
@@ -462,7 +463,7 @@ def test_persona_roster_files_exist_and_are_subagents():
         for key in ("edit", "bash", "task", "webfetch"):
             assert front["permission"].get(key) == "deny", (
                 f"{f.name}: permission.{key} must be 'deny' "
-                f"(read-only persona, ADR 0039), "
+                f"(read-only persona, ADR 0041), "
                 f"got {front['permission'].get(key)!r}")
 
 
@@ -475,7 +476,7 @@ def test_elaborate_prompt_carries_thread_roster_and_posting_rules():
     for agent, role in stack_kick.PERSONAS:
         assert agent in p and role in p  # the session must know the roster
     assert "task" in p.lower()  # one task subagent per persona
-    assert "addComment" in p  # GraphQL posting instructions
+    assert "addDiscussionComment" in p  # GraphQL posting instructions
     assert "**Domain expert POV**" in p  # attribution format, verbatim
     # elaborate kicks never branch/PR and never create issues
     assert "agent/issue-" not in p and "gh issue create" not in p
@@ -512,13 +513,13 @@ def test_main_elaborate_command_routes_and_titles(monkeypatch, calls, tmp_path):
     create, prompt = calls
     assert json.loads(create.data) == {"title": "D#7 elaborate: dt"}
     text = json.loads(prompt.data)["parts"][0]["text"]
-    assert "addComment" in text and "hi" in text
+    assert "addDiscussionComment" in text and "hi" in text
 
 
 @pytest.mark.parametrize("command", ["distill", "Elaborate", "elaborate2"])
 def test_main_discussion_non_elaborate_command_stays_distill(
         command, monkeypatch, calls, tmp_path):
-    """Routing is exact-match on "elaborate" (ADR 0039): any other
+    """Routing is exact-match on "elaborate" (ADR 0041): any other
     DISCUSSION_COMMAND value - including near-misses - keeps the distill
     path (ADR 0038), never the persona roster."""
     out = tmp_path / "gh_out"

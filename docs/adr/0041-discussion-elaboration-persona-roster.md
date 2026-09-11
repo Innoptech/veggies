@@ -43,8 +43,10 @@ roster in `agent-config/agents/` - domain-expert, infra-architect,
 marketer, seller, cto - each `mode: subagent` with `edit: deny` and
 `bash: deny`: read-only POV producers that return text and nothing else
 (the house subagent pattern, 0036). The session then posts exactly one
-GraphQL `addComment` per persona back on the discussion, each body
-starting `**<Role> POV**` so attribution is skimmable. If a post is
+GraphQL `addDiscussionComment` per persona back on the discussion -
+discussions reject `addComment` (verified live,
+[0039](0039-discussion-feedback-contract.md)) - each body starting
+`**<Role> POV**` so attribution is skimmable. If a post is
 denied, the session names the missing token permission in its final
 message and stops - the same degrade as 0038. No branch, no commit, no
 PR, no issues, no labels: the comments are the deliverable.
@@ -85,6 +87,8 @@ being called - deferred past MVP by the thread.
 
 - Extends [0038](0038-discussion-triggered-issue-distillation.md) (same
   trigger, fetch, and comment path; distill becomes one of two modes);
+  comment mutation of [0039](0039-discussion-feedback-contract.md)
+  (discussions take `addDiscussionComment`, never `addComment`);
   trigger semantics of [0035](0035-one-shot-labels-and-done-guard.md)
   (no done-guard on discussions); roster convention of
   [0019](0019-agent-rosters-and-skills.md); permission envelope of
