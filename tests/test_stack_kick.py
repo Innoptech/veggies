@@ -945,11 +945,11 @@ def test_main_echoes_gate_even_when_kick_fails(monkeypatch, tmp_path, capsys):
     assert "verify_gate=make check" in out.read_text()
 
 
-# --- No-ask gate (issue #54 / ADR 0044): refuse to kick a repo whose
+# --- No-ask gate (issue #54 / ADR 0049): refuse to kick a repo whose
 # project-tier opencode config reintroduces `ask` (the ADR 0031 park) ---
 
 def test_permission_gate_refuses_a_project_tier_ask(tmp_path, monkeypatch):
-    """Issue #54 / ADR 0044: a project-tier `ask` in the checked-out repo
+    """Issue #54 / ADR 0049: a project-tier `ask` in the checked-out repo
     reintroduces the park ADR 0031 bans - refuse the kick, name the file."""
     (tmp_path / ".opencode").mkdir()
     (tmp_path / ".opencode/opencode.json").write_text(

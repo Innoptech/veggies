@@ -37,7 +37,7 @@ selected per repo via `veggies.yml`. The repo's own agent-instruction file
 agents and its skills (`.opencode/`, `.claude/`/`.agents/` compat paths)
 are discovered from the mounted repo with project-over-global precedence
 (ADR 0019) - zero veggies.yml keys for any of it. The no-ask permission
-envelope spans the merged project+global config (ADR 0044): pytest
+envelope spans the merged project+global config (ADR 0049): pytest
 enforces it over the vendored tiers and this repo's own, and
 `scripts/stack_kick.py` refuses to kick a repo whose checked-out project
 tier carries `ask`. Stacks may opt

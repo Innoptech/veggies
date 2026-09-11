@@ -194,7 +194,7 @@ def test_opencode_json_stack_variant(spec):
 
 
 def test_no_ask_anywhere():
-    # ADR 0031 (scope amended by 0044): unattended sessions park forever on
+    # ADR 0031 (scope amended by 0049): unattended sessions park forever on
     # `ask` - the merged envelope (vendored global config + agent frontmatter
     # + the repo's own project tier, which overrides global) is allow/deny
     # only, and `question` is denied explicitly (its default is ask).

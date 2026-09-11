@@ -54,7 +54,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-# The no-ask gate (ADR 0044): the merged config tier (project overrides
+# The no-ask gate (ADR 0049): the merged config tier (project overrides
 # global) lets a repo's own opencode.json/.opencode/ reintroduce `ask`,
 # which parks unattended sessions forever (ADR 0031). Imported by explicit
 # path (never sys.path search, where a same-named module would shadow it);
@@ -74,7 +74,7 @@ TIMEOUT = 60
 BODY_LIMIT = 4000
 COMMENT_LIMIT = 2000  # per discussion comment
 THREAD_BUDGET = 12000  # total chars of rendered discussion thread
-SKIP_DONE = 3  # exit code: kick skipped - already handled (ADR 0035), in-flight (ADR 0040), or refused (ADR 0044)
+SKIP_DONE = 3  # exit code: kick skipped - already handled (ADR 0035), in-flight (ADR 0040), or refused (ADR 0049)
 
 # The elaborate persona roster (issue #33): (agent name, display role) per
 # persona. Each definition lives in agent-config/agents/<name>.md, and
@@ -589,7 +589,7 @@ def permission_gate_reason() -> str | None:
     shown = "; ".join(violations[:3])
     if len(violations) > 3:
         shown += f"; +{len(violations) - 3} more"
-    return f"no-ask gate: project tier carries ask or is unverifiable (ADR 0044): {shown}"
+    return f"no-ask gate: project tier carries ask or is unverifiable (ADR 0049): {shown}"
 
 
 def permission_gate() -> int | None:
@@ -654,7 +654,7 @@ def main() -> int:
                         (f"#{os.environ['ISSUE_NUMBER']}: ",), "issue")
     if rc is not None:
         return rc
-    # No-ask gate (ADR 0044): refuse to kick a repo whose project tier
+    # No-ask gate (ADR 0049): refuse to kick a repo whose project tier
     # reintroduces `ask` into the merged permission config.
     rc = permission_gate()
     if rc is not None:

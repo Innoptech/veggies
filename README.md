@@ -49,7 +49,7 @@ egress: squid
 
 A repo keeps its own conventions: CLAUDE.md/AGENTS.md and
 `.claude/`/`.opencode/` agents and skills are discovered as-is, zero
-config - installing a stack never means converting the repo (ADR 0019/0044).
+config - installing a stack never means converting the repo (ADR 0019/0049).
 
 ## Docs
 

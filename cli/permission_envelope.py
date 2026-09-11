@@ -1,5 +1,5 @@
 """No-ask enforcement over the merged project+global permission config
-(ADR 0044, amends 0031's agent-config-only scope).
+(ADR 0049, amends 0031's agent-config-only scope).
 
 opencode merges config tiers global < project (project wins), so a mounted
 repo's own opencode.json[c] / agent frontmatter can reintroduce `ask` - the

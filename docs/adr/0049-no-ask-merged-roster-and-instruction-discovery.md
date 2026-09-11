@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0044. No-ask over the merged roster; repo instruction files stay configuration-free
+# 0049. No-ask over the merged roster; repo instruction files stay configuration-free
 
 ## Context
 

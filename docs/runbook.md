@@ -223,7 +223,7 @@ tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-rep
 `components`, capability keys, `mcps`, `github`; ADR 0016/0023). A repo's
 own agent files need no key at all: keep your CLAUDE.md (or AGENTS.md) and
 your `.claude/`/`.opencode/` agents and skills - the harness discovers
-them as-is, project over global (ADR 0019/0044). Installing a stack never
+them as-is, project over global (ADR 0019/0049). Installing a stack never
 means converting the repo.
 
 ### Syncing a stack with the repo
@@ -303,7 +303,7 @@ around; `ask` in a headless session parks forever (verified 2026-09-09,
   `secrets/*.yml`: unreadable (vault ciphertext never enters transcripts).
 - `doom_loop` (3 identical tool calls) denies - the agent must change
   approach instead of burning tokens.
-- ADR 0031/0044: NO permission value may be `ask` - not in
+- ADR 0031/0049: NO permission value may be `ask` - not in
   `agent-config/`, not in per-agent frontmatter, and not in the repo's own
   project tier (root `opencode.json[c]`, `.opencode/`, compat dirs), which
   overrides the global block. Pytest enforces the vendored tiers plus this
