@@ -31,6 +31,7 @@ SQUID_ALLOWLIST_BASE = [
     "registry-1.docker.io",
     "auth.docker.io",
     "production.cloudflare.docker.com",
+    "registry.opentofu.org",  # tofu provider downloads (in-container mask ci)
 ]
 SQUID_MODEL_ENDPOINTS = ["api.fireworks.ai"]  # group_vars egress_model_endpoints
 
