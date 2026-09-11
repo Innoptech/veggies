@@ -41,7 +41,8 @@ ansible/collections/
 .ansible/
 
 # veggies harness scratch: parallel agent sessions get git worktrees under
-# .veggies/wt/ - never repo content (also excluded in .ansible-lint)
+# .veggies/wt/ - never repo content (also excluded in .ansible-lint; the
+# same pattern is written per-clone to .git/info/exclude by `veggies up`)
 .veggies/
 
 # --- OS / editors -----------------------------------------------------------------
