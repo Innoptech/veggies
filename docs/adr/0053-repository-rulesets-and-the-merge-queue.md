@@ -35,7 +35,8 @@ production box from it).
 - A queue fronting expensive checks only moves the wait - check cost is
   tracked separately (issues #76/#77).
 - Every required context must report on `merge_group` runs or the queue
-  stalls Pending forever (the always-report invariant,
+  stalls until the check timeout evicts the group - and every retry
+  re-wedges (the always-report invariant,
   terraform/github/README.md).
 
 ## Entitlement check (0007's TODO(verify), answered)
@@ -69,7 +70,8 @@ force-push or deletion, code-owner review with stale dismissal and
 conversation resolution, identical required check contexts, strict up-to-date
 semantics. The ruleset adds an opt-in merge queue (`merge_queue_repos`,
 default empty): a repo opts in only after its required-check workflows
-trigger on `merge_group`, or every queued merge stalls Pending forever.
+trigger on `merge_group`, or every queued merge stalls until the check
+timeout evicts it, each retry re-wedging.
 
 Queue shape: `merge_method = REBASE` (house practice: main has no merge
 commits and the repo allows squash+rebase only - API-verified; if apply

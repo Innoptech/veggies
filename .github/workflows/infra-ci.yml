@@ -21,7 +21,7 @@ env:
   ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
   PYTHON_VERSION: "3.14"
 
-# Standing rule: every required branch-protection context (pre-commit, tofu,
+# Standing rule: every required ruleset context (pre-commit, tofu,
 # tflint, ansible-lint, molecule, pytest) must REPORT on every run - a
 # required check that is job-level `if:`-skipped never reports and wedges
 # every merge as Pending forever. Path-gating is therefore step-gating only:
@@ -223,7 +223,7 @@ jobs:
 
   # Phase C dogfood (ADR 0005): the repo's pytest suite on our ephemeral
   # self-hosted runners. CI never ran it before (mask ci doesn't either -
-  # it was local-only). pytest IS a required branch-protection context now
+  # it was local-only). pytest IS a required ruleset context now
   # (verified live), so it must report on every run; on unrelated PRs the
   # no-op spin-up on the self-hosted runner is accepted - never convert
   # this job to a job-level skip.
@@ -284,7 +284,7 @@ jobs:
 
   # The required "molecule" context: it must report on every run, so it is
   # if: always() plus explicit result checks - a path-skipped matrix must
-  # never leave branch protection Pending forever. A skipped matrix is
+  # never leave the required context Pending forever. A skipped matrix is
   # legitimate only for ansible-unchanged PRs; anything else fails closed.
   molecule:
     name: molecule

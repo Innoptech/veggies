@@ -946,8 +946,15 @@ background noise. If groups start evicting on the 60-minute check timeout
 timeout before shrinking the batch.
 
 Opting another repo in: add it to `merge_queue_repos` ONLY after the repo's
-required-check workflows trigger on `merge_group` - otherwise every queued
-merge stalls Pending forever (the always-report invariant,
+required-check workflows trigger on `merge_group` - otherwise every queued merge
+stalls until the check timeout evicts it (every retry re-wedges; the always-report invariant,
 terraform/github/README.md). This repo's own queue is declared in
 terraform/github/repos.tf with the `merge_group` trigger in
 .github/workflows/infra-ci.yml.
+
+Enabling it here (one-time, operator): add `merge_queue_repos = ["veggies"]`
+to terraform/terraform.tfvars, then the zero-gap two-phase apply -
+`cd terraform && tofu apply -target=module.github.github_repository_ruleset.main`
+(stacks the ruleset on top of the classic protection; union enforced), then
+`mask tofu-apply` (removes the classic resource). Applying without the tfvars
+line migrates the policy to the ruleset but leaves the queue off.

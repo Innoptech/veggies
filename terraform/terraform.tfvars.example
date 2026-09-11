@@ -10,7 +10,7 @@ required_checks = ["pre-commit", "tofu", "tflint", "ansible-lint", "molecule", "
 # required_checks_overrides = { "veggie" = ["pre-commit", "pytest"] } # per-repo when they differ
 # merge_queue_repos = ["veggie"]  # opt a repo into the merge queue - only after its CI triggers on merge_group (ADR 0053)
 # The bot's identity lives in secrets/github.yml; the policy excludes it from
-# review counting via require_code_owner_reviews, not via a login variable.
+# review counting via require_code_owner_review, not via a login variable.
 
 # actions_secrets is sensitive and comes from the vault - but if you need to
 # pass repo secrets manually, the shape is:
