@@ -13,6 +13,7 @@ approving review from a CODEOWNER (the human; the bot is never a code owner).
 | `github_repository_environment.production_infra` | `production-infra` environment gated on the human (`can_admins_bypass = false`) |
 | `github_issue_label.needs_team_review` | the label |
 | `github_repository_file.needs_team_review_workflow` | labeller workflow on branch `infra/needs-team-review` (opt-in via `manage_label_workflow`) |
+| `module.agent_kick_*` | per-repo agent-kick install: workflow + kick script on `infra/agent-trigger`, `agent-task` label, `VEGGIES_*` secret + variables (ADR 0044) |
 | `github_actions_secret` / `github_actions_variable` | per-repo Actions secrets/variables from the vault |
 | `github_actions_runner_group` | optional org-level runner group (orgs only) |
 
@@ -21,6 +22,33 @@ approving review from a CODEOWNER (the human; the bot is never a code owner).
 See `variables.tf` - every variable has a description and a type. The ones you
 must set: `repos`, `admin_login`, `required_checks` (must match the check
 names the project repos' CI actually reports).
+
+## Install agent kicks on a repo (ADR 0044)
+
+Same register as the rest of this module: reviewable code instead of
+clicked settings. A repo opts into the agent in one reviewed block in
+`agent_kicks.tf`; removing the block opts it out.
+
+```hcl
+module "agent_kick_data_pipelines" {
+  source = "./modules/agent-kick"
+
+  repo           = "data-pipelines"
+  stack_port     = 8123 # from `veggies ls`
+  stack_password = var.veggies_stack_password
+
+  workflow_content    = file("${path.module}/../../.github/workflows/agent-trigger.yml")
+  kick_script_content = file("${path.module}/../../scripts/stack_kick.py")
+}
+```
+
+The recipe: the repo's stack serving + the tofu identity holding Actions
+`Secrets: write` / `Variables: write` on the repo -> the block ->
+`mask tofu-plan` / `mask tofu-apply` -> merge the delivered
+`infra/agent-trigger` PR (and delete the delivery branch) -> label an
+issue `agent-task`. The serve password lands in the local tofu state like
+the other Actions secrets. Full recipe and the veggies-repo migration
+note: ../../docs/runbook.md.
 
 ## Be careful
 
