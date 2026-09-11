@@ -91,10 +91,11 @@ def _render(ctx: PodContext) -> dict:
         "args": [
             "mkdir -p /root/.config/opencode && "
             "cp /stack-config/opencode.json /root/.config/opencode/ && "
-            # Vendored agents/skills (if shipped) copy alongside; global
-            # config dirs are where opencode discovers them.
+            # Vendored agents/skills/plugins (if shipped) copy alongside;
+            # global config dirs are where opencode discovers them.
             "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
+            "cp -r /stack-config/plugins /root/.config/opencode/ 2>/dev/null; "
             # ansible-core >=2.21 hard-fails at startup when the configured
             # vault password file is missing (ansible.cfg points at
             # ~/.config/infra/vault-password); a dummy satisfies the check -
@@ -176,9 +177,10 @@ def _config_files(ctx: PodContext) -> dict[str, str]:
         router_base_url=ctx.service("model-router").base_url,
         model=ctx.spec.model,
         mcp_entries=mcp_entries)}
-    # Vendored agents + skills ship as per-stack copies (edit + `veggies up`
-    # to apply; the wrapper copies them into opencode's global config dir).
-    for sub in ("agents", "skills"):
+    # Vendored agents + skills + plugins ship as per-stack copies (edit +
+    # `veggies up` to apply; the wrapper copies them into opencode's global
+    # config dir).
+    for sub in ("agents", "skills", "plugins"):
         src = infra_repo / "agent-config" / sub
         if src.is_dir():
             for f in sorted(src.rglob("*")):

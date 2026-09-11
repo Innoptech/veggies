@@ -227,6 +227,25 @@ def test_opencode_json_stack_variant(spec):
     assert rendered == source
 
 
+def test_opencode_config_files_ship_plugins(spec):
+    import components.opencode as opencode
+    files = opencode.COMPONENT.config_files(
+        veggies_stack.build_context(spec, INFRA_REPO))
+    # the metering plugin ships next to the vendored agents/skills so the
+    # wrapper can copy it into opencode's global config dir (ADR 0047)
+    assert files["plugins/metering.js"] == (
+        INFRA_REPO / "agent-config/plugins/metering.js").read_text()
+    assert any(k.startswith("agents/") for k in files)
+    assert any(k.startswith("skills/") for k in files)
+
+
+def test_opencode_wrapper_copies_plugins(spec):
+    import components.opencode as opencode
+    cont = opencode.COMPONENT.render(veggies_stack.build_context(spec, INFRA_REPO))
+    assert "cp -r /stack-config/plugins /root/.config/opencode/ 2>/dev/null; " \
+        in cont["args"][0]
+
+
 def test_no_ask_anywhere():
     # ADR 0031 (scope amended by 0049): unattended sessions park forever on
     # `ask` - the merged envelope (vendored global config + agent frontmatter
