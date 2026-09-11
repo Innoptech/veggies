@@ -74,7 +74,7 @@ reviews PRs; agents implement. These rules are not negotiable:
    are the watch path. `agent-task` is a one-shot label (ADR 0035): the
    workflow clears it on kick/skip, and the done-guard never re-kicks an
    issue that is closed or has a merged or ready `agent/issue-N` PR - an
-   open draft no longer blocks re-kicks (ADR 0044).
+   open draft no longer blocks re-kicks (ADR 0046).
    `veggies prepare` pre-stages images with build logs; `mask demo-stack`
    is the one-command clean-VPS-to-stack path (runbook §1).
    Session isolation (ADR 0037): every kicked session works in its own git
