@@ -312,6 +312,12 @@ kicks the repo's long-lived stack when:
 - an issue gets the `agent-task` label, or
 - an OWNER/MEMBER/COLLABORATOR comment contains `/opencode`.
 
+`agent-task` is one-shot (ADR 0035): the label is cleared after a
+successful kick or a skip - re-add it to retrigger. Done-issues are never
+re-kicked: the kick skips (with a comment saying why) when the issue is
+closed or an `agent/issue-N` PR already exists. A failed kick keeps the
+label.
+
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in the
 stack's clone and opens a PR. Plumbing: Actions variable

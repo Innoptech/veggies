@@ -18,6 +18,7 @@ on:
 
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
+  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035)
 
 jobs:
   kick:
@@ -47,13 +48,38 @@ jobs:
           REPO: ${{ github.repository }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-        run: python3 scripts/stack_kick.py
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # the done-guard's API auth
+        run: |
+          set +e
+          python3 scripts/stack_kick.py
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          # exit 3 = issue already handled (ADR 0035): a clean outcome,
+          # not a job failure - the skip comment step handles it.
+          [ "$rc" -eq 3 ] && exit 0
+          exit "$rc"
+
+      - name: Clear the agent-task label
+        # One-shot trigger semantics (ADR 0035): a kicked or skipped issue
+        # is handled; re-adding the label is the deliberate retrigger.
+        # On failure the label stays, so the intent survives.
+        if: >-
+          success() && (steps.kick.outputs.rc == '0' || steps.kick.outputs.rc == '3')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos"
+          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/labels/agent-task"
+          curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" "$api" > /dev/null
 
       # The issue is where people look - tell it which session is working it
       # and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
       # not involved. The password is never posted, only how to read it.
       - name: Comment the session link on the issue
-        if: success()
+        if: success() && steps.kick.outputs.rc == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -73,6 +99,21 @@ jobs:
           jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
           api="https://api.github.com/repos"
           api="$api/${{ github.repository }}/issues/${issue_n}/comments"
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            --data @/tmp/comment.json "$api" > /dev/null
+
+      - name: Comment when the issue is already handled
+        if: success() && steps.kick.outputs.rc == '3'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body="**veggies kick skipped** - already handled: ${{ steps.kick.outputs.skip_reason }}."
+          body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
+          jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
+          api="https://api.github.com/repos"
+          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
           curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             --data @/tmp/comment.json "$api" > /dev/null

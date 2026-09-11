@@ -96,6 +96,8 @@ def test_main_writes_github_output(monkeypatch, calls, tmp_path, capsys):
                  "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
                  "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
         monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
     assert stack_kick.main() == 0
     assert "session_id=ses_test" in out.read_text()
     assert "SESSION_ID=ses_test" in capsys.readouterr().out
@@ -108,9 +110,51 @@ def test_kick_rejects_idless_create(calls, monkeypatch):
         stack_kick.kick("http://h:1", "pw", "p")
 
 
+def test_done_reason_closed_issue(monkeypatch):
+    monkeypatch.setattr(stack_kick, "gh_api",
+                        lambda tok, path: {"state": "closed"})
+    assert "closed" in stack_kick.done_reason("o/r", "5", "t")
+
+
+def test_done_reason_existing_agent_pr(monkeypatch):
+    def fake(tok, path):
+        if "/pulls?" in path:
+            return [{"html_url": "https://x/pr/9", "state": "open"}]
+        return {"state": "open"}
+
+    monkeypatch.setattr(stack_kick, "gh_api", fake)
+    reason = stack_kick.done_reason("o/r", "5", "t")
+    assert "https://x/pr/9" in reason and "open" in reason
+
+
+def test_done_reason_none_when_open_and_no_pr(monkeypatch):
+    def fake(tok, path):
+        if "/pulls?" in path:
+            return []
+        return {"state": "open"}
+
+    monkeypatch.setattr(stack_kick, "gh_api", fake)
+    assert stack_kick.done_reason("o/r", "5", "t") is None
+
+
+def test_main_skips_done_issues_with_exit_3(monkeypatch, calls, tmp_path, capsys):
+    out = tmp_path / "github_output"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_TOKEN": "gh-tok",
+                 "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(stack_kick, "done_reason",
+                        lambda r, n, t: "PR https://x/9 already exists (merged)")
+    assert stack_kick.main() == stack_kick.SKIP_DONE
+    assert "skip_reason=PR https://x/9" in out.read_text()
+    assert calls == []  # a done issue is never re-kicked
+    assert "SKIP" in capsys.readouterr().out
+
+
 def test_main_missing_env_is_exit_2(monkeypatch, capsys):
     for k in ("STACK_URL", "STACK_PASSWORD", "ISSUE_NUMBER", "ISSUE_TITLE",
-              "ISSUE_URL", "REPO"):
+              "ISSUE_URL", "REPO", "GITHUB_TOKEN", "GH_TOKEN"):
         monkeypatch.delenv(k, raising=False)
     assert stack_kick.main() == 2
     assert "missing env" in capsys.readouterr().err
@@ -121,6 +165,8 @@ def test_main_happy_path(monkeypatch, calls):
                  "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
                  "REPO": "o/r"}.items():
         monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off -> straight kick
     assert stack_kick.main() == 0
     # trailing slash stripped from STACK_URL
     assert calls[0].full_url.startswith("http://h:1/session")

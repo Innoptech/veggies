@@ -43,6 +43,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0032](0032-dev-toolchain-in-harness-image.md) | Dev toolchain baked into the harness image | accepted |
 | [0033](0033-issue-triggered-agent-kicks.md) | Issue-triggered agent kicks via GitHub Actions on the self-hosted runners | accepted |
 | [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted |
+| [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted |
 
 ## Deviation ledger (vs the original brief)
 
