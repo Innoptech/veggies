@@ -1,4 +1,4 @@
-"""Cost-metering callback tests (ADR 0022/0044).
+"""Cost-metering callback tests (ADR 0022/0047).
 
 The module under test is the litellm proxy custom callback at
 agent-config/litellm/custom_callbacks.py; it is not a package, so it is
@@ -99,7 +99,7 @@ def test_session_title_precedence():
 
 
 def test_title_tag_uri_decoding():
-    # The exact vector from the ADR 0044 stamping convention.
+    # The exact vector from the ADR 0047 stamping convention.
     assert cc._from_tags(
         ["session-title:%2346%3A%20Meter%20spend%2C%20durably"],
         cc.TAG_TITLE_PREFIX) == "#46: Meter spend, durably"

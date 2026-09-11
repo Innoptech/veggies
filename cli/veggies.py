@@ -727,7 +727,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     ensure_images(host, infra_repo, spec)
 
     print("==> stack config")
-    # ADR 0044: the cost log's host dir must exist before kube play (hostPath
+    # ADR 0047: the cost log's host dir must exist before kube play (hostPath
     # type: Directory fails on a missing source); write_stack_config's chcon -R
     # on the stack dir labels it too.
     host_run(host, ["mkdir", "-p", f"{spec.state_root()}/{name}/costs"])
@@ -812,7 +812,7 @@ def cmd_down(args: argparse.Namespace) -> int:
                     check=False, capture=True)
         if host_exists(host, f"{spec.state_root()}/{args.name}/costs", kind="d"):
             print(f"!! purge deletes {spec.state_root()}/{args.name}/costs "
-                  f"(cost history, ADR 0044) - export first if it matters")
+                  f"(cost history, ADR 0047) - export first if it matters")
         safe_rmtree(host, spec.state_root(), f"{spec.state_root()}/{args.name}")
         if record["mode"] == "clone":
             safe_rmtree(host, spec.state_root(),

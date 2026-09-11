@@ -48,6 +48,13 @@ toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
 0032/0047) so agents run the repo's own checks in-pod; molecule is
 excluded (no podman socket, ADR 0028).
 
+Cost metering (ADR 0022/0051): the litellm router writes one JSON line
+per model call to `<state_root>/<stack>/costs/costs.jsonl` on the host -
+size-rotated, fail-open, each record stamped with the calling session's
+title/id by the harness plugin and the judge paths. That cost log is new
+durable stack state: it survives `down`/`up`/`sync` and sits inside the
+backup role's `backup_paths`.
+
 Event path (ADR 0033/0038/0041/0050): `.github/workflows/agent-trigger.yml`
 on the self-hosted runners kicks this repo's stack via
 `scripts/stack_kick.py` on `agent-task` labels and command comments:
@@ -59,7 +66,7 @@ comment instead kicks one session that fans out to the vendored persona
 roster (domain expert, infra/architecture, marketer, seller, CTO -
 `agent-config/agents/`) and posts one attributed POV comment per persona
 back on the discussion - the comments are the deliverable (no branch, no
-PR). Runners reach the stack
+ PR). Runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
 exceptions. No inbound listener on the VPS. The issue kick prompt mandates
 the full pipeline (ADR 0036/0042): plan first - a draft refined by one
@@ -113,7 +120,7 @@ ansible/         cfg, inventory (veggies), group_vars, playbooks, roles,
 terraform/       root module; github/ (live), ovh/ (scaffold-only)
 secrets/         ansible-vault files (+ .example templates)
 agent-config/    vendored agent baseline: opencode.json, agents/, skills/,
-                 litellm/
+                 plugins/, litellm/
 cli/             the veggies CLI: veggies.py, veggies_stack.py,
                  capabilities.py, components/ (opencode, litellm, squid,
                  supervisor, mcp_toolbox)

@@ -1,4 +1,4 @@
-"""Per-call cost metering writer for the litellm proxy (ADR 0022/0044).
+"""Per-call cost metering writer for the litellm proxy (ADR 0022/0047).
 
 The pinned litellm proxy loads this module via the config key
 `litellm_settings.callbacks: custom_callbacks.proxy_handler_instance`
