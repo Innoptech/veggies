@@ -6,6 +6,13 @@ egress_denied_users:
   - stacks # veggies CLI stacks
 egress_proxy_user: egress-proxy
 
+# Per-user extra host-local TCP dports allowed alongside the proxy.
+# gh-runner: the veggies stack API range, so runner jobs can kick a stack
+# (agent-trigger workflow, ADR 0033). Must cover the CLI's allocation
+# range (capabilities.OPENCODE_PORT_BASE=4096 upward per stack).
+egress_extra_local_dports:
+  gh-runner: "4096-4100"
+
 egress_squid_port: 3128
 # The gateway address rootless containers use to reach host-published services
 # (verified 2026-09-03: host.containers.internal resolves here under pasta).

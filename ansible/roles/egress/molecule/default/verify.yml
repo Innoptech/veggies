@@ -27,10 +27,12 @@
       ansible.builtin.assert:
         that:
           - "'skuid' in egress_nft_table.stdout"
-          # one accept + one deny rule per entry in egress_denied_users
+          # one accept + one deny rule per entry in egress_denied_users,
+          # PLUS gh-runner's extra stack-API dport (egress_extra_local_dports)
           - "egress_nft_table.stdout.count('infra-egress-deny') == 2"
-          - "egress_nft_table.stdout.count('dport') == 2"
+          - "egress_nft_table.stdout.count('dport') == 3"
           - "'dport' in egress_nft_table.stdout"
+          - "'4096-4100' in egress_nft_table.stdout"
 
     - name: Allowlist contains github and the model endpoint
       ansible.builtin.slurp:

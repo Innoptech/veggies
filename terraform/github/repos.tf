@@ -41,6 +41,16 @@ resource "github_issue_label" "needs_team_review" {
   description = "Touches sensitive paths (see workflow); requires a human review before merge."
 }
 
+# ADR 0033: labeling an issue with this kicks the repo's veggies stack
+# (.github/workflows/agent-trigger.yml).
+resource "github_issue_label" "agent_task" {
+  for_each    = toset(var.repos)
+  repository  = each.key
+  name        = "agent-task"
+  color       = "0E8A16"
+  description = "Hand this issue to the veggies agent stack (agent-trigger workflow)."
+}
+
 # The labeller workflow is committed to a side branch, never to the protected
 # branch directly. Open and merge the PR by hand (docs/runbook.md).
 resource "github_repository_file" "needs_team_review_workflow" {
