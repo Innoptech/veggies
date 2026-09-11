@@ -4,6 +4,7 @@ exclude_paths:
   - .venv/
   - .cache/
   - .pytest_cache/
+  - .veggies/ # harness worktrees of parallel agent sessions - not repo content
   - secrets/ # vault-encrypted files are not parseable YAML by design
   - ansible/collections/ # galaxy install target - vendored collections, not ours
   - agent-config/ # opencode/litellm config, not ansible content

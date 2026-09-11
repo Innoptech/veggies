@@ -40,6 +40,10 @@ ansible/collections/
 # ansible-lint pre-commit hook drops its galaxy lock here
 .ansible/
 
+# veggies harness scratch: parallel agent sessions get git worktrees under
+# .veggies/wt/ - never repo content (also excluded in .ansible-lint)
+.veggies/
+
 # --- OS / editors -----------------------------------------------------------------
 .DS_Store
 *~
