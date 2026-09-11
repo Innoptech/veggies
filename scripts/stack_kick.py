@@ -54,11 +54,22 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# The no-ask gate (ADR 0044): the merged config tier (project overrides
+# global) lets a repo's own opencode.json/.opencode/ reintroduce `ask`,
+# which parks unattended sessions forever (ADR 0031). The module is
+# stdlib-only and lives in cli/; a copied-alone script (or a moved
+# checkout) degrades to proceeding rather than blocking kicks.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cli"))
+    import permission_envelope
+except Exception:
+    permission_envelope = None
+
 TIMEOUT = 60
 BODY_LIMIT = 4000
 COMMENT_LIMIT = 2000  # per discussion comment
 THREAD_BUDGET = 12000  # total chars of rendered discussion thread
-SKIP_DONE = 3  # exit code: issue already handled (ADR 0035)
+SKIP_DONE = 3  # exit code: kick skipped - already handled (ADR 0035), in-flight (ADR 0040), or refused (ADR 0044)
 
 # The elaborate persona roster (issue #33): (agent name, display role) per
 # persona. Each definition lives in agent-config/agents/<name>.md, and
@@ -530,6 +541,17 @@ def inflight_reason(url: str, password: str, prefixes: tuple[str, ...],
     return None
 
 
+def skip(reason: str) -> int:
+    """Report a handled/refused kick (workflow turns this + exit code 3
+    into a comment on the subject)."""
+    print(f"SKIP: {reason}")
+    print(f"SKIP_REASON={reason}")
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"skip_reason={reason}\n")
+    return SKIP_DONE
+
+
 def inflight_guard(url: str, password: str, prefixes: tuple[str, ...],
                    subject: str) -> int | None:
     """SKIP_DONE when a session titled with one of `prefixes` is busy, else
@@ -542,12 +564,36 @@ def inflight_guard(url: str, password: str, prefixes: tuple[str, ...],
         return None
     if reason is None:
         return None
-    print(f"SKIP: {reason}")
-    print(f"SKIP_REASON={reason}")
-    if os.environ.get("GITHUB_OUTPUT"):
-        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"skip_reason={reason}\n")
-    return SKIP_DONE
+    return skip(reason)
+
+
+def permission_gate_reason() -> str | None:
+    """Why this kick must be refused - the repo's project tier carries
+    `ask` - or None. Scans the CURRENT WORKING DIRECTORY: in the workflow
+    that is the actions/checkout of the kicked repo; a manual kick scans
+    wherever the operator stands."""
+    if permission_envelope is None:
+        print("permission_envelope not importable; no-ask gate skipped",
+              file=sys.stderr)
+        return None
+    try:
+        violations = permission_envelope.scan_project_tier(Path.cwd())
+    except Exception as e:  # hiccups degrade; only verified `ask` blocks
+        print(f"no-ask gate scan failed ({e}); proceeding", file=sys.stderr)
+        return None
+    if not violations:
+        return None
+    shown = "; ".join(violations[:3])
+    if len(violations) > 3:
+        shown += f"; +{len(violations) - 3} more"
+    return f"project-tier `ask` refused (ADR 0044): {shown}"
+
+
+def permission_gate() -> int | None:
+    """SKIP_DONE when the checked-out repo's project tier carries `ask`,
+    else None."""
+    reason = permission_gate_reason()
+    return skip(reason) if reason else None
 
 
 def kick(url: str, password: str, prompt: str, title: str = "") -> str:
@@ -595,12 +641,7 @@ def main() -> int:
             print(f"guard check failed ({e}); proceeding", file=sys.stderr)
             reason = None
         if reason:
-            print(f"SKIP: {reason}")
-            print(f"SKIP_REASON={reason}")
-            if os.environ.get("GITHUB_OUTPUT"):
-                with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                    f.write(f"skip_reason={reason}\n")
-            return SKIP_DONE
+            return skip(reason)
     else:
         print("no GITHUB_TOKEN/GH_TOKEN in env; done-guard skipped",
               file=sys.stderr)
@@ -608,6 +649,11 @@ def main() -> int:
     # holds. Same degrade-to-proceed posture as the done-guard.
     rc = inflight_guard(url, os.environ["STACK_PASSWORD"],
                         (f"#{os.environ['ISSUE_NUMBER']}: ",), "issue")
+    if rc is not None:
+        return rc
+    # No-ask gate (ADR 0044): refuse to kick a repo whose project tier
+    # reintroduces `ask` into the merged permission config.
+    rc = permission_gate()
     if rc is not None:
         return rc
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
@@ -654,6 +700,9 @@ def main_discussion(number: str) -> int:
     rc = inflight_guard(url, os.environ["STACK_PASSWORD"],
                         (f"D#{number}: ", f"D#{number} elaborate: "),
                         "discussion")
+    if rc is not None:
+        return rc
+    rc = permission_gate()
     if rc is not None:
         return rc
     gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
