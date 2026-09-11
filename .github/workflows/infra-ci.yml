@@ -236,12 +236,42 @@ jobs:
       - if: env.RUN_JOB == 'true'
         run: python -m pytest tests/ -q
 
+  # Issue #76: build the shared molecule test image once per run; every
+  # molecule-roles leg used to run its own podman build (7x per run, again on
+  # every strict-mode re-run). The tar rides the run's artifact store - no
+  # registry, no cache layering. This job is NOT a required context and must
+  # never join required_checks: its job-level if: skip would never report and
+  # would wedge merges (the header rule above).
+  molecule-image:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.ansible == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # TODO(verify): podman is preinstalled on ubuntu-latest GHA images.
+      # If a job ever fails on `podman: command not found`, add:
+      #   sudo apt-get update && sudo apt-get install -y podman
+      - name: Build the shared test image
+        run: podman build -t localhost/fedora44-systemd:latest -f ansible/molecule/fedora44-systemd.Containerfile ansible/molecule
+      - name: Export the image
+        run: podman save -o "$RUNNER_TEMP/fedora44-systemd.tar" localhost/fedora44-systemd:latest
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: fedora44-systemd
+          path: ${{ runner.temp }}/fedora44-systemd.tar
+          # Strict-mode full-run re-runs rebuild and re-upload under the same
+          # name (v4+ artifacts are immutable without overwrite); a single-leg
+          # "re-run failed jobs" more than a day later instead 404s here -
+          # re-run the whole workflow in that case.
+          retention-days: 1
+          overwrite: true
+
   # Branch protection requires a check context named exactly "molecule";
   # the matrix job's check-runs are "molecule (<role>)" and can never
   # satisfy it. The aggregate job below is the required context.
   molecule-roles:
     name: molecule (${{ matrix.role }})
-    needs: changes
+    needs: [changes, molecule-image]
     if: github.event_name != 'pull_request' || needs.changes.outputs.ansible == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -256,11 +286,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -r requirements-dev.txt
-      # TODO(verify): podman is preinstalled on ubuntu-latest GHA images.
-      # If a job ever fails on `podman: command not found`, add:
-      #   sudo apt-get update && sudo apt-get install -y podman
-      - name: Build the shared test image
-        run: podman build -t localhost/fedora44-systemd:latest -f ansible/molecule/fedora44-systemd.Containerfile ansible/molecule
+      - name: Download the shared test image
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: fedora44-systemd
+          path: ${{ runner.temp }}
+      - name: Load the shared test image
+        run: podman load -i "$RUNNER_TEMP/fedora44-systemd.tar"
       - name: molecule test (${{ matrix.role }})
         working-directory: ansible/roles/${{ matrix.role }}
         run: molecule test
@@ -272,7 +304,7 @@ jobs:
   molecule:
     name: molecule
     if: always()
-    needs: [changes, molecule-roles]
+    needs: [changes, molecule-image, molecule-roles]
     runs-on: ubuntu-latest
     env:
       CHANGES_RESULT: ${{ needs.changes.result }}
