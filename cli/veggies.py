@@ -1308,7 +1308,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
     return 0
 
 
-# --- veggies costs (ADR 0022 decision 4; record contract ADR 0044) --------------
+# --- veggies costs (ADR 0022 decision 4; record contract ADR 0051) --------------
 # All parsing/aggregation/rendering is pure in costs.py; only the log read
 # (filesystem or one ssh round-trip) and the --pr gh lookup live here.
 
@@ -1335,7 +1335,7 @@ _COSTS_REMOTE_READ = "\n".join([
 def _read_spend_log(host: str | None,
                     log_base: str) -> tuple[str, list[str]] | None:
     """(text, segment basenames) over all spend.jsonl* segments, or None
-    when none exist. Rotated segments are plain text (ADR 0044 decision 1)."""
+    when none exist. Rotated segments are plain text (ADR 0051 decision 1)."""
     if host is None:
         d = Path(log_base).parent
         paths = []
@@ -1435,14 +1435,14 @@ def cmd_costs(args: argparse.Namespace) -> int:
     got = _read_spend_log(record["host"], log_base)
     if got is None:
         print(f"no spend log for stack {args.name!r} yet - metering lands "
-              f"with #46 (ADR 0022/0044); {log_base}")
+              f"with #46 (ADR 0022/0051); {log_base}")
         return 0
     text, segments = got
     parsed = costs.parse_spend_log(text)
     if not parsed.records and parsed.skipped == 0:
         print(f"spend log exists but has no records yet ({log_base})")
         return 0
-    records = sorted(parsed.records, key=lambda r: r.ts)  # ADR 0044: by ts
+    records = sorted(parsed.records, key=lambda r: r.ts)  # ADR 0051: by ts
     today = datetime.now(timezone.utc).date()
     if since is None:
         since = (datetime.fromtimestamp(records[0].ts, tz=timezone.utc).date()
@@ -1752,7 +1752,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_costs = sub.add_parser(
         "costs", help="per-call spend rollup from the stack's spend.jsonl "
-        "(ADR 0022/0044)")
+        "(ADR 0022/0051)")
     p_costs.add_argument("name")
     p_costs.add_argument("--since", default=None, metavar="YYYY-MM-DD",
                          help="window start (default: earliest retained record)")
