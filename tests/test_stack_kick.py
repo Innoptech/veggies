@@ -68,14 +68,23 @@ def test_build_prompt_mandates_the_pipeline():
 
 
 def test_build_prompt_mandates_a_per_session_worktree():
-    """Issue #27 / ADR 0036: kicked sessions share one clone at /workspace,
+    """Issue #27 / ADR 0037: kicked sessions share one clone at /workspace,
     so the prompt must move each session into its own git worktree before
     any work - and keep the shared checkout read-only for that session."""
     p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
-    assert ("git -C /workspace worktree add -B agent/issue-12 "
+    assert ("git -C /workspace worktree add --lock --reason "
+            "'session issue-12' -B agent/issue-12 "
             "/workspace/.veggies/wt/issue-12 origin/main") in p
     assert ".git/info/exclude" in p  # the shared checkout stays clean
-    assert "the shared checkout at /workspace itself is read-only to you" in p
+    assert "The shared checkout at /workspace itself is read-only to you" in p
+    # opencode file tools resolve relative paths against the session dir
+    # (/workspace), not the bash cwd - edits must use absolute paths.
+    assert "absolute paths under /workspace/.veggies/wt/issue-12" in p
+    # recovery guidance must name the errors git 2.54 actually prints for
+    # `worktree add`, and must never bless -f/--force (it overrides the
+    # branch-held tripwire - verified 2026-09-11).
+    assert "already used by worktree" in p and "already exists" in p
+    assert "never pass -f/--force" in p
 
 
 def test_build_prompt_truncates_and_defaults():
