@@ -1326,7 +1326,8 @@ _COSTS_REMOTE_READ = "\n".join([
     "printf 'segments:%s\\n' \"${found# }\"",
     'for f in "$1"*; do',
     '  [ -f "$f" ] || continue',
-    "  awk '1' \"$f\"",
+    # propagate a mid-read failure: it must never look like "missing"
+    "  awk '1' \"$f\" || exit 4",
     'done',
 ])
 
@@ -1344,20 +1345,27 @@ def _read_spend_log(host: str | None,
                            if p.is_file())
         if not paths:
             return None
-        # errors="replace": a forbidden compressed/rotten segment surfaces as
-        # counted malformed lines instead of silently shrinking the report.
-        text = "\n".join(p.read_text(errors="replace").rstrip("\n")
-                         for p in paths)
-        return text, [p.name for p in paths]
+        texts = []
+        for p in paths:
+            try:
+                # errors="replace": a forbidden compressed/rotten segment
+                # surfaces as counted malformed lines, never silent shrink.
+                texts.append(p.read_text(errors="replace").rstrip("\n"))
+            except OSError as exc:
+                raise ValueError(f"cannot read spend segment {p}: {exc}") \
+                    from None
+        # Drop empty segments so a non-final one can't fabricate a phantom
+        # blank (skipped) line at the seam - remote cat behaves the same.
+        return "\n".join(t for t in texts if t), [p.name for p in paths]
     r = host_run(host, ["sh", "-c", _COSTS_REMOTE_READ, "sh", log_base],
                  check=False, capture=True)
+    if r.returncode == 3:
+        return None  # the script's own "no spend.jsonl* segments" sentinel
     if r.returncode != 0:
-        noise = [ln for ln in r.stderr.strip().splitlines()
-                 if ln.strip() and "No such file" not in ln]
-        if not r.stdout.strip() or not noise:
-            return None  # rc!=0 + empty stdout (or mere noise) = missing log
-        raise ValueError(f"failed to read spend log on {host}: "
-                         + " | ".join(noise))
+        # Any other failure (rotation race, dropped read, ssh error) is an
+        # error with detail - it must never masquerade as "no spend log".
+        detail = r.stderr.strip() or f"exit {r.returncode}"
+        raise ValueError(f"failed to read spend log on {host}: {detail}")
     lines = r.stdout.splitlines()
     if not lines or not lines[0].startswith("segments:"):
         raise ValueError(f"unexpected output reading spend log on {host}")
@@ -1366,13 +1374,18 @@ def _read_spend_log(host: str | None,
 
 def _owner_repo(repo_url: str) -> str:
     """owner/repo for `gh -R`: strip the scheme/host (or git@ host:) and any
-    .git suffix."""
+    .git suffix. Degenerate recorded URLs are a clean error, not IndexError."""
     path = re.sub(r"\.git$", "", repo_url.rstrip("/"))
     if path.startswith("git@"):
-        path = path.split(":", 1)[1]
+        path = path.split(":", 1)[1] if ":" in path else ""
     elif "://" in path:
-        path = path.split("://", 1)[1].split("/", 1)[1]
-    return "/".join(path.split("/")[-2:])
+        rest = path.split("://", 1)[1]
+        path = rest.split("/", 1)[1] if "/" in rest else ""
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2:
+        raise ValueError(f"cannot derive owner/repo from recorded repo "
+                         f"{repo_url!r} - pass --issue N directly")
+    return "/".join(parts[-2:])
 
 
 def _resolve_pr_issue(record: dict, pr: int) -> int:
@@ -1390,7 +1403,14 @@ def _resolve_pr_issue(record: dict, pr: int) -> int:
     if r.returncode != 0:
         raise ValueError(f"gh pr view {pr} failed: {r.stderr.strip()} - "
                          "pass --issue N directly")
-    branch = json.loads(r.stdout).get("headRefName", "")
+    data = json.loads(r.stdout)
+    if not isinstance(data, dict):
+        raise ValueError(f"gh pr view {pr} returned unexpected JSON "
+                         f"{data!r} - pass --issue N directly")
+    branch = data.get("headRefName")
+    if not isinstance(branch, str):
+        raise ValueError(f"gh pr view {pr} returned unexpected headRefName "
+                         f"{branch!r} - pass --issue N directly")
     m = re.match(r"^agent/issue-(\d+)$", branch)
     if not m:
         raise ValueError(f"PR #{pr} is on branch {branch!r}, not "
@@ -1427,8 +1447,12 @@ def cmd_costs(args: argparse.Namespace) -> int:
     if since is None:
         since = (datetime.fromtimestamp(records[0].ts, tz=timezone.utc).date()
                  if records else today)
-    earliest = args.since is None
+    # the suffix marks a real floor; an empty parse has no earliest record
+    earliest = args.since is None and bool(records)
     window = costs.filter_since(records, since)
+    if not window and args.since is not None:
+        print(f"no spend records since {since.isoformat()} ({log_base})")
+        return 0
     weekly = costs.use_weekly((today - since).days, args.weekly)
     if args.issue is not None or args.pr is not None or \
             args.session is not None:
@@ -1448,7 +1472,8 @@ def cmd_costs(args: argparse.Namespace) -> int:
             sel = [r for r in window if needle in r.session.lower()]
         print(costs.render_detail(
             sel, subject=subject,
-            unpriced=sum(1 for r in sel if r.spend is None)))
+            unpriced=sum(1 for r in sel if r.spend is None),
+            weekly=weekly))
         return 0
     print(costs.render_summary(
         costs.summarize(window), since=since, today=today, earliest=earliest,
