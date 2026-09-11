@@ -7,7 +7,7 @@ queues the prompt; an issue kick works it autonomously in its own
 git worktree (/workspace/.veggies/wt/issue-N, ADR 0037) through the
 mandated pipeline (plan refined by the persona roster and posted on the
 issue, subagent execution, adversarial review, the repo-declared verify
-gate (ADR 0044), PR - ADR 0036/0042), a discussion kick distills
+gate (ADR 0045), PR - ADR 0036/0042), a discussion kick distills
 the thread into issues (plan / happy path / criteria of success). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
@@ -98,7 +98,7 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
     return None
 
 # The repo declares its in-pod verify gate as one HTML-comment marker in
-# its agent-instruction file (ADR 0044). Search order below: the first
+# its agent-instruction file (ADR 0045). Search order below: the first
 # file that exists, first marker match wins. The marker must be alone on
 # its line - an example quoted inside prose is not a declaration.
 GATE_MARKER = re.compile(
@@ -106,12 +106,12 @@ GATE_MARKER = re.compile(
     re.MULTILINE)
 AGENT_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
 # Echoed (stdout + GITHUB_OUTPUT) when no marker is found, so a degraded
-# kick is a visible event, not a silent one (ADR 0044).
+# kick is a visible event, not a silent one (ADR 0045).
 VERIFY_GATE_NONE = "(none declared - agent-instruction prose governs)"
 
 
 def declared_verify_gate(repo_root: Path | str | None = None) -> str | None:
-    """The repo's declared in-pod verify gate (ADR 0044), or None when no
+    """The repo's declared in-pod verify gate (ADR 0045), or None when no
     agent-instruction file carries a veggies-verify-gate marker. A None
     root anchors to this vendored script's own repo root
     (Path(__file__).resolve().parents[1] - the script lives at
@@ -405,7 +405,7 @@ def build_prompt(repo: str, number: str, title: str, body: str,
                  verify_gate: str | None = None) -> str:
     """Pure: the kick prompt for one issue (label trigger) or for a
     comment on it (comment trigger - the comment text rides along).
-    verify_gate is the repo's declared in-pod gate (ADR 0044); None
+    verify_gate is the repo's declared in-pod gate (ADR 0045); None
     renders the advisory fallback (the agent-instruction file's prose
     is the contract)."""
     body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
@@ -414,7 +414,7 @@ def build_prompt(repo: str, number: str, title: str, body: str,
             f"4. Verify: `{verify_gate}` must pass before you push. That\n"
             "   command is the repo's declared in-pod verify gate (the\n"
             "   veggies-verify-gate marker in its agent-instruction file,\n"
-            "   ADR 0044). The declaration's prose may also scope it to\n"
+            "   ADR 0045). The declaration's prose may also scope it to\n"
             "   your diff - follow the scoping the declaration declares;\n"
             "   absent any, run the whole gate. If the gate skips\n"
             "   anything in this environment, note it in the PR body.\n"
@@ -422,7 +422,7 @@ def build_prompt(repo: str, number: str, title: str, body: str,
     else:
         verify_step = (
             "4. Verify: this repo declares no veggies-verify-gate marker\n"
-            "   (ADR 0044), so its agent-instruction file's prose is the\n"
+            "   (ADR 0045), so its agent-instruction file's prose is the\n"
             "   contract - read it and make the checks it declares pass\n"
             "   before you push. If anything cannot run in this\n"
             "   environment, note it in the PR body.\n"
@@ -559,7 +559,7 @@ def main() -> int:
     if rc is not None:
         return rc
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
-    # The repo's declared verify gate (ADR 0044): interpolated into the
+    # The repo's declared verify gate (ADR 0045): interpolated into the
     # prompt's verify step and echoed BEFORE the kick attempt, so a
     # typo'd marker is a visible event even when the kick itself fails.
     gate = declared_verify_gate()

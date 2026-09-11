@@ -645,7 +645,7 @@ def test_build_prompt_mandates_multi_role_plan_review():
     assert "BEFORE writing code" in p
 
 
-# --- Repo-declared verify gate (ADR 0044): the verify step interpolates
+# --- Repo-declared verify gate (ADR 0045): the verify step interpolates
 # the gate the repo declares via the veggies-verify-gate marker in its
 # agent-instruction file - never a hardcoded command --------------------
 
@@ -718,7 +718,7 @@ def test_declared_verify_gate_inline_marker_does_not_parse(tmp_path):
 
 def test_declared_verify_gate_non_utf8_file_is_skipped(tmp_path):
     # an undecodable file degrades like an unreadable one - it never
-    # blocks the kick (ADR 0044)
+    # blocks the kick (ADR 0045)
     (tmp_path / "AGENTS.md").write_bytes(b"\xff\xfe invalid \x00")
     assert stack_kick.declared_verify_gate(tmp_path) is None
     (tmp_path / "CLAUDE.md").write_text("<!-- veggies-verify-gate: tox -->")
@@ -726,7 +726,7 @@ def test_declared_verify_gate_non_utf8_file_is_skipped(tmp_path):
 
 
 def test_this_repo_declares_its_kick_gate():
-    """LOAD-BEARING (ADR 0044): pins the day-one byte-for-byte criterion -
+    """LOAD-BEARING (ADR 0045): pins the day-one byte-for-byte criterion -
     the declared command is identical to the previously hardcoded one -
     AND the prose<->marker lockstep, so a future rule-3 edit that drops
     or rewords either half fails loudly here instead of silently
@@ -803,7 +803,7 @@ def test_main_gate_round_trips_through_github_output(monkeypatch, tmp_path,
 
 
 def test_main_echoes_gate_even_when_kick_fails(monkeypatch, tmp_path, capsys):
-    # ADR 0044: the gate is echoed per kick, success or failure - a typo'd
+    # ADR 0045: the gate is echoed per kick, success or failure - a typo'd
     # marker on a broken stack is still a visible event
     out = tmp_path / "gh_out"
     for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",

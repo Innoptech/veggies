@@ -59,7 +59,7 @@ and posted as an issue comment, with each role's input or explicit
 no-objection, before code - execution through task subagents, an
 adversarial-review subagent pass on the diff before pushing, and a
 verify step running the repo's declared gate (the `veggies-verify-gate`
-marker in its agent-instruction file, ADR 0044), not a hardcoded
+marker in its agent-instruction file, ADR 0045), not a hardcoded
 command. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
 (`D#N elaborate: <title>` for persona-roster runs), the

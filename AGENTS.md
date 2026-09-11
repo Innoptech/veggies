@@ -13,7 +13,7 @@ reviews PRs; agents implement. These rules are not negotiable:
    sessions instead run the repo's declared in-pod verify gate,
    `SKIP=actionlint-docker mask ci`, declared machine-readably by the
    marker line below (consumed by scripts/stack_kick.py at kick time, ADR
-   0044) - the SKIP excludes the dockerized actionlint hook, and molecule
+   0045) - the SKIP excludes the dockerized actionlint hook, and molecule
    stays excluded by the banned podman socket (ADR 0028); CI on
    GitHub-hosted runners covers both.
    <!-- veggies-verify-gate: SKIP=actionlint-docker mask ci -->
@@ -63,7 +63,7 @@ reviews PRs; agents implement. These rules are not negotiable:
     0041); the kick prompt mandates the pipeline (plan refined by that
     same persona roster and posted on the issue first with each role's
     input, task subagents, adversarial-review subagent on the diff, the
-    rule-3 declared verify gate - ADR 0036/0042/0044). `github: true`
+    rule-3 declared verify gate - ADR 0036/0042/0045). `github: true`
     stacks take the serve password from vault key
     `veggies_stack_password`, never per-stack random. Stack
    names are global across hosts (cross-host reuse is refused). The

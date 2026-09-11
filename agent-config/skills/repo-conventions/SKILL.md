@@ -10,7 +10,7 @@ metadata:
 
 - Read the repo's AGENTS.md and docs/adr/README.md before making changes.
 - Run the repo's declared verify gate - the `veggies-verify-gate` marker
-  in its agent-instruction file (ADR 0044), falling back to that file's
+  in its agent-instruction file (ADR 0045), falling back to that file's
   prose when no marker exists - rather than inventing ad-hoc
   verification.
 - Record non-obvious decisions as ADRs when the repo has an ADR process.
