@@ -37,9 +37,9 @@ discovered from `.opencode/` in the mounted repo (ADR 0019). Stacks may opt
 into GitHub write access (`github: true` in veggies.yml): the pod carries
 the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
 from the vault (ADR 0033). The opencode image also carries the dev
-toolchain (python/mask/ansible/tofu/tflint - ADR 0032) so agents run the
-repo's own checks in-pod; molecule is excluded (no podman socket, ADR
-0028).
+toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
+0032/0044) so agents run the repo's own checks in-pod; molecule is
+excluded (no podman socket, ADR 0028).
 
 Event path (ADR 0033/0038/0041): `.github/workflows/agent-trigger.yml` on
 the self-hosted runners kicks this repo's stack via `scripts/stack_kick.py`
