@@ -115,6 +115,8 @@ def test_build_prompt_mandates_draft_first_lifecycle():
     assert "git rebase origin/main" in p and "--force-with-lease" in p
     # the supervisor collision: rework converts back first
     assert "gh pr ready --undo" in p
+    # honesty rule carried over from the pre-0044 step 4
+    assert "Claim only what you actually ran" in p
 
 
 def test_build_prompt_truncates_and_defaults():
