@@ -613,9 +613,11 @@ block, one apply, one merge.
    on the repo arrives as this one reviewable PR), merge (squash), and
    DELETE the delivery branch - `github_branch.delivery` recreates it from
    the default-branch tip on the next delivery; a surviving branch
-   accumulates phantom diffs after squash merges. The same lifecycle
-   applies to the labeller's `infra/needs-team-review` branch (the anchor
-   repos.tf's comment points at).
+   accumulates phantom diffs after squash merges. The delete-after-merge
+   habit applies to the labeller's `infra/needs-team-review` branch too,
+   but nothing recreates that one yet - hand-create it (or port the
+   github_branch pattern) when manage_label_workflow is next enabled
+   (repos.tf's latent-gap note).
 4. Label an issue `agent-task` (or comment `/opencode`) - the kick fires.
 
 Drift check: after any apply, open `infra/agent-trigger` PRs across
