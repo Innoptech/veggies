@@ -31,6 +31,10 @@ Env:
     DISCUSSION_TITLE   discussion title
     DISCUSSION_BODY    opening post (payload copy; truncated like ISSUE_BODY)
     DISCUSSION_URL     discussion html_url
+    DISCUSSION_COMMAND discussion sub-command: "elaborate" fans the thread
+                       out to five persona subagents, each posting one
+                       attributed POV comment (issue #33); anything else
+                       (incl. unset) distills the thread into issues
     GITHUB_TOKEN       issue mode: done-guard (ADR 0035); discussion mode:
                        fetches the comment thread (REST) - without it the
                        prompt carries the opening post only
@@ -50,6 +54,17 @@ BODY_LIMIT = 4000
 COMMENT_LIMIT = 2000  # per discussion comment
 THREAD_BUDGET = 12000  # total chars of rendered discussion thread
 SKIP_DONE = 3  # exit code: issue already handled (ADR 0035)
+
+# The elaborate persona roster (issue #33): (agent name, display role) per
+# persona. Each definition lives in agent-config/agents/<name>.md, and
+# test_persona_roster_matches_agent_files binds this tuple to those files.
+PERSONAS: tuple[tuple[str, str], ...] = (
+    ("domain-expert", "Domain expert"),
+    ("infra-architect", "Infra/architecture"),
+    ("marketer", "Marketer"),
+    ("seller", "Seller"),
+    ("cto", "CTO"),
+)
 
 
 def gh_api(token: str, path: str) -> object:
@@ -197,6 +212,61 @@ Rules of engagement:
   unexecuted.
 """
 
+ELABORATE_PROMPT_TEMPLATE = """You are the veggies agent for {repo}, working unattended in the stack's clone at /workspace.
+
+GitHub discussion #{number}: {title}
+{url}
+
+{body}
+
+{thread}
+
+Mission: elaborate this discussion with five attributed expert POVs (issue
+#33) - one per rostered persona. The roster, as <agent name> (<role>);
+each persona's definition lives in agent-config/agents/<name>.md:
+
+- domain-expert (Domain expert)
+- infra-architect (Infra/architecture)
+- marketer (Marketer)
+- seller (Seller)
+- cto (CTO)
+
+Read the whole thread first - every POV must engage what the thread has
+been discussing, not only the opening post. Disagreeing with the thread is
+allowed; being generic is not.
+
+1. Dispatch one task subagent per persona - five in total (the house
+   pattern, ADR 0036). Each task prompt carries the persona's agent name
+   and the WHOLE thread - the opening post plus every comment - and asks
+   for that persona's POV on the discussion. Each subagent returns its POV
+   text only; it never calls gh or touches files.
+2. Post exactly one comment per persona on the discussion - five in
+   total, each body starting with its attribution header line, the
+   `**<Role> POV**` of its role, verbatim:
+   - **Domain expert POV**
+   - **Infra/architecture POV**
+   - **Marketer POV**
+   - **Seller POV**
+   - **CTO POV**
+   Post each comment as its POV arrives, with GraphQL addComment: fetch
+   the node id with
+   `gh api repos/{repo}/discussions/{number} --jq .node_id`, then
+   `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addComment(input: {{subjectId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
+
+Rules of engagement:
+- Work autonomously. Never block waiting for a human - decide, and record
+  your assumptions in the persona comments.
+- Read AGENTS.md first and follow it.
+- No code changes, no tracking artifacts: do not branch, commit, push,
+  open a PR, or create issues - the deliverable is exactly the five
+  attributed POV comments on this discussion.
+- gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If a
+  posting call is denied, name the exact missing token permission in your
+  final message and stop (the operator grants it).
+- Finish the task completely; never end your turn with a next step
+  unexecuted.
+"""
+
 
 def fetch_discussion_comments(repo: str, number: str,
                               token: str) -> list[tuple[str, str]]:
@@ -245,6 +315,23 @@ def build_discussion_prompt(repo: str, number: str, title: str, body: str,
     manual kick has beyond the opening post."""
     body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
     prompt = DISCUSSION_PROMPT_TEMPLATE.format(
+        repo=repo, number=number, title=title, body=body, url=url,
+        thread=render_thread(comments))
+    if comment.strip():
+        prompt += COMMENT_SECTION.format(author=comment_author or "?",
+                                         comment=comment.strip()[:2000])
+    return prompt
+
+
+def build_elaborate_prompt(repo: str, number: str, title: str, body: str,
+                           url: str, comments: list[tuple[str, str]],
+                           comment: str = "",
+                           comment_author: str = "") -> str:
+    """Pure: the discussion->persona-POVs kick prompt (issue #33). Same
+    shape as build_discussion_prompt - same body budget, same rendered
+    thread, and the triggering comment rides along."""
+    body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
+    prompt = ELABORATE_PROMPT_TEMPLATE.format(
         repo=repo, number=number, title=title, body=body, url=url,
         thread=render_thread(comments))
     if comment.strip():
@@ -396,8 +483,9 @@ def main() -> int:
 
 def main_discussion(number: str) -> int:
     """Discussion mode (ADR 0038): no done-guard - unlike a lingering label,
-    a /opencode comment is a deliberate act, and re-kicking an evolving
-    discussion is the point (the prompt dedupes against existing issues)."""
+    a /opencode (or /elaborate, issue #33) comment is a deliberate act, and
+    re-kicking an evolving discussion is the point (the prompt dedupes
+    against existing issues)."""
     url = os.environ["STACK_URL"].rstrip("/")
     gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if gh_token:
@@ -408,12 +496,24 @@ def main_discussion(number: str) -> int:
               "fetched (opening post + triggering comment only)",
               file=sys.stderr)
         comments = []
-    title = f"D#{number}: {os.environ['DISCUSSION_TITLE']}"
-    prompt = build_discussion_prompt(
-        os.environ["REPO"], number, os.environ["DISCUSSION_TITLE"],
-        os.environ.get("DISCUSSION_BODY", ""), os.environ["DISCUSSION_URL"],
-        comments, comment=os.environ.get("COMMENT_BODY", ""),
-        comment_author=os.environ.get("COMMENT_AUTHOR", ""))
+    # DISCUSSION_COMMAND selects the discussion sub-command (issue #33):
+    # "elaborate" -> persona POV comments; anything else (incl. unset) ->
+    # the ADR 0038 distill path, byte-identical.
+    if os.environ.get("DISCUSSION_COMMAND", "") == "elaborate":
+        title = f"D#{number} elaborate: {os.environ['DISCUSSION_TITLE']}"
+        prompt = build_elaborate_prompt(
+            os.environ["REPO"], number, os.environ["DISCUSSION_TITLE"],
+            os.environ.get("DISCUSSION_BODY", ""),
+            os.environ["DISCUSSION_URL"], comments,
+            comment=os.environ.get("COMMENT_BODY", ""),
+            comment_author=os.environ.get("COMMENT_AUTHOR", ""))
+    else:
+        title = f"D#{number}: {os.environ['DISCUSSION_TITLE']}"
+        prompt = build_discussion_prompt(
+            os.environ["REPO"], number, os.environ["DISCUSSION_TITLE"],
+            os.environ.get("DISCUSSION_BODY", ""), os.environ["DISCUSSION_URL"],
+            comments, comment=os.environ.get("COMMENT_BODY", ""),
+            comment_author=os.environ.get("COMMENT_AUTHOR", ""))
     try:
         sid = kick(url, os.environ["STACK_PASSWORD"], prompt, title=title)
     except (urllib.error.URLError, RuntimeError, TimeoutError,
