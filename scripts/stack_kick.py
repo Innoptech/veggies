@@ -162,8 +162,10 @@ Rules of engagement:
   a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
-- Read AGENTS.md first and follow it (ADR rules, conventional commits,
-  the declared verify gate).
+- Read the repo's own agent-instruction file first - whichever of
+  AGENTS.md/CLAUDE.md (or equivalent) the repo ships - and follow it
+  (its decision rules, commit style, and declared verify gate are the
+  contract).
 - Isolate first (ADR 0037): other sessions share this clone, so this issue
   works in its own git worktree. Run exactly, in order; if a command
   fails, stop and read the error before improvising:
@@ -310,7 +312,7 @@ Rules of engagement:
   a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the issue bodies (or the discussion comment).
-- Read AGENTS.md first and follow it.
+- Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
 - No code changes: do not branch, commit, push, or open a PR - the
   deliverable is the set of issues plus the summary comment.
 - gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If issue
@@ -366,7 +368,7 @@ Rules of engagement:
   a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the persona comments.
-- Read AGENTS.md first and follow it.
+- Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
 - No code changes, no tracking artifacts: do not branch, commit, push,
   open a PR, or create issues - the deliverable is exactly the five
   attributed POV comments on this discussion.
