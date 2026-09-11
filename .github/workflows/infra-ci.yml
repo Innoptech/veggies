@@ -67,6 +67,7 @@ jobs:
               - 'agent-config/**'
               - 'ansible/**'
               - 'deploy/**'
+              - 'terraform/terraform.tfvars.example'
               - 'veggies.yml'
               - '.github/workflows/infra-ci.yml'
 
