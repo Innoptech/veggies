@@ -49,9 +49,12 @@ def test_pre_commit_never_gated():
 def test_path_gated_jobs_always_run_after_changes():
     for name in ALWAYS_AFTER_CHANGES:
         job = JOBS[name]
-        assert "always()" in job.get("if", ""), (
-            f"{name}: needs an always() job-level if so a path-skipped "
-            "upstream never leaves the required context Pending"
+        # Exact equality, not a substring: `always() && <condition>` still
+        # job-level-skips the required context and wedges merges as Pending.
+        assert job.get("if", "").strip() == "always()", (
+            f"required context {name} must have job-level if exactly "
+            "'always()' - never add conditions; see the header comment in "
+            "infra-ci.yml"
         )
         assert "changes" in _needs(job), f"{name}: must need the changes job"
 
@@ -74,7 +77,46 @@ def test_molecule_roles_matrix_matches_role_dirs():
 
 def test_changes_job_uses_paths_filter():
     assert "changes" in JOBS, "no changes job: path gating is not implemented"
+    assert "if" not in JOBS["changes"], (
+        "change detection must always run - a gate on it must be a "
+        "deliberate, reviewed act"
+    )
     uses = [step.get("uses", "") for step in JOBS["changes"].get("steps", [])]
     assert any(u.startswith("dorny/paths-filter@") for u in uses), (
         "changes job must compute outputs via dorny/paths-filter"
+    )
+
+
+def test_changes_outputs_wiring_is_closed():
+    # Renaming a filter or outputs key resolves to "" with no error and
+    # permanently pins RUN_JOB=false on PRs - silent green. Close the loop:
+    # references, outputs keys and dorny filter keys must be the same set.
+    raw = (ROOT / ".github/workflows/infra-ci.yml").read_text()
+    referenced = set(
+        re.findall(r"needs\.changes\.outputs\.([A-Za-z_][A-Za-z0-9_]*)", raw)
+    )
+    assert referenced == {"ansible", "terraform", "pytest"}, (
+        f"unexpected needs.changes.outputs.* references: {sorted(referenced)}"
+    )
+    outputs = JOBS["changes"]["outputs"]
+    for key in referenced:
+        assert key in outputs, (
+            f"changes job has no output {key!r} but other jobs reference it"
+        )
+    for key, value in outputs.items():
+        # The output value must pass through the SAME-named filter output -
+        # `${{ steps.filter.outputs.tf }}` under a `terraform:` key is silent.
+        expected = "${{ steps.filter.outputs." + key + " }}"
+        assert value == expected, (
+            f"changes.outputs.{key} must be exactly {expected!r}, got {value!r}"
+        )
+    filter_step = next(
+        s for s in JOBS["changes"]["steps"] if s.get("id") == "filter"
+    )
+    filters = yaml.safe_load(filter_step["with"]["filters"])
+    assert referenced == set(filters) == set(outputs), (
+        "dorny filter keys, changes.outputs keys and "
+        "needs.changes.outputs.* references drifted: "
+        f"references={sorted(referenced)} filters={sorted(filters)} "
+        f"outputs={sorted(outputs)}"
     )
