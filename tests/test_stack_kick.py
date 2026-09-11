@@ -233,6 +233,9 @@ def test_build_discussion_prompt_carries_thread_and_mission():
     # discussion kicks never branch or PR, and must not self-retrigger
     assert "agent/issue-" not in p and "Closes #" not in p
     assert "agent-task" in p  # named as the do-NOT-add label
+    # the closing comment on the discussion: addDiscussionComment, never
+    # addComment (discussions reject it - run 34602194185, ADR 0039)
+    assert "addDiscussionComment" in p and "addComment(" not in p
 
 
 def test_build_discussion_prompt_defaults_and_empty_thread():

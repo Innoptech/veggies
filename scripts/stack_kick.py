@@ -178,10 +178,11 @@ For each distinct piece of work the discussion asks for:
 3. Do NOT add the `agent-task` label: a human reviews the new issues first
    and labels deliberately (the label kicks another agent, ADR 0035).
 4. When every issue exists, comment the created issue links back on the
-   discussion (best effort - the bot PAT may lack Discussions: write):
+   discussion (best effort - the bot PAT may lack Discussions: write).
+   Discussions reject addComment; use addDiscussionComment (ADR 0039):
    fetch the node id with
    `gh api repos/{repo}/discussions/{number} --jq .node_id`, then
-   `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addComment(input: {{subjectId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
+   `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
 
 Rules of engagement:
 - Work autonomously. Never block waiting for a human - decide, and record

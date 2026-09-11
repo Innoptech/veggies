@@ -47,6 +47,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0036](0036-always-on-critic-for-kicked-sessions.md) | Always-on critic for kicked sessions: in-pod supervisor component | accepted |
 | [0037](0037-per-session-worktrees.md) | Per-session git worktrees inside the shared clone | accepted |
 | [0038](0038-discussion-triggered-issue-distillation.md) | Discussion-triggered kicks: distill a discussion into issues | accepted |
+| [0039](0039-discussion-feedback-contract.md) | Discussion feedback: agent-owned results, workflow-owned acks | accepted |
 
 ## Deviation ledger (vs the original brief)
 

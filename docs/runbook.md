@@ -367,14 +367,13 @@ Plumbing: Actions variable
 ports on the VPS; allowed by `egress_extra_local_dports` in the egress
 role).
 
-TODO(you): the bot PAT (account `olgam4`, fine-grained) is missing four
-repository permissions on Innoptech/veggies, all verified 2026-09-10:
-`Contents: write` (agent push denied - the issue-#15 run committed
-`agent/issue-15` in the VPS clone but could not push), `Pull requests:
-write`, and `Secrets: write` + `Variables: write` (the tofu apply of the
-stack secret/variables 403s). Grant all four, then re-run
-`mask tofu-apply` and re-kick the issue. Until then use the manual kick
-below.
+TODO(you): the bot PAT (account `olgam4`, fine-grained) is missing
+`Discussions: write` on Innoptech/veggies: the distilling agent's closing
+comment on the source discussion degrades to a named-permission final
+message until granted (the created issues still link the discussion, so
+the back-reference appears regardless). The four permissions verified
+missing on 2026-09-10 (`Contents`/`Pull requests`/`Secrets`/`Variables`
+write) were granted on 2026-09-11.
 
 Watch a kicked run (the demo path):
 
@@ -387,12 +386,14 @@ veggies logs veggie -f                       # raw pod logs
 veggies ui veggie --stop           # close the tunnel
 ```
 
-Every kick also comments on the issue or discussion (ADR 0034; GraphQL
-`addComment` covers both): session id, deep link
+Every issue kick comments on the issue (ADR 0034): session id, deep link
 (`http://127.0.0.1:<port+1000>/L3dvcmtzcGFjZQ/session/<id>` once
-tunneled), and the password one-liner - and a failure comment when the
-stack rejects the kick. Kicked sessions are titled `#N: <issue title>`
-(`D#N: <discussion title>` for discussions).
+tunneled), and the password one-liner. Discussion kicks get a minimal ack
+only - the results feedback is the agent's closing comment listing the
+created issues, which themselves link the discussion in `## Context`
+(ADR 0039; discussions need `addDiscussionComment`, issues `addComment`).
+A failed kick always comments, on either subject. Kicked sessions are
+titled `#N: <issue title>` (`D#N: <discussion title>` for discussions).
 
 Web UI map (1.18.27, verified 2026-09-11): `/` is Home - the all-sessions
 view (Today/Yesterday/Older + search), but its project list is
