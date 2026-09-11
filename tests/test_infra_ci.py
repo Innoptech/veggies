@@ -128,7 +128,12 @@ def test_changes_outputs_wiring_is_closed():
     all_step = next(
         s for s in JOBS["changes"]["steps"] if s.get("id") == "all"
     )
-    all_keys = set(re.findall(r'echo "([A-Za-z_][A-Za-z0-9_]*)=true"', all_step["run"]))
+    all_keys = set(
+        re.findall(
+            r'echo "([A-Za-z_][A-Za-z0-9_]*)=true" >> "\$GITHUB_OUTPUT"',
+            all_step["run"],
+        )
+    )
     assert referenced == set(filters) == set(outputs) == all_keys, (
         "dorny filter keys, changes.outputs keys, all-step emitted keys and "
         "needs.changes.outputs.* references drifted: "
