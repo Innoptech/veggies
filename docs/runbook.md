@@ -574,6 +574,13 @@ Troubleshooting:
   chained-squid DNS stall, fixed 2026-09-10 - stacks created before it
   need one `veggies up` recreate; verify with `veggies logs <name> squid`
   (CONNECT lines should complete in <1s).
+- `tofu init` fails in-pod with "failed to request discovery document": the
+  registry fetch lost to tofu's 10s default client timeout on cold chained
+  egress (issue #50). `mask tofu-validate` and the opencode image now export
+  TF_REGISTRY_CLIENT_TIMEOUT=120; existing stacks pick up the image ENV on
+  the next `veggies up` (the maskfile export covers `mask ci` immediately).
+  If git ops also hang ~35s per connection the stack predates the DNS fix
+  above - recreate it (`veggies up`).
 - Pre-fix remote clones may carry the clone-time token in `.git/config` -
   check with `git config --get http.extraheader` and unset it; private-repo
   pulls in-pod now require `github: true`.
