@@ -4,6 +4,7 @@
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -45,11 +46,13 @@ def calls(monkeypatch):
 
 
 def test_build_prompt_contains_issue_and_rules():
+    # a deliberately foreign gate proves interpolation, not hardcoding
     p = stack_kick.build_prompt("o/r", "12", "Fix the thing",
-                                "Some body", "https://x/12")
+                                "Some body", "https://x/12",
+                                verify_gate="npm test -- --changed")
     assert "#12" in p and "Fix the thing" in p and "Some body" in p
     assert "agent/issue-12" in p and "Closes #12" in p
-    assert "mask ci" in p
+    assert "npm test -- --changed" in p
 
 
 def test_build_prompt_mandates_a_per_session_worktree():
@@ -76,7 +79,8 @@ def test_build_prompt_mandates_the_pipeline():
     """Issue #26 / ADR 0036: a kicked session must run the full pipeline -
     plan first, subagent execution, adversarial review, verified checks -
     not just dive into code."""
-    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u",
+                                verify_gate="npm test -- --changed")
     # 1. plan first, posted back to the issue for human review
     assert "writing-plans" in p
     assert f"gh issue comment 12" in p
@@ -85,8 +89,8 @@ def test_build_prompt_mandates_the_pipeline():
     # 3. adversarial review of the diff (the vendored different-model
     # subagent) before pushing
     assert "adversarial-review" in p
-    # 4. verified claims only
-    assert "mask ci" in p
+    # 4. verified claims only, via the repo's declared gate
+    assert "npm test -- --changed" in p
 
 
 def test_build_prompt_truncates_and_defaults():
@@ -639,3 +643,117 @@ def test_build_prompt_mandates_multi_role_plan_review():
     assert "no-objection" in p
     # role review refines the draft plan; it never implements
     assert "BEFORE writing code" in p
+
+
+# --- Repo-declared verify gate (ADR 0044): the verify step interpolates
+# the gate the repo declares via the veggies-verify-gate marker in its
+# agent-instruction file - never a hardcoded command --------------------
+
+
+def test_prompt_hardcodes_no_repo_gate():
+    assert "mask ci" not in stack_kick.PROMPT_TEMPLATE
+    assert "mask ci" not in (stack_kick.__doc__ or "")
+    assert "{verify_step}" in stack_kick.PROMPT_TEMPLATE
+
+
+def test_build_prompt_verify_gate_fallback():
+    p = stack_kick.build_prompt("o/r", "12", "t", "b", "u", verify_gate=None)
+    assert "veggies-verify-gate" in p  # names the missing marker
+    assert "Claim only what you actually ran." in p
+    p = stack_kick.build_prompt("o/r", "12", "t", "b", "u",
+                                verify_gate="npm test -- --changed")
+    assert "`npm test -- --changed`" in p  # the gate, in backticks
+    assert "Claim only what you actually ran." in p
+
+
+def test_declared_verify_gate_from_agents_md(tmp_path):
+    (tmp_path / "AGENTS.md").write_text(
+        "prose\n<!-- veggies-verify-gate: make test -->\nmore\n")
+    assert stack_kick.declared_verify_gate(tmp_path) == "make test"
+
+
+def test_declared_verify_gate_sloppy_whitespace(tmp_path):
+    (tmp_path / "AGENTS.md").write_text(
+        "<!--   veggies-verify-gate:   make test   -->")
+    assert stack_kick.declared_verify_gate(tmp_path) == "make test"
+
+
+def test_declared_verify_gate_empty_command_is_none(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("<!-- veggies-verify-gate: -->")
+    assert stack_kick.declared_verify_gate(tmp_path) is None
+
+
+def test_declared_verify_gate_no_marker_is_none(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("no marker here\n")
+    assert stack_kick.declared_verify_gate(tmp_path) is None
+
+
+def test_declared_verify_gate_falls_back_to_claude_md(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text("<!-- veggies-verify-gate: tox -q -->")
+    assert stack_kick.declared_verify_gate(tmp_path) == "tox -q"
+
+
+def test_declared_verify_gate_agents_md_wins(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("<!-- veggies-verify-gate: a -->")
+    (tmp_path / "CLAUDE.md").write_text("<!-- veggies-verify-gate: b -->")
+    assert stack_kick.declared_verify_gate(tmp_path) == "a"
+
+
+def test_declared_verify_gate_ignores_other_files(tmp_path):
+    (tmp_path / "README.md").write_text("<!-- veggies-verify-gate: x -->")
+    assert stack_kick.declared_verify_gate(tmp_path) is None
+
+
+def test_this_repo_declares_its_kick_gate():
+    """LOAD-BEARING (ADR 0044): pins the day-one byte-for-byte criterion -
+    the declared command is identical to the previously hardcoded one -
+    AND the prose<->marker lockstep, so a future rule-3 edit that drops
+    or rewords either half fails loudly here instead of silently
+    degrading every kick to the fallback."""
+    gate = stack_kick.declared_verify_gate()  # no arg: the script-root anchor
+    assert gate == "SKIP=actionlint-docker mask ci"
+    agents = (Path(stack_kick.__file__).resolve().parents[1]
+              / "AGENTS.md").read_text(encoding="utf-8")
+    prose = re.sub(r"<!--.*?-->", "", agents, flags=re.DOTALL)
+    assert gate in prose
+
+
+def test_main_interpolates_the_declared_gate(monkeypatch, tmp_path, capsys):
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off
+    # the in-flight guard is covered by its own tests
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "declared_verify_gate",
+                        lambda *a, **k: "make check")
+    kicked = []
+    monkeypatch.setattr(stack_kick, "kick",
+                        lambda *a, **k: kicked.append(a[2]) or "ses_x")
+    assert stack_kick.main() == 0
+    assert "make check" in kicked[0]  # the prompt carries the gate
+    assert "VERIFY_GATE=make check" in capsys.readouterr().out
+    assert "verify_gate=make check" in out.read_text()
+
+
+def test_main_echoes_the_no_gate_sentinel(monkeypatch, tmp_path, capsys):
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "declared_verify_gate",
+                        lambda *a, **k: None)
+    kicked = []
+    monkeypatch.setattr(stack_kick, "kick",
+                        lambda *a, **k: kicked.append(a[2]) or "ses_x")
+    assert stack_kick.main() == 0
+    assert "veggies-verify-gate" in kicked[0]  # the missing-marker fallback
+    assert ("VERIFY_GATE=(none declared - agent-instruction prose governs)"
+            in capsys.readouterr().out)
