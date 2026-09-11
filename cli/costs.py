@@ -10,6 +10,7 @@ decision 3.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -77,11 +78,14 @@ def _record(obj: object) -> SpendRecord | None:
     if not isinstance(session, str):
         return None
     spend = obj.get("spend")
+    # json.loads accepts NaN/Infinity: non-finite would poison every sum,
+    # so it degrades to unpriced like any other missing/bad spend.
+    priced = float(spend) if _is_num(spend) and math.isfinite(spend) else None
     return SpendRecord(
         ts=float(obj["ts"]), model=obj["model"],
         prompt_tokens=int(obj["prompt_tokens"]),
         completion_tokens=int(obj["completion_tokens"]),
-        spend=float(spend) if _is_num(spend) else None,
+        spend=priced,
         session=session, session_id=obj["session_id"],
         inferred=obj.get("attr") == "inferred")
 

@@ -112,6 +112,23 @@ def test_parse_missing_session_id_is_malformed():
     assert res.records == [] and res.skipped == 1
 
 
+def test_parse_non_finite_spend_is_unpriced_not_poison():
+    # json.loads accepts NaN/Infinity; either would poison every sum it
+    # touched, so non-finite spend degrades to unpriced like any other.
+    res = costs.parse_spend_log("\n".join([
+        _line(session_id="ses_a"),
+        '{"ts": 1, "model": "m", "prompt_tokens": 1, "completion_tokens": 1,'
+        ' "spend": NaN, "session": "", "session_id": "ses_b"}',
+        '{"ts": 2, "model": "m", "prompt_tokens": 1, "completion_tokens": 1,'
+        ' "spend": Infinity, "session": "", "session_id": "ses_c"}',
+    ]))
+    assert res.skipped == 0
+    assert [r.spend for r in res.records] == [0.002, None, None]
+    assert res.unpriced == 2
+    row = costs.summarize(res.records)[-1]
+    assert row.calls == 3 and row.spend == 0.002
+
+
 @pytest.mark.parametrize("bad", [
     {"ts": "2026-09-05"},
     {"model": 42},
@@ -487,6 +504,16 @@ def test_main_costs_explicit_since_drops_suffix(local_stack, capsys):
     assert rc == 0
     assert header.startswith("spend since 2026-09-01 ")
     assert "earliest retained record" not in header
+
+
+def test_main_costs_ignores_non_file_segments(local_stack, capsys):
+    # a directory named spend.jsonl* must not raise IsADirectoryError
+    _write_segments(local_stack, {"spend.jsonl": _line(session_id="s1")})
+    (local_stack / "spend.jsonl.bak").mkdir()
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "1 calls" in out.splitlines()[0]
+    assert "spend.jsonl.bak" not in out
 
 
 def test_main_costs_since_bogus_is_a_clean_error(local_stack, capsys):

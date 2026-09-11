@@ -1479,6 +1479,21 @@ def test_sync_refuses_mount_mode(tmp_path, monkeypatch):
         veggies.cmd_sync(args)
 
 
+def test_cmd_ls_prints_every_stack_on_record(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(veggies.StackSpec(name="aaa", repo="/tmp/aaa",
+                                          port=4096))
+    veggies.State().add(veggies.StackSpec(name="bbb", repo="/tmp/bbb",
+                                          port=4097))
+    monkeypatch.setattr(veggies, "host_podman", lambda *a, **k:
+                        subprocess.CompletedProcess(a, 0, stdout="",
+                                                    stderr=""))
+    monkeypatch.setattr(veggies, "host_exists", lambda *a, **k: False)
+    assert veggies.main(["ls"]) == 0
+    out = capsys.readouterr().out
+    assert "aaa" in out and "bbb" in out
+
+
 # --- golden file ----------------------------------------------------------------
 
 
