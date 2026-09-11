@@ -1,4 +1,4 @@
-# One-shot state migration (ADR 0044): the agent-task label and the VEGGIES_*
+# One-shot state migration (ADR 0048): the agent-task label and the VEGGIES_*
 # secret/variables used to come from the generic machinery (repos.tf /
 # secrets.tf, fed by the vault's actions_* maps). The agent-kick module owns
 # them now; these moves keep the veggies repo's live objects attached - no

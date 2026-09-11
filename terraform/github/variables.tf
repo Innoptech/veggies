@@ -86,6 +86,6 @@ variable "manage_label_workflow" {
 variable "veggies_stack_password" {
   type        = string
   sensitive   = true
-  description = "Serve password shared by github:true stacks (vault key veggies_stack_password, exported as TF_VAR_veggies_stack_password by scripts/tfvars_from_vault.py). Feeds each agent-kick block's VEGGIES_STACK_PASSWORD secret (ADR 0044)."
+  description = "Serve password shared by github:true stacks (vault key veggies_stack_password, exported as TF_VAR_veggies_stack_password by scripts/tfvars_from_vault.py). Feeds each agent-kick block's VEGGIES_STACK_PASSWORD secret (ADR 0048)."
   default     = ""
 }

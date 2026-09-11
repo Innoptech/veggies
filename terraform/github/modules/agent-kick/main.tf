@@ -1,4 +1,4 @@
-# ADR 0044: one instance per repo is the whole GitHub-side install of agent
+# ADR 0048: one instance per repo is the whole GitHub-side install of agent
 # kicks - the trigger workflow + kick script (delivered on a side branch;
 # merge the PR), the agent-task label, and the stack coordinates the
 # workflow needs (host/port variables, password secret). No new long-lived
@@ -8,7 +8,7 @@
 # github_repository_file does not create branches (verified against provider
 # v6.13.0). github_branch's create swallows 422 already-exists and its read
 # drops state on 404, so a branch deleted after its PR merged is recreated
-# from the default-branch tip on the next delivery (the ADR 0044 lifecycle).
+# from the default-branch tip on the next delivery (the ADR 0048 lifecycle).
 resource "github_branch" "delivery" {
   count         = var.manage_files ? 1 : 0
   repository    = var.repo
@@ -22,7 +22,7 @@ resource "github_repository_file" "agent_trigger" {
   branch         = var.files_branch
   file           = ".github/workflows/agent-trigger.yml"
   content        = var.workflow_content
-  commit_message = "ci: agent-trigger workflow (managed by the infra repo, ADR 0044)"
+  commit_message = "ci: agent-trigger workflow (managed by the infra repo, ADR 0048)"
   # true: post-merge a fresh delivery branch inherits the merged file -
   # overwriting it on the DELIVERY branch is the update path; the delivery
   # PR's diff is the clobber guard, since nothing reaches the protected
@@ -38,7 +38,7 @@ resource "github_repository_file" "stack_kick" {
   branch              = var.files_branch
   file                = "scripts/stack_kick.py"
   content             = var.kick_script_content
-  commit_message      = "ci: stack_kick.py for the agent-trigger workflow (managed by the infra repo, ADR 0044)"
+  commit_message      = "ci: stack_kick.py for the agent-trigger workflow (managed by the infra repo, ADR 0048)"
   overwrite_on_create = true
 
   # The branch first, then the two files in order.
