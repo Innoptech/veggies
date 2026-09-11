@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-04
 ---
 
-# 0014. Remote garden stacks over ssh; CLI owns stacks, Ansible owns the host
+# 0014. Remote stacks over ssh; CLI owns stacks, Ansible owns the host
 
 ## Context and problem statement
 

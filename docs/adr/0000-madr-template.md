@@ -1,7 +1,7 @@
 ---
 # Copy this file to NNNN-short-title.md and fill it in. Keep it short:
 # a reviewer should read an ADR in under five minutes.
-status: proposed # proposed | accepted | superseded by ADR-XXXX | rejected
+status: proposed # proposed | accepted | rejected | deprecated | superseded by ADR-XXXX - a parenthetical note is allowed, e.g. "accepted (amended by 0042)"
 date: YYYY-MM-DD
 ---
 
