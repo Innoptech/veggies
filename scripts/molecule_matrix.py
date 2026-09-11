@@ -88,6 +88,10 @@ def select_roles(
             # excluded; anything else under ansible/ gets the full matrix.
             return sorted(roles)
         # Anything else (cli/, docs/, terraform/, ...) affects no scenario.
+        # .ansible-lint is the deliberate, documented exemption to the
+        # fail-open rule for ansible tooling files: molecule 26's default
+        # test sequence has no lint step and no molecule.yml in this repo
+        # configures one, so a lint-config change cannot alter any scenario.
     return sorted(affected)
 
 
