@@ -38,6 +38,12 @@ variable "review_overrides" {
   default     = {}
 }
 
+variable "merge_queue_repos" {
+  type        = list(string)
+  description = "Repos opted into the merge queue, passed to the github module (see github/variables.tf; default empty)."
+  default     = []
+}
+
 variable "actions_secrets" {
   type        = map(map(string))
   description = "Actions secrets per repo: { repo = { NAME = value } }. Fed from the ansible vault, never from tfvars."
