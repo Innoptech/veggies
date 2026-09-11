@@ -39,6 +39,12 @@ egress_allowlist_base:
   - auth.docker.io # docker hub auth
   - production.cloudflare.docker.com # docker hub CDN
   - registry.opentofu.org # tofu provider downloads (ADR 0032: in-container mask ci)
+  # Go toolchain + module fetches: pre-commit's golang hooks (gitleaks)
+  # bootstrap their own Go during in-container `mask ci` (ADR 0036).
+  - go.dev
+  - dl.google.com
+  - proxy.golang.org
+  - sum.golang.org
 
 # Source ACL for the proxy: loopback, link-local (container gateway), tailnet,
 # and RFC1918. The role appends the host's own public IPv4 /32 at converge
