@@ -47,9 +47,10 @@ reviews PRs; agents implement. These rules are not negotiable:
     instead kicks one session that fans out to the vendored persona roster
     (`agent-config/agents/`: domain-expert, infra-architect, marketer,
     seller, cto) and posts one attributed POV comment per persona (ADR
-    0041); the kick prompt mandates the pipeline (plan
-    posted on the issue first, task subagents, adversarial-review subagent
-    on the diff, `mask ci` - ADR 0036). `github: true` stacks take the
+    0041); the kick prompt mandates the pipeline (plan refined by that
+    same persona roster and posted on the issue first with each role's
+    input, task subagents, adversarial-review subagent on the diff,
+    `mask ci` - ADR 0036/0042). `github: true` stacks take the
     serve password from vault key `veggies_stack_password`, never
     per-stack random. Stack
    names are global across hosts (cross-host reuse is refused). The
