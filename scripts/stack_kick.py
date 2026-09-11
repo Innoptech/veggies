@@ -179,9 +179,7 @@ Rules of engagement:
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
 - Read the repo's own agent-instruction file first - whichever of
-  AGENTS.md/CLAUDE.md (or equivalent) the repo ships - and follow it
-  (its decision rules, commit style, and declared verify gate are the
-  contract).
+  AGENTS.md/CLAUDE.md (or equivalent) the repo ships - and follow it.
 - Isolate first (ADR 0037): other sessions share this clone, so this issue
   works in its own git worktree. Run exactly, in order; if a command
   fails, stop and read the error before improvising:
