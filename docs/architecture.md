@@ -45,10 +45,22 @@ Event path (ADR 0033): `.github/workflows/agent-trigger.yml` on the
 self-hosted runners kicks this repo's stack on `agent-task` labels /
 `/opencode` comments via `scripts/stack_kick.py`; runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
-exceptions. No inbound listener on the VPS. Observability (ADR 0034):
-kicked sessions are titled `#N: <issue>`, the workflow comments the session
-link back onto the issue, and operators watch via `veggies ui` (ssh tunnel
-helper) / `veggies sessions` / the web UI.
+exceptions. No inbound listener on the VPS. The kick prompt mandates the
+full pipeline (ADR 0036): plan first (posted as an issue comment before
+code), execution through task subagents, an adversarial-review subagent
+pass on the diff before pushing, and verified checks. Observability (ADR
+0034): kicked sessions are titled `#N: <issue>`, the workflow comments the
+session link back onto the issue, and operators watch via `veggies ui`
+(ssh tunnel helper) / `veggies sessions` / the web UI.
+
+Supervision has two shapes (ADR 0028/0036): operator-driven
+(`veggies supervise`, judges via `podman exec` into the litellm container)
+and the opt-in always-on `supervision: supervisor` component, an in-pod
+sidecar that judges every finish of a *kicked* session with a different
+model over pod loopback and posts an async refinement below threshold.
+Only sessions created after the daemon starts are judged, PASS/STOP are
+log-only (a posted message would re-run the agent), and the router master
+key never leaves the pod.
 
 ## Repo layout
 
@@ -64,8 +76,10 @@ secrets/         ansible-vault files (+ .example templates)
 agent-config/    vendored agent baseline: opencode.json, agents/, skills/,
                  litellm/
 cli/             the veggies CLI: veggies.py, veggies_stack.py,
-                 capabilities.py, components/
-deploy/          Containerfiles + component payloads (MCP toolbox server)
+                 capabilities.py, components/ (opencode, litellm, squid,
+                 supervisor, mcp_toolbox)
+deploy/          Containerfiles + component payloads (MCP toolbox server,
+                 supervisor daemon)
 scripts/         tfvars_from_vault.py, vault_get.py, stack_kick.py
 tests/           pytest suite + machine-generated golden pod.yaml
 docs/            architecture.md, runbook.md, threat-model.md, adr/

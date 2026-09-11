@@ -253,22 +253,38 @@ around; `ask` in a headless session parks forever (verified 2026-09-09,
 - If a session still stalls, `veggies supervise` prints pending
   permissions/questions once each; answer them in the web UI.
 
-### Supervision: the critic loop (ADR 0028)
+### Supervision: the critic loop (ADR 0028/0036)
 
 Canvas is retired (ADR 0028: upstream archived, two-worlds problem, and
-the critic only covered canvas conversations). The loop is ours now:
+the critic only covered canvas conversations). The loop is ours now, in
+two shapes:
 
-`veggies supervise <stack> --session <id> [--threshold 0.6] [--max 2]`
+**Operator-driven**: `veggies supervise <stack> --session <id>
+[--threshold 0.6] [--max 2]` watches one opencode session; every time the
+agent finishes (session goes idle with an unjudged assistant message),
+the transcript is judged by a DIFFERENT model (default deepseek-v4
+judging kimi-k3) via the in-pod router - the judge call runs inside the
+litellm container, so the master key never leaves the pod. Below
+threshold, a `[critic] score ... issues: ...` message is posted into the
+session (visible in the web UI) and the agent iterates; exit 0 on PASS, 1
+on max-iterations/timeout. Get session ids from the web UI or
+`GET /session` on the stack port.
 
-watches an opencode session; every time the agent finishes (session goes
-idle with an unjudged assistant message), the transcript is judged by a
-DIFFERENT model (default deepseek-v4 judging kimi-k3) via the in-pod
-router - the judge call runs inside the litellm container, so the master
-key never leaves the pod. Below threshold, a `[critic] score ... issues:
-...` message is posted into the session (visible in the web UI) and the
-agent iterates; exit 0 on PASS, 1 on max-iterations/timeout. Runs while
-invoked (operator-driven); an always-on mode is a deliberate later step.
-Get session ids from the web UI or `GET /session` on the stack port.
+**Always-on for kicked sessions** (ADR 0036): stacks that opt in via
+`supervision: supervisor` in veggies.yml run a `supervisor` sidecar in
+the pod that supervises every issue-kicked session (titled `#N: ...`)
+created after it started - same rubric, same threshold/max semantics, but
+self-driving: no human invokes anything. Refinements arrive as `[critic]
+...` messages in the session; PASS and STOP are LOG-ONLY (any posted
+message re-runs the agent, so a visible marker would loop forever). Watch
+it: `veggies logs <name> supervisor -f` (one `critic: <title> score ...
+-> pass|refine` line per judgment) and `veggies status <name>` (the
+`critic` probe shows the heartbeat age). The loop config rides env
+defaults in the daemon (SUPERVISE_JUDGE_MODEL=deepseek-v4,
+SUPERVISE_THRESHOLD=0.6, SUPERVISE_MAX_ITERS=2, SUPERVISE_INTERVAL=15s);
+keep the judge model different from the stack's author model. Judgment
+state is in-memory: a pod recreate simply never judges sessions created
+before the restart - run `veggies supervise` by hand if one matters.
 
 ### Open PRs from a stack (github: true)
 
@@ -320,7 +336,13 @@ label.
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in the
-stack's clone and opens a PR. Plumbing: Actions variable
+stack's clone through the mandated pipeline (ADR 0036): it posts a plan as
+an issue comment BEFORE writing code (veto the direction by commenting,
+while it works), executes through task subagents, runs the
+`adversarial-review` subagent on the diff, and opens a PR. On stacks with
+`supervision: supervisor` the in-pod critic additionally judges every
+finish and injects refinements (see the supervision section). Plumbing:
+Actions variable
 `VEGGIES_STACK_HOST`/`VEGGIES_STACK_PORT` + secret `VEGGIES_STACK_PASSWORD`
 (all tofu-managed from the vault); the runner reaches the stack at
 `http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound

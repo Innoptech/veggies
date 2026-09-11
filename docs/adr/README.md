@@ -36,7 +36,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0025](0025-stack-control-plane.md) | Stack control plane: Agent Canvas component driving opencode via ACP | superseded by 0028 |
 | [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 | [0027](0027-second-harness-in-canvas.md) | Second harness in canvas; critic via our shim | superseded by 0028 |
-| [0028](0028-retire-canvas-own-the-critic-loop.md) | Retire the canvas control plane; own the critic loop | accepted |
+| [0028](0028-retire-canvas-own-the-critic-loop.md) | Retire the canvas control plane; own the critic loop | accepted (amended by 0036) |
 | [0029](0029-deny-over-ask-permission-envelope.md) | Deny-over-ask permission envelope for unattended sessions | accepted (amended by 0031) |
 | [0030](0030-opt-in-github-write-credentials-in-stacks.md) | Opt-in GitHub write credentials in agent stacks | accepted |
 | [0031](0031-no-ask-anywhere.md) | No ask anywhere: agent frontmatter joins the permission envelope | accepted |
@@ -44,6 +44,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0033](0033-issue-triggered-agent-kicks.md) | Issue-triggered agent kicks via GitHub Actions on the self-hosted runners | accepted |
 | [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted |
 | [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted |
+| [0036](0036-always-on-critic-for-kicked-sessions.md) | Always-on critic for kicked sessions: in-pod supervisor component | accepted |
 
 ## Deviation ledger (vs the original brief)
 
