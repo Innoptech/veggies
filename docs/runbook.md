@@ -365,7 +365,7 @@ HTTPS. Sessions in the stack can push branches and open PRs as the bot.
 The opencode image carries python3/pip, `mask`, `ansible`/`ansible-vault`,
 `tofu`, `tflint`, `gitleaks`, `actionlint`, `pre-commit`, `pytest`,
 `yamllint` - the agent runs the repo's own checks inside the stack, and
-since ADR 0045 every hook in `mask ci` runs in-pod with zero skips.
+since ADR 0046 every hook in `mask ci` runs in-pod with zero skips.
 The declared in-pod verify gate is `mask ci` (AGENTS.md rule 3's
 `veggies-verify-gate` marker, ADR 0045; see "Declaring a repo's verify
 gate" below). Molecule was never part of `mask ci` and stays
@@ -377,7 +377,7 @@ agreement. A stale `SKIP=actionlint-docker` is now a harmless no-op -
 the hook id is `actionlint` today and pre-commit ignores unknown SKIP
 ids. The python hooks (yamllint, ansible-lint,
 pre-commit-hooks) still pip-install into pre-commit's cache on a cold
-cache - expected; pypi is allowlisted, and ADR 0045 names their
+cache - expected; pypi is allowlisted, and ADR 0046 names their
 conversion as the follow-up. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
@@ -517,7 +517,7 @@ A repo declares its in-pod verify gate as ONE machine-readable marker in
 its agent-instruction file: `<!-- veggies-verify-gate: CMD -->`, a single
 command string alone on its own line (an example quoted inside prose is
 not a declaration), kept honest by the human prose around it (this repo:
-AGENTS.md rule 3, `SKIP=actionlint-docker mask ci`). Search order:
+AGENTS.md rule 3, `mask ci`). Search order:
 `AGENTS.md`, then `CLAUDE.md`; the first marker wins. A pytest parses the
 real AGENTS.md and pins the declared command plus the prose<->marker
 lockstep, so an edit that drops either half fails loudly.

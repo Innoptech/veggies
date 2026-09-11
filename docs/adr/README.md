@@ -40,7 +40,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0029](0029-deny-over-ask-permission-envelope.md) | Deny-over-ask permission envelope for unattended sessions | accepted (amended by 0031) |
 | [0030](0030-opt-in-github-write-credentials-in-stacks.md) | Opt-in GitHub write credentials in agent stacks | accepted |
 | [0031](0031-no-ask-anywhere.md) | No ask anywhere: agent frontmatter joins the permission envelope | accepted |
-| [0032](0032-dev-toolchain-in-harness-image.md) | Dev toolchain baked into the harness image | accepted (amended by 0045) |
+| [0032](0032-dev-toolchain-in-harness-image.md) | Dev toolchain baked into the harness image | accepted (amended by 0046) |
 | [0033](0033-issue-triggered-agent-kicks.md) | Issue-triggered agent kicks via GitHub Actions on the self-hosted runners | accepted |
 | [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted (amended by 0046) |
 | [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted (amended by 0046) |
