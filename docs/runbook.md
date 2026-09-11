@@ -802,8 +802,12 @@ trustworthy while the remainder stays visible (ADR 0022).
 Semantics an operator must know:
 
 - `spend` is USD as litellm's price map computes it - an estimate.
-  `spend: 0` means "unpriced model", never "free"; raw token counts are
-  on every success line, so you can reprice at read time.
+  Unpriced/unknown models record `spend: null` on a success line;
+  `spend: 0` means priced-at-zero; raw token counts are on every success
+  line, so you can reprice at read time.
+- A mid-stream disconnect is logged as a failure with null usage even
+  though litellm recovers partial usage internally - an accepted
+  undercount; repricing/revisiting belongs to #47.
 - The file is attribution, not billing: the Fireworks invoice is
   authoritative.
 - `session_title` is untrusted text (issue titles, agent-written) -

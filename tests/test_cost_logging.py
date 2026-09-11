@@ -157,12 +157,29 @@ def test_failure_record():
     assert "error" not in rec_ok
 
 
-def test_zero_spend_recorded_as_zero():
-    # Unpriced models report response_cost=0; that must not read as missing.
+def test_failure_event_reads_kwargs_exception(tmp_path):
+    # Seam-level: the proxy's failure path always calls the callback with
+    # response_obj=None and the exception at kwargs["exception"]
+    # (litellm_logging.py _async_failure_handler_body). The logged error
+    # must be the real exception, never "NoneType: None".
+    inst = cc.VeggiesCostLogger(path=str(tmp_path / "costs.jsonl"))
+    kwargs = make_kwargs()
+    kwargs["exception"] = ValueError("boom")
+    asyncio.run(inst.async_log_failure_event(kwargs, None, None, END))
+    line = (tmp_path / "costs.jsonl").read_text().strip()
+    assert json.loads(line)["error"] == "ValueError: boom"
+
+
+def test_spend_passthrough():
+    # response_cost passes through verbatim: a priced-at-zero model's 0
+    # stays 0 (not null), and an unpriced model's None stays None.
     rec = cc.build_record(make_kwargs(response_cost=0), make_response(),
                           END, "success", "")
     assert rec["spend"] == 0
     assert rec["spend"] is not None
+    rec = cc.build_record(make_kwargs(response_cost=None), make_response(),
+                          END, "success", "")
+    assert rec["spend"] is None
 
 
 def test_end_time_timezone_handling():

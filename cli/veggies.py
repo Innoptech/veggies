@@ -774,8 +774,10 @@ def cmd_up(args: argparse.Namespace) -> int:
     # the history): a replaced pod can leave its *private* MCS categories on
     # the repo, and the new pod then reads EACCES (verified 2026-09-10 on a
     # local re-up). Re-assert the shared label now that the pod exists -
-    # chcon applies live to the running pod's mounts, no restart needed.
+    # chcon applies live to the running pod's mounts, no restart needed. The
+    # costs dir is the stack's other writable hostPath: same re-assert.
     label_for_containers(host, repo_path)
+    label_for_containers(host, f"{spec.state_root()}/{name}")
     state.add(spec, password=values["password"])
     print("==> warming api (first authenticated call cold-boots opencode)")
     if not warm_api(host, port, values["password"]):
