@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0046. Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system
+# 0047. Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system
 
 ## Context and problem statement
 
