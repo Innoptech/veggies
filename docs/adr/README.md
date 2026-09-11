@@ -79,6 +79,7 @@ hand-maintained.
 | [0055](0055-generated-adr-index.md) | Generate the ADR index; status and title are living metadata | accepted |
 | [0056](0056-reviewer-verdict-status-check.md) | The reviewer verdict gates; it never merges | accepted (renumbered from 0055 - main landed its own 0054/0055 mid-flight) |
 | [0057](0057-harness-base-image-and-repo-overlay.md) | Harness base image split from the repo toolchain overlay | accepted (renumbered from 0053 - main landed its own 0053..0056 mid-flight) |
+| [0058](0058-build-time-egress-legible-denials.md) | Build-time egress: no separate lane; the CLI surfaces proxy denials by domain | accepted (renumbered from 0054 - main landed 0053..0057 mid-flight) |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)
