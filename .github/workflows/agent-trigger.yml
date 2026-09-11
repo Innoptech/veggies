@@ -98,7 +98,8 @@ jobs:
           rc=$?
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          # exit 3 = issue already handled (ADR 0035): a clean outcome,
+          # exit 3 = kick skipped (done-guard ADR 0035 / in-flight
+          # ADR 0040 / no-ask gate ADR 0044): a clean outcome,
           # not a job failure - the skip comment step handles it.
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"

@@ -71,8 +71,11 @@ reviews PRs; agents implement. These rules are not negotiable:
     stacks take the serve password from vault key
     `veggies_stack_password`, never per-stack random. Stack
    names are global across hosts (cross-host reuse is refused). The
-   permission envelope is allow/deny only - `ask` is banned everywhere in
-   `agent-config/` (ADR 0031, pytest-enforced).    Observability (ADR 0034):
+   permission envelope is allow/deny only - `ask` is banned in the merged
+   project+global config: pytest enforces it over `agent-config/` and this
+   repo's own tier, and `scripts/stack_kick.py` refuses to kick a target
+   repo whose project tier carries it (ADR 0031/0044).    Observability
+   (ADR 0034):
    kicked sessions are titled `#N: <issue>`, the workflow comments the
    session link back onto the issue, and `veggies ui` / `veggies sessions`
    are the watch path. `agent-task` is a one-shot label (ADR 0035): the
