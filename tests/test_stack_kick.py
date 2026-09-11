@@ -67,6 +67,17 @@ def test_build_prompt_mandates_the_pipeline():
     assert "mask ci" in p
 
 
+def test_build_prompt_mandates_a_per_session_worktree():
+    """Issue #27 / ADR 0036: kicked sessions share one clone at /workspace,
+    so the prompt must move each session into its own git worktree before
+    any work - and keep the shared checkout read-only for that session."""
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    assert ("git -C /workspace worktree add -B agent/issue-12 "
+            "/workspace/.veggies/wt/issue-12 origin/main") in p
+    assert ".git/info/exclude" in p  # the shared checkout stays clean
+    assert "the shared checkout at /workspace itself is read-only to you" in p
+
+
 def test_build_prompt_truncates_and_defaults():
     p = stack_kick.build_prompt("o/r", "1", "t", "x" * 9000, "u")
     assert len(p) < 9000
