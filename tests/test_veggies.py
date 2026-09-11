@@ -182,6 +182,40 @@ def test_repo_is_the_only_code_mount(spec):
     assert opencode["workingDir"] == "/workspace"
 
 
+def test_litellm_costs_hostpath_mount(spec):
+    # ADR 0044: per-call cost log on a durable per-stack host dir - the only
+    # writable hostPath the litellm container gets.
+    pod = _pod(spec)
+    litellm = next(c for c in pod["spec"]["containers"] if c["name"] == "litellm")
+    mounts = {m["name"]: m for m in litellm["volumeMounts"]}
+    assert mounts["costs"]["mountPath"] == "/costs"
+    assert "readOnly" not in mounts["costs"]
+    env = {e["name"]: e.get("value") for e in litellm["env"]}
+    assert env["VEGGIES_STACK"] == spec.name
+    # custom_callbacks.py is imported from the readOnly /agent-config mount
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    volumes = {v["name"]: v for v in pod["spec"]["volumes"]}
+    assert volumes["costs"]["hostPath"] == {
+        "path": f"{spec.state_root()}/{spec.name}/costs", "type": "Directory"}
+    names = [v["name"] for v in pod["spec"]["volumes"]]
+    assert names.index("costs") < names.index("tmp")  # VOLUME_ORDER pinned
+
+
+def test_litellm_config_files_ship_callbacks_remote_only(spec):
+    import components.litellm as litellm
+    # local: agent-config/litellm is live-mounted, nothing is copied
+    assert litellm.COMPONENT.config_files(
+        veggies_stack.build_context(spec, INFRA_REPO)) == {}
+    spec.host = "vps"
+    files = litellm.COMPONENT.config_files(
+        veggies_stack.build_context(spec, INFRA_REPO))
+    # remote: litellm loads custom_callbacks.py from the config file's dir,
+    # so the callback ships next to the rendered config.yaml
+    assert files["custom_callbacks.py"] == (
+        INFRA_REPO / "agent-config/litellm/custom_callbacks.py").read_text()
+    assert "config.yaml" in files
+
+
 def test_opencode_json_stack_variant(spec):
     rendered = json.loads(veggies_stack.render_opencode_json(INFRA_REPO, "http://127.0.0.1:4000/v1"))
     litellm = rendered["provider"]["litellm"]
@@ -1210,6 +1244,47 @@ def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
         veggies.cmd_up(args)
 
 
+def test_up_creates_costs_dir_before_stack_config(monkeypatch, tmp_path):
+    # ADR 0044: hostPath type: Directory fails kube play on a missing source,
+    # so cmd_up mkdirs the costs dir right before write_stack_config (whose
+    # chcon -R on the stack dir then labels it too).
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    events = []
+
+    def fake_host_run(host, args, **kw):
+        events.append(("run", list(args)))
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(veggies, "host_run", fake_host_run)
+    monkeypatch.setattr(veggies, "host_podman",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_write",
+                        lambda host, path, content, mode=0o600:
+                        events.append(("write", path)))
+    monkeypatch.setattr(veggies, "host_systemctl",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "ensure_images", lambda *a, **k: None)
+    monkeypatch.setattr(veggies, "resolve_secret_values",
+                        lambda spec: {"password": "p"})
+    monkeypatch.setattr(veggies, "render_secret_docs", lambda *a, **k: [])
+    monkeypatch.setattr(veggies, "label_for_containers", lambda *a, **k: None)
+    monkeypatch.setattr(veggies, "ensure_worktree_exclude", lambda *a, **k: None)
+    monkeypatch.setattr(veggies, "wait_healthy", lambda *a, **k: None)
+    monkeypatch.setattr(veggies, "linger_enabled", lambda: True)
+    monkeypatch.setattr(veggies, "warm_api", lambda *a, **k: True)
+    args = argparse.Namespace(repo=str(repo), name="u", host=None, clone=False,
+                              model=None, github=False, yes=True,
+                              no_attach=True, no_install=True)
+    veggies.cmd_up(args)
+    mkdir = ("run", ["mkdir", "-p", f"{tmp_path}/u/costs"])
+    assert mkdir in events
+    cfg_write = next(i for i, e in enumerate(events)
+                     if e[0] == "write" and "/u/config/" in e[1])
+    assert events.index(mkdir) < cfg_write
+
+
 def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_path):
     # cmd_down --purge must remove EVERY declared secret, github's included.
     # No down/purge test precedent exists, so drive the real cmd_down with
@@ -1237,6 +1312,47 @@ def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_pa
         veggies.spec_from_record("g", {"repo": "/tmp/g", "mode": "mount",
                                        "port": 4096, "host": None,
                                        "github": True})))
+
+
+def test_down_purge_warns_before_deleting_cost_history(monkeypatch, tmp_path, capsys):
+    # ADR 0044: the costs dir is durable history - warn once before purge
+    # deletes it, but never block.
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(
+        veggies.StackSpec(name="c", repo="/tmp/c", port=4096), password="p")
+    monkeypatch.setattr(veggies, "host_run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_podman",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_systemctl",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    rmtree = []
+    monkeypatch.setattr(veggies, "safe_rmtree",
+                        lambda *a, **k: rmtree.append(a))
+    costs = f"{tmp_path}/c/costs"
+    monkeypatch.setattr(veggies, "host_exists",
+                        lambda host, path, kind="f": path == costs)
+    veggies.cmd_down(argparse.Namespace(name="c", purge=True))
+    out = capsys.readouterr().out
+    assert (f"!! purge deletes {costs} (cost history, ADR 0044) - "
+            "export first if it matters") in out
+    assert rmtree  # the warning never blocks the purge
+
+
+def test_down_purge_no_costs_dir_no_warning(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(
+        veggies.StackSpec(name="c", repo="/tmp/c", port=4096), password="p")
+    monkeypatch.setattr(veggies, "host_run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_podman",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "host_systemctl",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(veggies, "safe_rmtree", lambda *a, **k: None)
+    monkeypatch.setattr(veggies, "host_exists", lambda *a, **k: False)
+    veggies.cmd_down(argparse.Namespace(name="c", purge=True))
+    assert "purge deletes" not in capsys.readouterr().out
 
 
 def test_legacy_hint_only_when_old_without_new(monkeypatch, tmp_path, capsys):

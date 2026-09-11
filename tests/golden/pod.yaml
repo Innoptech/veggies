@@ -109,6 +109,10 @@ spec:
         secretKeyRef:
           key: fireworks_api_key
           name: veggies-demo-litellm
+    - name: VEGGIES_STACK
+      value: demo
+    - name: PYTHONDONTWRITEBYTECODE
+      value: '1'
     - name: HTTP_PROXY
       value: http://127.0.0.1:3128
     - name: HTTPS_PROXY
@@ -140,6 +144,8 @@ spec:
     - mountPath: /agent-config
       name: agent-config
       readOnly: true
+    - mountPath: /costs
+      name: costs
     - mountPath: /tmp
       name: tmp
   - args:
@@ -189,6 +195,10 @@ spec:
       path: @ROOT@/agent-config/litellm
       type: Directory
     name: agent-config
+  - hostPath:
+      path: /tmp/veggies-test-state/demo/costs
+      type: Directory
+    name: costs
   - name: opencode-home
     persistentVolumeClaim:
       claimName: veggies-demo-opencode
