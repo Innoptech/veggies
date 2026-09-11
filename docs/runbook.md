@@ -363,21 +363,35 @@ HTTPS. Sessions in the stack can push branches and open PRs as the bot.
 ### The in-container toolchain (ADR 0032)
 
 The opencode image carries python3/pip, `mask`, `ansible`/`ansible-vault`,
-`tofu`, `tflint`, `pre-commit`, `pytest`, `yamllint` - the agent runs the
-repo's own checks inside the stack. Two exclusions: molecule (no podman
-socket in-pod, ADR 0028) and the `actionlint-docker` pre-commit hook
-(needs a docker daemon, and it has no `files:` filter so every
-`pre-commit run --all-files` hits it). In-container checks therefore run
-as `SKIP=actionlint-docker mask ci` - and that exact string is this repo's
-DECLARED in-pod verify gate: declared machine-readably by the
-`veggies-verify-gate` marker in AGENTS.md rule 3 and consumed by
-`scripts/stack_kick.py` at kick time (ADR 0045; see "Declaring a repo's
-verify gate" below). CI on GitHub-hosted runners still covers the skipped
-hook. In-container checks are a CLONE-stack story (the VPS
+`tofu`, `tflint`, `gitleaks`, `actionlint`, `pre-commit`, `pytest`,
+`yamllint` - the agent runs the repo's own checks inside the stack, and
+since ADR 0044 every hook in `mask ci` runs in-pod with zero skips.
+The declared in-pod verify gate is `mask ci` (AGENTS.md rule 3's
+`veggies-verify-gate` marker, ADR 0045; see "Declaring a repo's verify
+gate" below). Molecule was never part of `mask ci` and stays
+host/CI-only (no podman socket in-pod, ADR 0028). All binaries are
+version+sha256 pinned in
+`deploy/images/opencode.Containerfile`; `tests/test_tool_pins.py` keeps
+the image, `.github/workflows/infra-ci.yml`, and `mask setup` in
+agreement. A stale `SKIP=actionlint-docker` is now a harmless no-op -
+the hook id is `actionlint` today and pre-commit ignores unknown SKIP
+ids. The actionlint hook carries upstream's `files: ^\.github/workflows/`
+filter, so plain file edits no longer trigger it on every
+`pre-commit run --all-files`. The python hooks (yamllint, ansible-lint,
+pre-commit-hooks) still pip-install into pre-commit's cache on a cold
+cache - expected; pypi is allowlisted, and ADR 0044 names their
+conversion as the follow-up. Behind slow proxy egress `tofu init` can
+exceed its default per-request timeout - `TF_REGISTRY_CLIENT_TIMEOUT=180`
+fixes it (observed in-pod 2026-09-11); do not rationalize a red
+tofu-validate. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
-run host-side there instead. Smoke-test a fresh image:
-`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version'`.
+run host-side there instead. On merging hook/binary changes, rebuild the
+image (`veggies prepare`/`up`, or `mask demo-stack`'s prepare step)
+before the next `agent-task` label: kicks branch off `origin/main`, so
+the hooks take effect at merge while the binaries arrive with the
+rebuild. Smoke-test a rebuilt image:
+`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`.
 
 ### Issue-triggered agent kicks (ADR 0033)
 

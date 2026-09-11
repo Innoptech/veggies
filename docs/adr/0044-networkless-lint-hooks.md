@@ -1,0 +1,87 @@
+---
+status: accepted
+date: 2026-09-11
+---
+
+# 0044. Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system
+
+## Context and problem statement
+
+Issue #48 (out of discussion #39): kicked agents burned tool calls on a
+merge gate that structurally cannot run in-pod. Two pre-commit hooks
+needed what the pod does not have:
+
+- The upstream `gitleaks` hook is `language: golang` - pre-commit builds
+  gitleaks from source at hook-install time. Verified root cause
+  (2026-09-11, in-pod): metadata fetches against `proxy.golang.org`
+  succeed, but module zips redirect to signed
+  `storage.googleapis.com/proxy-golang-org-prod/...` URLs - a fifth
+  domain, off the squid allowlist, so the zip payloads 403.
+- `actionlint-docker` needs a docker daemon, which
+  [0028](0028-retire-canvas-own-the-critic-loop.md) bans from the pod;
+  in-pod runs carried `SKIP=actionlint-docker`.
+
+## Decision drivers
+
+- AGENTS.md rule 3 makes `mask ci` the merge gate; a gate that cannot
+  run where the agent runs is not a gate.
+- The [0006](0006-egress-allowlist.md) egress posture: allowlist narrow
+  domains, never storage continents.
+- [0032](0032-dev-toolchain-in-harness-image.md) discipline: tools are
+  image-baked, pinned by version AND sha256.
+
+## Decision
+
+Options considered:
+
+A. Allowlist `storage.googleapis.com` - rejected: the domain fronts all
+   of GCS; widening egress to a cloud-storage continent for a lint hook
+   mortgages the 0006 posture.
+B. Upstream `gitleaks-system` / `actionlint-system` hook ids - rejected:
+   pre-commit still clones the hook repos over the network at install
+   time.
+C. **Chosen:** `repo: local` + `language: system` hooks over image-baked
+   binaries, pinned by version AND sha256 (the `tofu-fmt` precedent).
+   CI (`.github/workflows/infra-ci.yml` env) and `mask setup` install
+   the same pinned pair; `tests/test_tool_pins.py` binds the three pin
+   sites. Hook entries are byte-identical to the upstream v8.30.1 /
+   v1.7.12 hooks, so behavior is unchanged.
+
+The staged-scan boundary, stated plainly: `gitleaks git --pre-commit
+--staged` scans the git index. At commit time on a dev host that is
+exactly the incoming change - its designed use. In CI and in the agent
+flow (commit, then `mask ci`) the index is empty and the hook is
+vacuously green there - as it already was with the golang hook, so no
+behavior change. Automation's secrets net is the `vault-encrypted` hook
+over `secrets/`; CI's gitleaks is defense in depth for human-host
+commits. A PR-range or full-history gitleaks scan in CI is a possible
+follow-up, deliberately out of scope here.
+
+End state: the direction is a fully hermetic in-pod `mask ci`. After
+this change only the python hooks (yamllint, ansible-lint,
+pre-commit-hooks) still touch the network, and only on a cold pre-commit
+cache - pypi is allowlisted and the same tools are pip-pinned in the
+image. Their conversion is the natural follow-up.
+
+## Consequences
+
+- Positive: plain `mask ci` is the in-pod gate again (the kick prompt
+  says so); hook time involves zero network fetches; the actionlint hook
+  gains upstream's `files: ^\.github/workflows/` filter, so plain file
+  edits no longer trigger it on every `--all-files` run.
+- Negative / accepted: the image grows ~15 MB. Hook id
+  `actionlint-docker` -> `actionlint`; a stale `SKIP=actionlint-docker`
+  becomes a harmless no-op (pre-commit ignores unknown SKIP ids).
+- Rollout ordering: merging lands the hooks + kick prompt instantly, but
+  the baked binaries exist in-pod only after the operator rebuilds the
+  image (`veggies prepare` / `up`) - do that before the next
+  `agent-task` label.
+- Amends [0032](0032-dev-toolchain-in-harness-image.md): its two
+  documented `mask ci` exclusions shrink to one (molecule).
+
+## Links
+
+- Amends: [0032](0032-dev-toolchain-in-harness-image.md)
+- Related: [0028](0028-retire-canvas-own-the-critic-loop.md) (docker /
+  podman socket ban), [0006](0006-egress-allowlist.md) (egress posture)
+- Issue #48, discussion #39
