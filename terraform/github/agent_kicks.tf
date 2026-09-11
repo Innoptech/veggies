@@ -1,4 +1,4 @@
-# ADR 0044: the roster of repos the agent serves. Installing agent kicks on
+# ADR 0048: the roster of repos the agent serves. Installing agent kicks on
 # a repo is ONE module block here - it declares everything the kick path
 # needs on the GitHub side: the workflow + kick script (delivered on the
 # repo's `infra/agent-trigger` branch - merge that PR once), the agent-task

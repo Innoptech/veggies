@@ -57,7 +57,7 @@ reviews PRs; agents implement. These rules are not negotiable:
     Events (ADR 0033): `.github/workflows/agent-trigger.yml` kicks the repo
     stack on `agent-task` labels / `/opencode` comments via
     `scripts/stack_kick.py`; per-repo kick install is one agent-kick module
-    block in terraform/github/agent_kicks.tf (ADR 0044) - the workflow and
+    block in terraform/github/agent_kicks.tf (ADR 0048) - the workflow and
     stack_kick.py masters stay in this repo and are delivered onto the
     adopted repo's `infra/agent-trigger` branch (this repo itself delivers
     nothing: manage_files=false); a trusted `/elaborate` discussion comment

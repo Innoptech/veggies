@@ -231,7 +231,7 @@ differently:
 |------|-----------------|------------------|
 | Stack definition (`agent-config/`, component code, images) | the operator's LOCAL infra checkout (the CLI is a shim into it) | every `veggies up` re-ships rendered config over ssh and rebuilds changed images - `git pull` locally, then up |
 | Event path - this (master) repo (`agent-trigger.yml`, `scripts/stack_kick.py`) | `origin/main` | automatic on merge: the self-hosted runner does `actions/checkout` every run |
-| Event path - adopted repos | the repo's agent-kick block in `terraform/github/agent_kicks.tf` (ADR 0044) | the module delivers the master copies onto `infra/agent-trigger` at apply; live when the delivery PR merges |
+| Event path - adopted repos | the repo's agent-kick block in `terraform/github/agent_kicks.tf` (ADR 0048) | the module delivers the master copies onto `infra/agent-trigger` at apply; live when the delivery PR merges |
 | The workspace clone (what `/workspace` is; where `veggies.yml` is read from at up time) | `origin/main` | **kicked sessions self-sync** - the kick prompt fetches and branches each worktree off `origin/main` (ADR 0037). The shared checkout itself is only refreshed by `veggies sync` |
 
 So the recipe after merging a feature to main: `git pull` in your local
@@ -452,7 +452,7 @@ judges every finish and injects refinements (see the supervision section).
 Plumbing: Actions variable
 `VEGGIES_STACK_HOST`/`VEGGIES_STACK_PORT` + secret `VEGGIES_STACK_PASSWORD`,
 all declared by the repo's agent-kick block in
-`terraform/github/agent_kicks.tf` (ADR 0044) - the password is the vault
+`terraform/github/agent_kicks.tf` (ADR 0048) - the password is the vault
 key `veggies_stack_password` via `TF_VAR_`; the runner reaches the stack
 at `http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound
 ports on the VPS; allowed by `egress_extra_local_dports` in the egress

@@ -23,7 +23,7 @@ required_checks = ["pre-commit", "tofu", "tflint", "ansible-lint", "molecule", "
 # manage_label_workflow = true
 
 # Agent kicks (issue-triggered agent runs on a repo) are NOT tfvars: each repo
-# gets one module block in github/agent_kicks.tf (ADR 0044) so the install is
+# gets one module block in github/agent_kicks.tf (ADR 0048) so the install is
 # reviewable as a PR diff.
 
 # --- OVH Public Cloud scaffold (gated, never applied) --------------------
