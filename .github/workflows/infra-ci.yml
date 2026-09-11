@@ -5,6 +5,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  merge_group:
 
 permissions:
   contents: read
@@ -27,6 +28,10 @@ env:
 # jobs always run, unchanged areas skip their steps. Whoever later verifies
 # GitHub's skipped-conclusion semantics and wants job-level skips writes the
 # ADR then.
+# merge_group (ADR 0053): the merge queue validates the exact tree entering
+# main, so merge groups run EVERYTHING - path-gating is a pull_request-only
+# optimization, and the changes job reports all areas changed on merge groups
+# (dorny/paths-filter has no diff anchors on merge_group events).
 
 jobs:
   changes:
@@ -35,18 +40,30 @@ jobs:
       contents: read
       pull-requests: read # dorny lists PR files via the API
     outputs:
-      ansible: ${{ steps.filter.outputs.ansible }}
-      terraform: ${{ steps.filter.outputs.terraform }}
-      pytest: ${{ steps.filter.outputs.pytest }}
+      # Two producers, exactly one active per event: dorny on pull_request/push
+      # (it emits the non-empty string 'false' on no-match - truthy, so the
+      # || short-circuits), the `all` step on merge_group (skipped steps emit
+      # empty - falsy - so the || falls through). Consumers compare == 'true'.
+      ansible: ${{ steps.filter.outputs.ansible || steps.all.outputs.ansible }}
+      terraform: ${{ steps.filter.outputs.terraform || steps.all.outputs.terraform }}
+      pytest: ${{ steps.filter.outputs.pytest || steps.all.outputs.pytest }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # push events diff against the before-SHA
+      - name: Merge groups validate the exact tree entering main - every area runs
+        if: github.event_name == 'merge_group'
+        id: all
+        run: |
+          echo "ansible=true" >> "$GITHUB_OUTPUT"
+          echo "terraform=true" >> "$GITHUB_OUTPUT"
+          echo "pytest=true" >> "$GITHUB_OUTPUT"
       # agent-trigger.yml, maskfile.md, .pre-commit-config.yaml belong to no
       # filter - the always-on pre-commit job (actionlint/yamllint) covers
       # them and CI never uses mask (AGENTS.md rule 8).
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
+        if: github.event_name != 'merge_group'
         with:
           filters: |
             ansible:
