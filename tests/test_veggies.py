@@ -1,6 +1,7 @@
 """Tests for cli/veggies.py - pure renderers, state, and drift guards."""
 
 import argparse
+import base64
 import importlib.util
 import json
 import shlex
@@ -1148,6 +1149,49 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
     # pidfile lets a second run reuse the live tunnel
     info = json.loads((tmp_path / "tunnels" / "v.json").read_text())
     assert info == {"pid": 4242, "port": 5098}
+
+
+def test_cmd_supervise_stamps_judge_call_metadata(monkeypatch):
+    """ADR 0047: the operator-driven judge call's exec payload carries the
+    session's title/id so the cost log attributes judge spend."""
+    monkeypatch.setattr(veggies.State, "get", lambda self, n: {
+        "repo": "/r", "mode": "clone", "port": 4098, "host": None,
+        "password": "p"})
+    msgs = [
+        {"info": {"role": "user", "id": "u1"},
+         "parts": [{"type": "text", "text": "work the issue"}]},
+        {"info": {"role": "assistant", "id": "a1"},
+         "parts": [{"type": "text", "text": "done"}]},
+    ]
+
+    def fake_api(host, port, password, method, path, *a, **k):
+        if path.startswith("/session/status"):
+            return {"ses_1": {"type": "idle"}}
+        if "/message" in path:
+            return msgs
+        return {"id": "ses_1", "title": "#46: meter the spend"}
+
+    monkeypatch.setattr(veggies, "api_call", fake_api)
+    monkeypatch.setattr(veggies.time, "sleep", lambda s: None)
+
+    class R:
+        returncode = 0
+        stdout = '{"score": 0.9, "issues": []}'
+        stderr = ""
+
+    execs = []
+    monkeypatch.setattr(veggies, "host_podman",
+                        lambda *a, **kw: (execs.append(kw), R())[1])
+    args = argparse.Namespace(name="v", session="ses_1",
+                              judge_model="deepseek-v4", threshold=0.6,
+                              max_iters=2, timeout=60, interval=1)
+    assert veggies.cmd_supervise(args) == 0  # PASS on the first judgment
+    script = execs[0]["input_text"]
+    b64 = [l for l in script.splitlines() if "b64decode" in l][0]
+    payload = json.loads(base64.b64decode(b64.split('"')[1]))
+    assert payload["metadata"] == {"caller": "veggies-supervise",
+                                   "session_title": "#46: meter the spend",
+                                   "session_id": "ses_1"}
 
 
 def test_session_links_live_first_with_urls():
