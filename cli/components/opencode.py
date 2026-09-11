@@ -101,14 +101,8 @@ def _render(ctx: PodContext) -> dict:
             "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/plugins /root/.config/opencode/ 2>/dev/null; "
-            # ansible-core >=2.21 hard-fails at startup when the configured
-            # vault password file is missing (ansible.cfg points at
-            # ~/.config/infra/vault-password); a dummy satisfies the check -
-            # same trick as infra-ci. Real decryption stays impossible
-            # in-pod: the vault password is never shipped here.
-            "mkdir -p /root/.config/infra; "
-            "[ -f /root/.config/infra/vault-password ] || "
-            "printf 'ci-dummy-not-a-real-secret\\n' > /root/.config/infra/vault-password; "
+            # No ansible vault dummy here (ADR 0053): that is this-repo
+            # glue, baked into the overlay image itself.
             + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"
         ],

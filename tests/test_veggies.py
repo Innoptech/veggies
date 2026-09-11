@@ -127,6 +127,15 @@ def test_render_containers_and_pins(spec):
     assert by_name["opencode"]["image"] == veggies_stack.IMAGE_OPENCODE
 
 
+def test_default_render_carries_no_ansible_vault_dummy(spec):
+    # ADR 0053: the vault dummy is this-repo overlay glue, baked into the
+    # image (ANSIBLE_VAULT_PASSWORD_FILE) - the shared renderer no longer
+    # ships it to stacks whose repo has no ansible.
+    args = _pod(spec)["spec"]["containers"][0]["args"][0]
+    assert "vault-password" not in args
+    assert ".config/infra" not in args
+
+
 def test_only_opencode_publishes_a_port(spec):
     pod = _pod(spec)
     for container in pod["spec"]["containers"]:
