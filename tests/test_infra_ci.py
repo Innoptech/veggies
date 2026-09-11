@@ -138,6 +138,11 @@ def test_molecule_image_built_once_and_shared():
     image_jobs = [JOBS[name] for name in IMAGE_BUILD_JOBS]
     roles = JOBS["molecule-roles"]
 
+    # A job-level-if-gated job as a required check never reports and wedges
+    # every merge as Pending - image jobs must never join required_checks.
+    for name in IMAGE_BUILD_JOBS:
+        assert name not in REQUIRED_CHECKS
+
     # The image jobs and the matrix share one gate, string-equal: divergence
     # either wastes a build per ansible-unchanged PR or reds seven legs on a
     # missing artifact.
@@ -178,8 +183,12 @@ def test_molecule_image_built_once_and_shared():
     save = [r for r in _run_steps(JOBS[IMAGE_BUILD_JOBS[0]]) if "podman save" in r]
     load = [r for r in _run_steps(roles) if "podman load" in r]
     assert len(save) == 1 and len(load) == 1
-    tar = re.search(r"(\S+\.tar)", save[0]).group(1)
-    assert tar in load[0]
+    tar_name = re.search(r"(\S+\.tar)", save[0]).group(1).strip('"').rsplit("/", 1)[-1]
+    # ${{ runner.temp }} and "$RUNNER_TEMP" are the same directory; a
+    # subdirectory edit on either side must fail here, not at runtime.
+    assert uploads[0]["with"]["path"] == "${{ runner.temp }}/" + tar_name
+    assert downloads[0]["with"]["path"] == "${{ runner.temp }}"
+    assert f'"$RUNNER_TEMP/{tar_name}"' in load[0]
 
     molecule_yamls = sorted(ROOT.glob("ansible/roles/*/molecule/*/molecule.yml"))
     assert molecule_yamls, "no molecule scenarios found"
@@ -187,3 +196,8 @@ def test_molecule_image_built_once_and_shared():
         doc = yaml.safe_load(path.read_text())
         images = {p["image"] for p in doc["platforms"]}
         assert images == {IMAGE_TAG}, f"{path}: platforms must use {IMAGE_TAG}"
+        for p in doc["platforms"]:
+            assert p.get("pre_build_image") is True, (
+                f"{path}: pre_build_image must stay true - the podman driver "
+                "must not build its own layer per leg"
+            )
