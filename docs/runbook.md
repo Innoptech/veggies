@@ -347,14 +347,14 @@ closed or an `agent/issue-N` PR already exists. A failed kick keeps the
 label.
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
-async prompt, exit in milliseconds. The agent then works the issue in the
-stack's clone through the mandated pipeline (ADR 0036): it posts a plan as
-an issue comment BEFORE writing code (veto the direction by commenting,
-while it works), executes through task subagents, runs the
-`adversarial-review` subagent on the diff, and opens a PR. On stacks with
-`supervision: supervisor` the in-pod critic additionally judges every
-finish and injects refinements (see the supervision section). Plumbing:
-Actions variable
+async prompt, exit in milliseconds. The agent then works the issue in its
+own worktree (ADR 0036, see below) through the mandated pipeline (ADR
+0036): it posts a plan as an issue comment BEFORE writing code (veto the
+direction by commenting, while it works), executes through task subagents,
+runs the `adversarial-review` subagent on the diff, and opens a PR. On
+stacks with `supervision: supervisor` the in-pod critic additionally
+judges every finish and injects refinements (see the supervision section).
+Plumbing: Actions variable
 `VEGGIES_STACK_HOST`/`VEGGIES_STACK_PORT` + secret `VEGGIES_STACK_PASSWORD`
 (all tofu-managed from the vault); the runner reaches the stack at
 `http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound
@@ -409,6 +409,31 @@ Manual fallback (workflow down, demo must go on): run `scripts/stack_kick.py`
 by hand - the header comment has the exact env. From the operator machine,
 tunnel first or run it on the VPS (`ssh veggies`, then STACK_URL is
 `http://127.0.0.1:<port>`).
+
+### Session worktrees (ADR 0036)
+
+Sessions on a stack share one clone, so every kicked session works in its
+own git worktree: `/workspace/.veggies/wt/issue-N` on branch
+`agent/issue-N` (the kick prompt mandates the bootstrap; `veggies up`
+excludes `.veggies/` via the clone's `.git/info/exclude`, so worktrees
+never show up in anyone's `git status`). The shared checkout at
+`/workspace` itself is read-only for kicked sessions.
+
+Inspect and clean up on the stack's host (clone mode shown; in mount mode
+the worktrees live in YOUR repo and cleanup is yours):
+
+```bash
+git -C ~/.local/state/veggies/clones/<name> worktree list
+git -C ~/.local/state/veggies/clones/<name> worktree remove --force \
+    .veggies/wt/issue-N        # frees the agent/issue-N branch too
+```
+
+Remove a worktree only when no live session owns it (check `veggies
+sessions <name>` first) - removing a live session's tree is exactly the
+clobbering this design exists to prevent. A crashed run leaves the
+worktree behind; the re-kick then takes the `-2` suffix and says so in its
+PR body. `down --purge` on a clone-mode stack deletes the whole clone,
+worktrees included.
 
 Re-up caveat: the Actions variable `VEGGIES_STACK_PORT` must match the
 live stack (`veggies ls`); the password can never drift (both sides read
