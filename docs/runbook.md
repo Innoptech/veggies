@@ -198,10 +198,12 @@ Every step runs from the operator workstation unless noted.
 4. `mask converge`.
 5. `--one-file-system` check: `backup.service` runs
    `restic backup --one-file-system`, so anything on a different mount is
-   silently skipped. On the VPS: `findmnt -T
-   /home/stacks/.local/state/veggies` and `findmnt /` should name the
-   same TARGET (single-disk default). If not, revisit that flag before
-   trusting the set.
+   silently skipped. On the VPS, compare TARGETs: `findmnt -T
+   /home/stacks` against `findmnt /` - same TARGET expected (single-disk
+   default); if not, revisit that flag before trusting the set. (Check
+   the state dir itself once a stack exists -
+   `/home/stacks/.local/state/veggies` is created at `veggies up`, so on
+   a fresh rebuild it is not there yet.)
 6. Smoke: `ssh veggies sudo systemctl start backup`. The first run
    self-initializes the repository (`restic-prep` in `ExecStartPre`) - a
    slow first run is expected, not a hang. Then list snapshots with the
@@ -226,12 +228,15 @@ Every step runs from the operator workstation unless noted.
    ssh veggies sudo bash -c 'set -a; . /etc/restic/restic.env; set +a; restic restore latest --target /tmp/restore-check'
    ```
 
-8. Close-out PR: flip the gated-state prose to "backups live" - the
-   "Backup status" paragraph and the honesty clause in the cost section
-   below, the State/Backups rows in `docs/architecture.md`, section 1's
-   `(gated - ADR 0053)` annotations, ADR 0022's "`backup_enabled` is
-   `false` today" line, and the deviation-ledger row in
-   `docs/adr/README.md`. Small PR, one purpose.
+8. Close-out PR: flip the gated-state prose to "backups live" in the
+   LIVING docs - the "Backup status" paragraph and the honesty clause in
+   the cost section below, the State/Backups rows in
+   `docs/architecture.md`, section 1's `(gated - ADR 0053)` annotations,
+   and the deviation-ledger row in `docs/adr/README.md`. ADR files stay
+   append-only: do NOT edit ADR 0022's "`backup_enabled` is `false`
+   today" line (or 0053's body) - record the un-gate as a NEW ADR and
+   mark 0053's index row "amended by NNNN"; the new ADR supersedes the
+   dated claims. Small PR, one purpose.
 
 ## 7. Add a model provider key
 
@@ -900,7 +905,8 @@ Backup status: `spend.jsonl` sits inside the backup role's
 (`backup_enabled: false`), so durability today = one disk; local stacks
 have no backup at all. Un-gating is the operator procedure in section 6
 ("Enabling backups for the first time", ADR 0053); its tripwire is the
-day a `spend.jsonl.4` segment exists. Until then, a manual pull moves
+day a `spend.jsonl.5` segment exists (cap full; the next rollover
+deletes the oldest segment). Until then, a manual pull moves
 the ledger (and the rest of the small stack state, minus the bulky
 `clones/` dir) to two disks:
 
