@@ -425,7 +425,7 @@ def test_main_happy_path(monkeypatch, calls):
     assert calls[0].full_url.startswith("http://h:1/session")
 
 
-# --- Discussion mode (ADR 0038): a /opencode discussion comment kicks a
+# --- Discussion mode (ADR 0038): a /distill discussion comment kicks a
 # session that distills the whole thread into issues ---------------------
 
 
@@ -451,6 +451,11 @@ def test_build_discussion_prompt_carries_thread_and_mission():
     # the closing comment on the discussion: addDiscussionComment, never
     # addComment (discussions reject it - run 34602194185, ADR 0039)
     assert "addDiscussionComment" in p and "addComment(" not in p
+    # then the discussion is closed as resolved (issue #67) - after the
+    # summary comment, and only when it landed and issues were created
+    assert "closeDiscussion" in p
+    assert p.index("addDiscussionComment") < p.index("closeDiscussion")
+    assert "RESOLVED" in p and "at least one issue" in p
 
 
 def test_build_discussion_prompt_defaults_and_empty_thread():
@@ -469,10 +474,10 @@ def test_build_discussion_prompt_trigger_comment_section():
     # no-token manual kicks never see the thread; the triggering comment
     # still rides along like on issue kicks (ADR 0034).
     p = stack_kick.build_discussion_prompt(
-        "o/r", "3", "t", "b", "u", [], comment="/opencode go",
+        "o/r", "3", "t", "b", "u", [], comment="/distill go",
         comment_author="josee")
     assert "Triggered by a comment from @josee" in p
-    assert "/opencode go" in p
+    assert "/distill go" in p
 
 
 def test_fetch_discussion_comments_maps_authors_and_bodies(monkeypatch):
@@ -507,7 +512,7 @@ def test_main_discussion_mode_kicks_with_thread(monkeypatch, calls, tmp_path):
     monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
                         lambda r, n, t: [("alice", "hi")])
-    # no done-guard for discussions (ADR 0038): every /opencode is deliberate
+    # no done-guard for discussions (ADR 0038): every /distill is deliberate
     def no_guard(*a):
         raise AssertionError("done-guard must not run for discussions")
 
@@ -588,8 +593,9 @@ def test_main_discussion_inflight_failure_proceeds(monkeypatch, calls):
 
 def test_all_prompts_forbid_leading_command_comments():
     """ADR 0043: while olgam4 may trigger, the agent must never emit a
-    comment STARTING with /opencode or /elaborate - the one remaining
-    self-kick vector. Every prompt template must carry the hygiene line."""
+    comment STARTING with /opencode, /distill, or /elaborate - the one
+    remaining self-kick vector. Every prompt template must carry the
+    hygiene line naming all three verbs."""
     builders = [
         stack_kick.build_prompt("o/r", "1", "t", "b", "u"),
         stack_kick.build_discussion_prompt("o/r", "1", "t", "b", "u", []),
@@ -597,6 +603,11 @@ def test_all_prompts_forbid_leading_command_comments():
     ]
     for p in builders:
         assert "NEVER start a GitHub comment" in p
+        for verb in ("/opencode", "/distill", "/elaborate"):
+            assert verb in p
+    # closing the discussion is distill-only machinery (issue #67) - the
+    # issue prompt never carries it
+    assert "closeDiscussion" not in builders[0]
 
 
 # --- Elaborate mode (issue #33 / ADR 0041): a /elaborate discussion
@@ -622,6 +633,8 @@ def test_build_elaborate_prompt_carries_thread_personas_and_posting():
     # discussions reject addComment - ADR 0039)
     assert "gh api repos/o/r/discussions/4 --jq .node_id" in p
     assert "addDiscussionComment" in p and "addComment(" not in p
+    # elaborate NEVER closes the discussion (issue #67: distill-only)
+    assert "closeDiscussion" not in p
     # degradation posture, same as 0038
     assert "missing token permission" in p
 
