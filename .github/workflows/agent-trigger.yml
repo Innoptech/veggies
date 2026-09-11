@@ -206,17 +206,18 @@ jobs:
             -o /dev/null -w "unlabel http %{http_code}\n" "$api"
 
 
-      # rc 3: issue-mode done-guard (ADR 0035), or either mode's in-flight
-      # guard (ADR 0043). Skip feedback lands on the actual subject:
+      # rc 3: issue-mode done-guard (ADR 0035), either mode's in-flight
+      # guard (ADR 0043), or the no-ask gate (ADR 0044). Skip feedback
+      # lands on the actual subject:
       # discussions take addDiscussionComment, issues addComment (ADR 0039).
-      - name: Comment when the subject is already handled
+      - name: Comment when the kick is skipped
         if: success() && steps.kick.outputs.rc == '3'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
         run: |
           set -euo pipefail
-          body="**veggies kick skipped** - already handled: ${{ steps.kick.outputs.skip_reason }}."
+          body="**veggies kick skipped** - ${{ steps.kick.outputs.skip_reason }}."
           body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
           if [ "${{ github.event_name }}" = "discussion_comment" ]; then
             jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \

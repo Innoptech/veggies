@@ -936,3 +936,54 @@ def test_main_echoes_gate_even_when_kick_fails(monkeypatch, tmp_path, capsys):
     assert stack_kick.main() == 1
     assert "VERIFY_GATE=make check" in capsys.readouterr().out
     assert "verify_gate=make check" in out.read_text()
+# --- No-ask gate (issue #54 / ADR 0044): refuse to kick a repo whose
+# project-tier opencode config reintroduces `ask` (the ADR 0031 park) ---
+
+def test_permission_gate_refuses_a_project_tier_ask(tmp_path, monkeypatch):
+    """Issue #54 / ADR 0044: a project-tier `ask` in the checked-out repo
+    reintroduces the park ADR 0031 bans - refuse the kick, name the file."""
+    (tmp_path / ".opencode").mkdir()
+    (tmp_path / ".opencode/opencode.json").write_text(
+        json.dumps({"permission": {"edit": "ask"}}))
+    monkeypatch.chdir(tmp_path)
+    reason = stack_kick.permission_gate_reason()
+    assert reason is not None
+    assert "permission.edit" in reason and ".opencode" in reason
+
+
+def test_permission_gate_passes_a_clean_tier(tmp_path, monkeypatch):
+    (tmp_path / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": "deny"}}))
+    monkeypatch.chdir(tmp_path)
+    assert stack_kick.permission_gate_reason() is None
+    assert stack_kick.permission_gate() is None
+
+
+def test_permission_gate_degrades_on_scanner_error(monkeypatch):
+    # Degrade-to-proceed, like the done-guard: a scanner hiccup must never
+    # block a deliberate kick. (Broad except: OSError, UnicodeDecodeError,
+    # anything - only a verified `ask` blocks.)
+    def boom(_):
+        raise OSError("disk went away")
+    monkeypatch.setattr(stack_kick.permission_envelope,
+                        "scan_project_tier", boom)
+    assert stack_kick.permission_gate_reason() is None
+
+
+def test_permission_gate_blocks_the_kick(tmp_path, monkeypatch, calls):
+    """End to end through main(): a violation exits 3 and creates no
+    session (the workflow's rc==3 skip-comment step reports it)."""
+    (tmp_path / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": "ask"}}))
+    monkeypatch.chdir(tmp_path)
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "REPO": "o/r", "ISSUE_NUMBER": "5", "ISSUE_TITLE": "t",
+                 "ISSUE_URL": "u"}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off; gate still on
+    # the gate runs after the in-flight guard; stubbing it keeps the fake
+    # urlopen quiet so `calls` proves no session was created
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    assert stack_kick.main() == 3
+    assert calls == []  # no session was created
