@@ -943,6 +943,8 @@ def test_main_echoes_gate_even_when_kick_fails(monkeypatch, tmp_path, capsys):
     assert stack_kick.main() == 1
     assert "VERIFY_GATE=make check" in capsys.readouterr().out
     assert "verify_gate=make check" in out.read_text()
+
+
 # --- No-ask gate (issue #54 / ADR 0044): refuse to kick a repo whose
 # project-tier opencode config reintroduces `ask` (the ADR 0031 park) ---
 
