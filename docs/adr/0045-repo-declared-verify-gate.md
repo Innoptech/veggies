@@ -46,9 +46,9 @@ Rejected options:
 4. The marker is a single command string, forever. Scoping judgment lives
    in the surrounding prose (this repo: a narrow diff runs file-scoped
    pre-commit hooks plus targeted tests instead of the flattened
-   `--all-files` run; the security hooks gitleaks and vault-check always
-   run full-scope). A repo that outgrows one command points the marker at
-   a mask/make target.
+   `--all-files` run; the security hooks gitleaks and vault-encrypted
+   always run full-scope). A repo that outgrows one command points the
+   marker at a mask/make target.
 5. The resolved gate is echoed per kick (kick-script stdout,
    `GITHUB_OUTPUT`, one line in the workflow's session-link comment) so a
    typo'd marker is a visible event, not a silent degrade.

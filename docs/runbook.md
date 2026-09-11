@@ -494,7 +494,8 @@ tunnel first or run it on the VPS (`ssh veggies`, then STACK_URL is
 
 A repo declares its in-pod verify gate as ONE machine-readable marker in
 its agent-instruction file: `<!-- veggies-verify-gate: CMD -->`, a single
-command string, kept honest by the human prose around it (this repo:
+command string alone on its own line (an example quoted inside prose is
+not a declaration), kept honest by the human prose around it (this repo:
 AGENTS.md rule 3, `SKIP=actionlint-docker mask ci`). Search order:
 `AGENTS.md`, then `CLAUDE.md`; the first marker wins. A pytest parses the
 real AGENTS.md and pins the declared command plus the prose<->marker
@@ -510,7 +511,10 @@ agent-instruction file's prose is the contract and the agent claims only
 what it actually ran. That fallback is the design, not a failure mode: a
 repo with a decent agent-instruction file already gets a repo-native
 agent with zero veggies markup - the marker just makes the gate
-deterministic.
+deterministic. An EMPTY marker (`<!-- veggies-verify-gate: -->`) is an
+explicit opt-out to that same fallback, not a parse error - and it
+suppresses a marker in the later file (an AGENTS.md opt-out beats
+CLAUDE.md).
 
 The resolved gate is echoed per kick so a typo'd marker is a visible
 event, not a silent degrade: the `VERIFY_GATE` line in the workflow log,
@@ -520,9 +524,9 @@ posts on the issue.
 Scope the gate to the diff in the declaration's prose, not in the marker
 (this repo's convention): a narrow diff runs file-scoped pre-commit hooks
 plus targeted tests instead of the flattened `--all-files` run; the
-security hooks (gitleaks, vault-check) always run full-scope, whatever
-the diff. A repo that outgrows one command points the marker at a
-mask/make target.
+security hooks (gitleaks, vault-encrypted) always run full-scope,
+whatever the diff. A repo that outgrows one command points the marker
+at a mask/make target.
 
 The gate executes inside the harness image (ADR 0032): a foreign gate
 needs an image that can run it - the repo owner owns that toolchain

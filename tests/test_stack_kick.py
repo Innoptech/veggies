@@ -664,6 +664,10 @@ def test_build_prompt_verify_gate_fallback():
                                 verify_gate="npm test -- --changed")
     assert "`npm test -- --changed`" in p  # the gate, in backticks
     assert "Claim only what you actually ran." in p
+    # the vendored template stays repo-neutral: scoping is conditional on
+    # what the declaration declares, never this repo's policy asserted
+    assert "follow the scoping the declaration declares" in p
+    assert "the security hooks it names" not in p
 
 
 def test_declared_verify_gate_from_agents_md(tmp_path):
@@ -702,6 +706,23 @@ def test_declared_verify_gate_agents_md_wins(tmp_path):
 def test_declared_verify_gate_ignores_other_files(tmp_path):
     (tmp_path / "README.md").write_text("<!-- veggies-verify-gate: x -->")
     assert stack_kick.declared_verify_gate(tmp_path) is None
+
+
+def test_declared_verify_gate_inline_marker_does_not_parse(tmp_path):
+    # the marker must be alone on its line: a documented example quoted
+    # inside prose (e.g. in backticks) is NOT a declaration
+    (tmp_path / "AGENTS.md").write_text(
+        "Declare it as `<!-- veggies-verify-gate: make test -->` in prose.\n")
+    assert stack_kick.declared_verify_gate(tmp_path) is None
+
+
+def test_declared_verify_gate_non_utf8_file_is_skipped(tmp_path):
+    # an undecodable file degrades like an unreadable one - it never
+    # blocks the kick (ADR 0044)
+    (tmp_path / "AGENTS.md").write_bytes(b"\xff\xfe invalid \x00")
+    assert stack_kick.declared_verify_gate(tmp_path) is None
+    (tmp_path / "CLAUDE.md").write_text("<!-- veggies-verify-gate: tox -->")
+    assert stack_kick.declared_verify_gate(tmp_path) == "tox"
 
 
 def test_this_repo_declares_its_kick_gate():
@@ -757,3 +778,48 @@ def test_main_echoes_the_no_gate_sentinel(monkeypatch, tmp_path, capsys):
     assert "veggies-verify-gate" in kicked[0]  # the missing-marker fallback
     assert ("VERIFY_GATE=(none declared - agent-instruction prose governs)"
             in capsys.readouterr().out)
+    assert ("verify_gate=(none declared - agent-instruction prose governs)"
+            in out.read_text())
+
+
+def test_main_gate_round_trips_through_github_output(monkeypatch, tmp_path,
+                                                     capsys):
+    # the real gate carries spaces and `=` - the output file must parse
+    # back to the exact command
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "declared_verify_gate",
+                        lambda *a, **k: "SKIP=actionlint-docker mask ci")
+    monkeypatch.setattr(stack_kick, "kick", lambda *a, **k: "ses_x")
+    assert stack_kick.main() == 0
+    kv = dict(l.split("=", 1) for l in out.read_text().splitlines())
+    assert kv["verify_gate"] == "SKIP=actionlint-docker mask ci"
+
+
+def test_main_echoes_gate_even_when_kick_fails(monkeypatch, tmp_path, capsys):
+    # ADR 0044: the gate is echoed per kick, success or failure - a typo'd
+    # marker on a broken stack is still a visible event
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "declared_verify_gate",
+                        lambda *a, **k: "make check")
+
+    def boom(*a, **k):
+        raise RuntimeError("stack down")
+
+    monkeypatch.setattr(stack_kick, "kick", boom)
+    assert stack_kick.main() == 1
+    assert "VERIFY_GATE=make check" in capsys.readouterr().out
+    assert "verify_gate=make check" in out.read_text()
