@@ -9,7 +9,8 @@ approving review from a CODEOWNER (the human; the bot is never a code owner).
 
 | Resource | Effect |
 |----------|--------|
-| `github_branch_protection.main` | PRs required, 1 approving **code-owner** review, linear history, no force push/delete, strict required checks, conversation resolution, `enforce_admins` (admins not exempt) |
+| `github_repository_ruleset.main` | "main branch policy" ruleset: PRs required, 1 approving **code-owner** review, linear history, no force push/delete, strict required checks, conversation resolution, no bypass actors (admins not exempt) |
+| merge queue (opt-in, ADR 0053) | `merge_queue` rule inside the ruleset for repos in `merge_queue_repos` - merges to the default branch go through GitHub's native queue |
 | `github_repository_environment.production_infra` | `production-infra` environment gated on the human (`can_admins_bypass = false`) |
 | `github_issue_label.needs_team_review` | the label |
 | `github_repository_file.needs_team_review_workflow` | labeller workflow on branch `infra/needs-team-review` (opt-in via `manage_label_workflow`) |
@@ -21,7 +22,8 @@ approving review from a CODEOWNER (the human; the bot is never a code owner).
 
 See `variables.tf` - every variable has a description and a type. The ones you
 must set: `repos`, `admin_login`, `required_checks` (must match the check
-names the project repos' CI actually reports).
+names the project repos' CI actually reports). `merge_queue_repos` opts a repo
+into the merge queue (default empty - see the last "Be careful" bullet).
 
 ## Install agent kicks on a repo (ADR 0048)
 
@@ -64,4 +66,8 @@ note: [the runbook](../../docs/runbook.md#install-agent-kicks-on-a-repo-adr-0048
 - Actions secret values are stored in the (local, gitignored, backed-up) tofu
   state. State is local; see ../backend.tf for the story.
 - Each project repo needs a `CODEOWNERS` file naming the human, or
-  `require_code_owner_reviews` has nothing to bind to.
+  `require_code_owner_review` has nothing to bind to.
+- The merge queue adds a `merge_group` event: every required context must
+  ALSO report on merge-group runs or queued merges stall Pending forever.
+  Gate a repo's `merge_queue_repos` opt-in on its CI triggering on
+  `merge_group` (this repo: infra-ci.yml).
