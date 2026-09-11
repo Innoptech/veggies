@@ -39,7 +39,11 @@ only non-idle sessions (absence = idle), so the CLI and the daemon never
 disagree about the same session. Idle rows are capped at 10 by default -
 one screen of the most-recently-touched idle (`IDLE_ROWS_DEFAULT`) - and
 live rows are never hidden. `--all` lifts the cap; `--issue N` is never
-capped. `cmd_ui` prints the header `sessions (live first):` with an
+capped. The cap only engages when `/session/status` answered; an
+unreachable status endpoint degrades to the full newest-first table -
+"cannot tell" must never hide a session (the same degrade-to-proceed
+posture as the sync guard's busy probe). `cmd_ui` prints the header
+`sessions (live first):` with an
 overflow footer pointing at `veggies sessions`; `format_sessions`
 renders the hidden count as `... and N more idle sessions (use --all)`.
 
@@ -112,8 +116,10 @@ Rejected:
   live predicate is shared with the supervisor daemon of
   [0036](0036-always-on-critic-for-kicked-sessions.md)
 - References: [0017](0017-agent-orchestrator-and-workflows.md) (status
-  endpoint verified), [0035](0035-one-shot-labels-and-done-guard.md),
-  [0037](0037-per-session-worktrees.md),
+  endpoint verified), [0035](0035-one-shot-labels-and-done-guard.md)
+  (the done-guard already owns the closed-issue side on kick, so
+  nothing is left to reap), [0037](0037-per-session-worktrees.md) (the
+  session title is the worktree-ownership record of runbook §9),
   [0021](0021-stack-data-backup-and-restore.md),
   [0022](0022-cost-metering-and-model-routing.md)
 - Issue #57; discussion #42
