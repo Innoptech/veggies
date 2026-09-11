@@ -58,8 +58,9 @@ code), execution through task subagents, an adversarial-review subagent
 pass on the diff before pushing, and verified checks. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
 (`D#N elaborate: <title>` for persona-roster runs), the
-workflow comments the session link back (GraphQL `addComment` covers both
-subject types), and operators watch via `veggies ui`
+workflow comments the session link back on issues (discussions get a
+minimal ack - discussions take GraphQL `addDiscussionComment`, issues
+`addComment`, ADR 0039), and operators watch via `veggies ui`
 (ssh tunnel helper) / `veggies sessions` / the web UI. Session isolation
 (ADR 0037): every kicked session works in its own git worktree at
 `/workspace/.veggies/wt/issue-N` inside the shared clone (the kick prompt

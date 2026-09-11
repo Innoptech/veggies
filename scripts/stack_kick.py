@@ -248,10 +248,10 @@ allowed; being generic is not.
    - **Marketer POV**
    - **Seller POV**
    - **CTO POV**
-   Post each comment as its POV arrives, with GraphQL addComment: fetch
-   the node id with
+   Post each comment as its POV arrives. Discussions reject addComment;
+   use addDiscussionComment (ADR 0039): fetch the node id with
    `gh api repos/{repo}/discussions/{number} --jq .node_id`, then
-   `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addComment(input: {{subjectId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
+   `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
 
 Rules of engagement:
 - Work autonomously. Never block waiting for a human - decide, and record
