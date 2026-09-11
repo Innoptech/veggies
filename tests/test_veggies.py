@@ -336,26 +336,32 @@ def test_opencode_containerfile_pin_format():
     assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
 
 
-# --- session worktrees (ADR 0036) ---------------------------------------------
+# --- session worktrees (ADR 0037) ---------------------------------------------
+
+
+def test_worktree_exclude_is_root_anchored():
+    # Unanchored '.veggies/' would also swallow a nested tests/fixtures/
+    # .veggies/; the worktree dir only ever exists at the repo root.
+    assert veggies.WORKTREE_EXCLUDE == "/.veggies/"
 
 
 def test_info_exclude_add_appends_and_is_idempotent():
-    assert veggies.info_exclude_add("", ".veggies/") == ".veggies/\n"
-    once = veggies.info_exclude_add("# comment\n*.pyc\n", ".veggies/")
-    assert once == "# comment\n*.pyc\n.veggies/\n"
-    assert veggies.info_exclude_add(once, ".veggies/") == once
+    assert veggies.info_exclude_add("", "/.veggies/") == "/.veggies/\n"
+    once = veggies.info_exclude_add("# comment\n*.pyc\n", "/.veggies/")
+    assert once == "# comment\n*.pyc\n/.veggies/\n"
+    assert veggies.info_exclude_add(once, "/.veggies/") == once
 
 
 def test_info_exclude_add_matches_whole_lines():
-    # '.veggies' (no slash) is a different pattern - it must not satisfy
-    # a request for '.veggies/'.
-    assert veggies.info_exclude_add(".veggies\n", ".veggies/") == \
-        ".veggies\n.veggies/\n"
+    # '.veggies/' (unanchored) is a different pattern - it must not
+    # satisfy a request for '/.veggies/'.
+    assert veggies.info_exclude_add(".veggies/\n", "/.veggies/") == \
+        ".veggies/\n/.veggies/\n"
 
 
 def test_info_exclude_add_repairs_missing_trailing_newline():
-    assert veggies.info_exclude_add("*.pyc", ".veggies/") == \
-        "*.pyc\n.veggies/\n"
+    assert veggies.info_exclude_add("*.pyc", "/.veggies/") == \
+        "*.pyc\n/.veggies/\n"
 
 
 # --- persistence -----------------------------------------------------
