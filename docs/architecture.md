@@ -57,12 +57,12 @@ the full pipeline (ADR 0036/0042): plan first - a draft refined by one
 task subagent per persona in the shared `agent-config/agents/` roster
 and posted as an issue comment, with each role's input or explicit
 no-objection, before code - execution through task subagents, an
-adversarial-review subagent pass on the diff before pushing, and a
-verify step running the repo's declared gate (the `veggies-verify-gate`
-marker in its agent-instruction file, ADR 0045), not a hardcoded
-command; then the ready-gate (ADR 0046): green checks and mergeable
-against current main - rebasing first - before `gh pr ready` as the
-final act. Observability (ADR
+adversarial-review subagent pass on the diff before the ready gate, and
+a verify step running the repo's declared gate (the
+`veggies-verify-gate` marker in its agent-instruction file, ADR 0045),
+not a hardcoded command; then the ready-gate (ADR 0046): green checks
+and mergeable against current main - rebasing first - before
+`gh pr ready` as the final act. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
 (`D#N elaborate: <title>` for persona-roster runs), the
 workflow comments the session link back on issues (discussions get a

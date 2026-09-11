@@ -87,7 +87,8 @@ def test_build_prompt_mandates_the_pipeline():
     # 2. subagent execution, not a solo main loop
     assert "subagent" in p
     # 3. adversarial review of the diff (the vendored different-model
-    # subagent) before pushing
+    # subagent) before the ready gate - under draft-first, pushing
+    # starts at the first commit
     assert "adversarial-review" in p
     # 4. verified claims only, via the repo's declared gate
     assert "npm test -- --changed" in p

@@ -59,11 +59,14 @@ that defines "done", and a done-guard whose states match both.
       silently) and that re-approval is needed.
    b. `gh pr checks --watch` - the draft's CI on the final head must be
       green; fix and re-push on red, never mark ready on pending.
-   c. `gh pr view --json mergeable` must read MERGEABLE. UNKNOWN is
+   c. `git fetch origin && git merge-base --is-ancestor origin/main HEAD`
+      - if main moved during the watch, back to (a) (rebase + re-verify).
+      This narrows ready-while-behind to the length of one fetch.
+   d. `gh pr view --json mergeable` must read MERGEABLE. UNKNOWN is
       transient (GitHub computes mergeability asynchronously) - wait a few
       seconds and re-read, NEVER rebase on UNKNOWN; CONFLICTING means back
       to (a).
-   d. Only now `gh pr ready` - the final act; the done-guard treats the
+   e. Only now `gh pr ready` - the final act; the done-guard treats the
       issue as handled from this moment.
    Work that lands after ready (an ADR 0036 supervisor refinement, a
    review comment) converts back first: `gh pr ready --undo`, rework,
