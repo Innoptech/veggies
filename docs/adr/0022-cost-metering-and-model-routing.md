@@ -12,10 +12,12 @@ sessions, spend is a first-class operational number - and it is currently
 invisible: "what did this PR cost as a whole?" has no answer today.
 Discussion #38 is the demand signal.
 
-The recorded conflict stands: ADR 0011 dropped litellm's `DATABASE_URL`
-(upstream removed sqlite support), so litellm's spend tracking - the
-`/spend` endpoints and per-key spend - is in-memory in this deployment and
-zeroes on every `veggies down` / `veggies up` / `veggies sync`.
+The recorded conflict stands: litellm's spend tracking - the `/spend`
+endpoints and per-key spend - is in-memory in this deployment (ADR 0011:
+v1 has no spend DB, in-memory only) and zeroes on every `veggies down` /
+`veggies up` / `veggies sync`. The historical path to a durable spend DB
+is litellm's `DATABASE_URL`, and upstream has removed sqlite support, so
+there is no cheap durable option to simply switch on.
 
 ## Decision drivers
 
@@ -33,8 +35,10 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
 
 1. **Metering point: the in-pod litellm router, always.** It is already
    the single audited hop for every model call - author, persona/task
-   subagents, adversarial review, supervisor judge (the judge execs inside
-   the litellm container and posts to the loopback router) - per ADR 0011.
+   subagents, adversarial review, supervisor judge (both judge paths POST
+   to the loopback router: the ADR 0036 in-pod supervisor daemon from its
+   own container, and `veggies supervise` via exec inside the litellm
+   container) - per ADR 0011.
    There is no second metering path. Rejected: opencode's own per-session
    token stats as a source - they miss supervisor judge calls and would
    fork the source of truth.
@@ -50,9 +54,10 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
    - Long-period durability rides the backup role's existing restic scope
      (`backup_paths: [/home/stacks/.local/state/veggies]` in
      `ansible/roles/backup/defaults/main.yml`) once backups un-gate per
-     ADR 0024. `backup_enabled` is `false` today: restic is the target,
-     not a live path. Local-workstation stacks have no backup at all, and
-     `veggies down --purge` deletes cost logs with the state root.
+     ADR 0024. `backup_enabled` is `false` today (in group_vars per ADR
+     0024): restic is the target, not a live path. Local-workstation
+     stacks have no backup at all, and `veggies down --purge` deletes
+     cost logs with the state root.
    - The host file is **authoritative**; litellm's in-memory `/spend` is
      informational-only by design. The number that survives a restart
      lives in a file we own, not in the vendor's memory.
@@ -76,11 +81,23 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
      opencode harness stamps its session title; the supervisor judge
      stamps the judged session's title. Neither stamp exists today -
      verified: `cli/components/opencode.py` wires only the apiKey, and
-     `cli/supervisor.py` `JUDGE_EXEC_SCRIPT` posts only model/messages,
-     so judge spend is currently unattributable. Both stamping changes
-     land with the metering implementation (#46). `TODO(verify)`: the
-     exact metadata/tags field and its presence in the exported per-call
-     logs on `v1.99.1` - resolved in #46.
+     neither judge path stamps metadata - `cli/supervisor.py`
+     `JUDGE_EXEC_SCRIPT` (the `veggies supervise` path) posts only
+     model/messages plus temperature/max_tokens, and the in-pod
+     supervisor daemon's `judge()` (`deploy/supervisor/daemon.py`, the
+     ADR 0036 path that judges kicked sessions) posts the same shape over
+     pod loopback - so judge spend is currently unattributable. Both
+     stamping changes land with the metering implementation (#46).
+     `TODO(verify)`: both sides of the stamp - the exact litellm
+     metadata/tags field and its presence in the exported per-call logs
+     on `v1.99.1`, and the opencode harness stamping capability or hook
+     on the pinned harness (its litellm wiring is a static rendered JSON
+     from `cli/components/opencode.py` `render_opencode_json`; nothing
+     in-tree demonstrates per-request metadata stamping on opencode
+     1.18.27) - both resolved in #46. Fallback if no harness hook exists:
+     timestamp-window correlation of router logs against the harness
+     session API, reported at reduced confidence, with the gap visible in
+     the unattributed bucket.
    - Boundary: `D#N` discussion-phase spend (elaborations, distillations)
      reports under the discussion, not the PR. Untagged or untitled spend
      (manual sessions, anything off-convention) lands in an explicit
@@ -102,7 +119,10 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
    0028/0036). Implementation sequence: metering (#46), then `veggies
    costs` (#47), then a thin agent skill that shells out to the subcommand
    (#49) - no standalone cost agent; an agent answering cost questions
-   burns the very thing it measures.
+   burns the very thing it measures. The skill serves local/operator-side
+   sessions: the CLI is operator-side (ADR 0014), so an in-pod agent
+   cannot invoke `veggies costs` - for kicked sessions the number is
+   surfaced by the workflow/operator, not from inside the pod.
 5. **Fallback-chain declaration point: status quo ratified.** Routing
    policy lives in `agent-config/litellm/config.yaml`
    (`router_settings.fallbacks`), shipped by the CLI (live-mounted
@@ -120,12 +140,13 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
   master key. Re-entry: a demonstrated need for per-component spend splits
   the title axis cannot give.
 - **Budget enforcement (`max_budget`)** - explicitly out of scope per the
-  discussion's OP: "We do not need a max_budget enforcement now, we need
-  to see how much the pr cost as a whole." litellm budgets are per-key, so
-  enforcement depends on per-agent keys first; on the master key it would
-  be an all-or-nothing kill switch. Re-entry: `veggies costs` shows spend
-  crossing an operator-set threshold, a second tenant/contributor on
-  shared stacks, or any provider beyond Fireworks.
+  discussion author's follow-up: "We do not need a max_budget enforcement
+  now, we need to see how much the pr cost as a whole." litellm budgets
+  are per-key, so enforcement depends on per-agent keys first; on the
+  master key it would be an all-or-nothing kill switch. Re-entry:
+  `veggies costs` shows spend crossing an operator-set threshold, a
+  second tenant/contributor on shared stacks, or any provider beyond
+  Fireworks.
 - **Dashboards/graphs** - re-entry: someone demonstrably reads the rollup
   and asks.
 
@@ -147,7 +168,8 @@ zeroes on every `veggies down` / `veggies up` / `veggies sync`.
   forcing thread). Follow-up issues: #46 (metering), #47 (`veggies
   costs`), #49 (agent skill shelling out to it).
 - Router and mount ownership: [0011](0011-litellm-gateway-model-routing.md),
-  [0016](0016-substrate-vs-stack-boundary.md); state scope:
+  [0016](0016-substrate-vs-stack-boundary.md); CLI placement:
+  [0014](0014-remote-stacks-over-ssh.md); state scope:
   [0021](0021-stack-data-backup-and-restore.md); interim constraints:
   [0024](0024-interim-access-and-identity-constraints.md); key custody:
   [0028](0028-retire-canvas-own-the-critic-loop.md); conventions the
