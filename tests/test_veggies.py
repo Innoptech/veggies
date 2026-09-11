@@ -624,6 +624,73 @@ def test_parse_repo_config_github():
         veggies_stack.parse_repo_config('github: "yes"\n')
 
 
+def test_parse_repo_config_harness_containerfile():
+    cfg, warnings = veggies_stack.parse_repo_config(
+        "harness_containerfile: .veggies/harness.Containerfile\n")
+    assert cfg["harness_containerfile"] == ".veggies/harness.Containerfile"
+    assert warnings == []  # a known key: no unknown-key warning
+
+
+def test_parse_repo_config_harness_containerfile_rejects_bad_values():
+    with pytest.raises(ValueError, match="'harness_containerfile' must be a string"):
+        veggies_stack.parse_repo_config("harness_containerfile: [x]\n")
+    for bad in ("/etc/x", "../x", "a/../../x", '""'):
+        with pytest.raises(ValueError, match="harness_containerfile"):
+            veggies_stack.parse_repo_config(f"harness_containerfile: {bad}\n")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "FROM {base}\n",
+        "from {base}\n",
+        "# harness overlay\n# syntax=dockerfile-inline\n\n  FROM   {base}  \n",
+        # a RUN continuation whose next physical line starts with the word
+        # COPY must not read as a COPY instruction (logical lines join first)
+        "FROM {base}\nRUN curl -fsSL -o /tmp/x https://example.com/x \\\n"
+        "    COPY is just an argument here\n",
+    ],
+)
+def test_validate_overlay_containerfile_ok(text):
+    veggies_stack.validate_overlay_containerfile(
+        text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "RUN echo the token FROM here is only an argument\n",  # no FROM
+        "FROM alpine:3\n",
+        "FROM {base}\nFROM {base}\n",
+        "FROM {base} AS build\n",
+        "FROM --platform=linux/amd64 {base}\n",
+        "FROM {base}\nCOPY tools/ /opt/\n",
+        "FROM {base}\nADD https://x /y\n",
+    ],
+)
+def test_validate_overlay_containerfile_rejects(text):
+    with pytest.raises(ValueError):
+        veggies_stack.validate_overlay_containerfile(
+            text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+def test_validate_overlay_containerfile_copy_error_teaches():
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nCOPY tools/ /opt/\n"
+    with pytest.raises(ValueError, match="no repo files"):
+        veggies_stack.validate_overlay_containerfile(text)
+    with pytest.raises(ValueError, match="pinned"):
+        veggies_stack.validate_overlay_containerfile(text)
+
+
+def test_overlay_image_name():
+    import re
+
+    name = veggies_stack.overlay_image_name("FROM x\nRUN a\n")
+    assert name == veggies_stack.overlay_image_name("FROM x\nRUN a\n")  # deterministic
+    assert name != veggies_stack.overlay_image_name("FROM x\nRUN b\n")  # content-addressed
+    assert re.fullmatch(r"localhost/veggies-harness-overlay:[0-9a-f]{16}", name)
+
+
 def test_stack_components_includes_mcps():
     spec = veggies_stack.StackSpec(name="t", repo="/tmp/x", mcps=("toolbox",))
     names = [c.name for c in veggies_stack.stack_components(spec)]

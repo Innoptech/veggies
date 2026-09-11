@@ -30,6 +30,11 @@ from capabilities import (
 # repo, first match walking up) verified in 1.18.27 session/instruction.ts -
 # re-verify that list when bumping this image (ADR 0049).
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
+# The pinned harness base every per-repo overlay must FROM (issue #69).
+# Infra-owned, never user-overridable; the base/derived split (#68) flips
+# this to the slim veggies-opencode-base, and overlays rebuild loudly at
+# the next `up` when it does.
+HARNESS_BASE_IMAGE = IMAGE_OPENCODE
 _OPENCODE_CONTAINER_PORT = 4096
 
 
