@@ -31,24 +31,22 @@ permissions:
 
 jobs:
   kick:
-    # Trigger gates (ADR 0040): /opencode and /elaborate are COMMANDS - they
-    # must start the comment; a prose mention ("the /opencode flow...")
-    # never fires. And
-    # the bot account can never fire: the agent comments as olgam4 (a MEMBER,
-    # so the association gate alone does not stop it) and its mandated plan
-    # comments discuss this very feature - verified 2026-09-11 on issue #33,
-    # where a plan comment re-kicked the issue mid-flight. Hardcoded on
-    # purpose: an Actions variable fails open when unset.
+    # Trigger gates (ADR 0040, amended by 0043): /opencode and /elaborate
+    # are COMMANDS - they must start the comment; a prose mention ("the
+    # /opencode flow...") never fires. INTERIM (ADR 0043): while the agent
+    # shares the operator's olgam4 identity there is NO login exclusion -
+    # olgam4 may trigger. The self-kick loop is bounded instead by this
+    # command anchoring, the in-flight guard (both modes, stack_kick.py)
+    # and the issue done-guard; the hard bot exclusion returns with the
+    # GitHub App identity.
     if: >-
       (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
       (github.event_name == 'issue_comment' &&
         startsWith(github.event.comment.body, '/opencode') &&
-        github.event.comment.user.login != 'olgam4' &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'discussion_comment' &&
         (startsWith(github.event.comment.body, '/opencode') ||
          startsWith(github.event.comment.body, '/elaborate')) &&
-        github.event.comment.user.login != 'olgam4' &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, linux, x64, veggies]
     env:
@@ -198,21 +196,25 @@ jobs:
             -o /dev/null -w "unlabel http %{http_code}\n" "$api"
 
 
-      # rc 3 is the issue-mode done-guard (ADR 0035); discussion mode has no
-      # done-guard (ADR 0038), so this step is issue-only by construction.
-      - name: Comment when the issue is already handled
-        if: >-
-          success() && steps.kick.outputs.rc == '3' &&
-          github.event_name != 'discussion_comment'
+      # rc 3: issue-mode done-guard (ADR 0035), or either mode's in-flight
+      # guard (ADR 0043). Skip feedback lands on the actual subject:
+      # discussions take addDiscussionComment, issues addComment (ADR 0039).
+      - name: Comment when the subject is already handled
+        if: success() && steps.kick.outputs.rc == '3'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT_ID: ${{ github.event.issue.node_id }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
         run: |
           set -euo pipefail
           body="**veggies kick skipped** - already handled: ${{ steps.kick.outputs.skip_reason }}."
           body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
-          jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
-            '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
+          if [ "${{ github.event_name }}" = "discussion_comment" ]; then
+            jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
+              '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
+          else
+            jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
+              '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
+          fi
           resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             --data @/tmp/comment.json https://api.github.com/graphql)

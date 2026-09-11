@@ -386,9 +386,12 @@ kicks the repo's long-lived stack when:
   works it, ADR 0033) or on a **discussion** (the agent reads the whole
   thread and distills it into issues with Plan / Happy path / Criteria of
   success sections, ADR 0038) - or **starts with** `/elaborate` on a
-  discussion (five persona POV comments, ADR 0041). The bot account
-  (`olgam4`) can never trigger by comment - the agent must not re-kick
-  itself (ADR 0040).
+  discussion (five persona POV comments, ADR 0041). INTERIM (ADR 0043):
+  while the agent shares the operator's `olgam4` identity, olgam4 MAY
+  trigger - the self-kick loop is bounded by command anchoring, the
+  in-flight guard (issues AND discussions now) and the issue done-guard;
+  kick prompts forbid the agent from starting any comment with a command.
+  The hard bot exclusion returns with the GitHub App identity.
 
 `agent-task` is one-shot (ADR 0035): the label is cleared after a
 successful kick or a skip - re-add it to retrigger. Done-issues are never
