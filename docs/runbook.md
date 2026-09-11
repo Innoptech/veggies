@@ -371,7 +371,7 @@ socket in-pod, ADR 0028) and the `actionlint-docker` pre-commit hook
 as `SKIP=actionlint-docker mask ci` - and that exact string is this repo's
 DECLARED in-pod verify gate: declared machine-readably by the
 `veggies-verify-gate` marker in AGENTS.md rule 3 and consumed by
-`scripts/stack_kick.py` at kick time (ADR 0044; see "Declaring a repo's
+`scripts/stack_kick.py` at kick time (ADR 0045; see "Declaring a repo's
 verify gate" below). CI on GitHub-hosted runners still covers the skipped
 hook. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
@@ -490,7 +490,7 @@ by hand - the header comment has the exact env. From the operator machine,
 tunnel first or run it on the VPS (`ssh veggies`, then STACK_URL is
 `http://127.0.0.1:<port>`).
 
-### Declaring a repo's verify gate (ADR 0044)
+### Declaring a repo's verify gate (ADR 0045)
 
 A repo declares its in-pod verify gate as ONE machine-readable marker in
 its agent-instruction file: `<!-- veggies-verify-gate: CMD -->`, a single
