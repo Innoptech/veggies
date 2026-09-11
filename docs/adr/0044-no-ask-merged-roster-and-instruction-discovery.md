@@ -34,13 +34,13 @@ Verified 2026-09-11 against the pinned harness (opencode 1.18.27 source):
    AGENTS.md/CLAUDE.md; a duplicate mechanism drifts on every image bump)
    and no veggies.yml keys. The kick prompt names "the repo's own
    agent-instruction file - whichever of AGENTS.md/CLAUDE.md (or
-   equivalent) the repo ships". A dated tripwire comment at
+   equivalent) the repo ships". A version-pinned tripwire comment at
    `IMAGE_OPENCODE` pins the verified discovery list to 1.18.27.
 2. **No-ask spans the merged roster** (amends 0031's `agent-config/`
    scope). The enforcement artifact is `cli/permission_envelope.py`,
    stdlib-only: `scan_project_tier()` flags any `ask` in a repo's project
    tier (parsed JSON configs - top-level `permission` AND inline
-   `agent.*.permission`; agent/mode frontmatter via text scan; JSONC
+   `agent.*`/`mode.*` permission; agent/mode frontmatter via text scan; JSONC
    comments stripped; unparseable fails closed with "cannot verify
    ask-free"). pytest covers it over fixtures and this repo
    (`test_no_ask_anywhere` now scans the merged tier).

@@ -308,7 +308,8 @@ around; `ask` in a headless session parks forever (verified 2026-09-09,
   project tier (root `opencode.json[c]`, `.opencode/`, compat dirs), which
   overrides the global block. Pytest enforces the vendored tiers plus this
   repo's own; on the kicked path, `scripts/stack_kick.py` refuses the kick
-  and the workflow comments the offending file onto the issue. `question`
+  and the workflow comments the offending file onto the kicked
+  subject. `question`
   is denied too: a blocking question fails
   fast instead of parking; agents say what they need in their final
   message.
