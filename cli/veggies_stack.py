@@ -189,7 +189,7 @@ def load_repo_config(repo: Path) -> tuple[dict, list[str]]:
 # --- Pod assembly --------------------------------------------------------------------
 
 # Golden-stable volume ordering (tests/golden/pod.yaml is byte-compared).
-VOLUME_ORDER = ["repo", "stack-config", "agent-config", "costs", "opencode-home", "stack-state", "tmp", "run"]
+VOLUME_ORDER = ["repo", "stack-config", "agent-config", "opencode-home", "stack-state", "tmp", "run"]
 
 
 def build_context(

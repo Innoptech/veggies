@@ -48,12 +48,12 @@ toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
 0032/0047) so agents run the repo's own checks in-pod; molecule is
 excluded (no podman socket, ADR 0028).
 
-Cost metering (ADR 0022/0051): the litellm router writes one JSON line
-per model call to `<state_root>/<stack>/costs/costs.jsonl` on the host -
-size-rotated, fail-open, each record stamped with the calling session's
-title/id by the harness plugin and the judge paths. That cost log is new
-durable stack state: it survives `down`/`up`/`sync` and sits inside the
-backup role's `backup_paths`.
+Cost metering (ADR 0022; contract 0051; writer 0052): the litellm router
+writes one JSON line per model call to `<state_root>/<stack>/spend.jsonl`
+on the host - size-rotated, fail-open, each record stamped with the
+calling session's title/id by the harness plugin and the judge paths.
+That spend log is new durable stack state: it survives
+`down`/`up`/`sync` and sits inside the backup role's `backup_paths`.
 
 Event path (ADR 0033/0038/0041/0050): `.github/workflows/agent-trigger.yml`
 on the self-hosted runners kicks this repo's stack via
@@ -102,11 +102,10 @@ sidecar that judges every finish of a *kicked* session with a different
 model over pod loopback and posts an async refinement below threshold.
 Only sessions created after the daemon starts are judged, PASS/STOP are
 log-only (a posted message would re-run the agent), and the router master
-key never leaves the pod. Spend reporting is contract-pinned, writer
-pending (ADR 0022/0051): `veggies costs` reads the per-call spend log
-`<state_root>/<name>/spend.jsonl*` under the stack state root, but no
-stack writes that file until the metering lands with issue #46 - until
-then the command reports no spend log and exits 0.
+key never leaves the pod. Spend reporting (ADR 0022; contract 0051;
+writer 0052): `veggies costs` reads the per-call spend log
+`<state_root>/<name>/spend.jsonl*` under the stack state root; a stack
+whose router has logged no calls yet reports no spend log and exits 0.
 
 ## Repo layout
 

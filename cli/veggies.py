@@ -727,10 +727,10 @@ def cmd_up(args: argparse.Namespace) -> int:
     ensure_images(host, infra_repo, spec)
 
     print("==> stack config")
-    # ADR 0047: the cost log's host dir must exist before kube play (hostPath
-    # type: Directory fails on a missing source); write_stack_config's chcon -R
-    # on the stack dir labels it too.
-    host_run(host, ["mkdir", "-p", f"{spec.state_root()}/{name}/costs"])
+    # ADR 0051/0052: the stack dir is the spend log's hostPath source -
+    # hostPath type: Directory fails kube play on a missing source, so it
+    # must exist first; write_stack_config's chcon -R then labels it.
+    host_run(host, ["mkdir", "-p", f"{spec.state_root()}/{name}"])
     write_stack_config(spec, infra_repo)
     # Everything a container bind-mounts must carry container_file_t - the
     # workspace included, remote too (verified 2026-09-09: the VPS clone
@@ -775,7 +775,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     # the repo, and the new pod then reads EACCES (verified 2026-09-10 on a
     # local re-up). Re-assert the shared label now that the pod exists -
     # chcon applies live to the running pod's mounts, no restart needed. The
-    # costs dir is the stack's other writable hostPath: same re-assert.
+    # stack state dir is the spend log's writable hostPath: same re-assert.
     label_for_containers(host, repo_path)
     label_for_containers(host, f"{spec.state_root()}/{name}")
     state.add(spec, password=values["password"])
@@ -812,9 +812,9 @@ def cmd_down(args: argparse.Namespace) -> int:
                     check=False, capture=True)
         host_podman(host, "secret", "rm", *secret_names(spec),
                     check=False, capture=True)
-        if host_exists(host, f"{spec.state_root()}/{args.name}/costs", kind="d"):
-            print(f"!! purge deletes {spec.state_root()}/{args.name}/costs "
-                  f"(cost history, ADR 0047) - export first if it matters")
+        if host_exists(host, f"{spec.state_root()}/{args.name}/spend.jsonl"):
+            print(f"!! purge deletes {spec.state_root()}/{args.name}/spend.jsonl* "
+                  f"(spend history, ADR 0051) - export first if it matters")
         safe_rmtree(host, spec.state_root(), f"{spec.state_root()}/{args.name}")
         if record["mode"] == "clone":
             safe_rmtree(host, spec.state_root(),
@@ -974,7 +974,7 @@ def cmd_supervise(args: argparse.Namespace) -> int:
             continue
         # Judge inside the litellm container: the master key stays in-pod.
         # The title is fetched fresh per finish so the judge call's cost
-        # record attributes to this session (ADR 0047).
+        # record attributes to this session (ADR 0052).
         info = api_call(host, port, password, "GET", f"/session/{sid}{q}")
         title = info.get("title", "") if isinstance(info, dict) else ""
         r = host_podman(host, "exec", "-i", f"{pod}-litellm",

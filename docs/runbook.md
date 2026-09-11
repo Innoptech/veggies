@@ -750,7 +750,7 @@ live stack (`veggies ls`) - the fix is editing the repo's block in
 `terraform/github/agent_kicks.tf` + apply; the password can never drift
 (both sides read the same vault key).
 
-### Cost metering: the spend log (ADR 0022/0047)
+### Cost metering: the spend log (ADR 0022; contract 0051; writer 0052)
 
 Zero new processes, zero new listeners, zero new egress: the in-pod
 litellm router meters every model call itself. A custom callback
@@ -758,41 +758,50 @@ litellm router meters every model call itself. A custom callback
 `litellm_settings.callbacks` in `agent-config/litellm/config.yaml`)
 appends one JSON line per settled call to a host file; the opencode
 plugin and both judge paths stamp each call with its session identity
-(ADR 0047 has the full record contract).
+(ADR 0051 pins the record contract; ADR 0052 records the writer).
 
 Where the file lives (per stack):
 
-- local: `~/.local/state/veggies/<stack>/costs/costs.jsonl`
-- remote (VPS): `/home/stacks/.local/state/veggies/<stack>/costs/costs.jsonl`
+- local: `~/.local/state/veggies/<stack>/spend.jsonl`
+- remote (VPS): `/home/stacks/.local/state/veggies/<stack>/spend.jsonl`
 
 Size-rotated by the writer (10 MiB x 5 segments, ~60 MiB cap): the
-active file plus `costs.jsonl.1` ... `costs.jsonl.5`; the oldest segment
-is silently dropped past the cap.
+active file plus `spend.jsonl.1` ... `spend.jsonl.5`, always plain text
+(0051 forbids compressed segments); the oldest segment is silently
+dropped past the cap.
 
 A success line:
 
 ```json
-{"v":1,"ts":"2026-09-11T12:34:56.789+00:00","call_id":"call-abc-123","stack":"veggie","status":"success","caller":"opencode","model":"fireworks_ai/accounts/fireworks/models/kimi-k3","model_group":"kimi-k3","prompt_tokens":11,"completion_tokens":7,"total_tokens":18,"spend":0.0123,"session_id":"ses_123","session_title":"#46: Meter spend, durably","key_alias":null,"tags":["caller:opencode","session-id:ses_123","session-title:%2346%3A%20Meter%20spend%2C%20durably"]}
+{"ts":1789130096.789,"model":"kimi-k3","prompt_tokens":11,"completion_tokens":7,"spend":0.0123,"session":"#46: Meter spend, durably","session_id":"ses_123","call_id":"call-abc-123","stack":"veggie","status":"success","caller":"opencode","provider_model":"fireworks_ai/accounts/fireworks/models/kimi-k3","key_alias":null,"tags":["caller:opencode","session-id:ses_123","session-title:%2346%3A%20Meter%20spend%2C%20durably"]}
 ```
 
-A failure line (usage/spend null, `error` truncated to 200 chars):
+A failure line (0 tokens, `spend` null, `error` truncated to 200 chars):
 
 ```json
-{"v":1,"ts":"2026-09-11T12:41:02.114+00:00","call_id":"call-def-456","stack":"veggie","status":"failure","caller":"opencode","model":"fireworks_ai/accounts/fireworks/models/kimi-k3","model_group":"kimi-k3","prompt_tokens":null,"completion_tokens":null,"total_tokens":null,"spend":null,"session_id":"ses_123","session_title":"#46: Meter spend, durably","key_alias":null,"tags":["caller:opencode","session-id:ses_123"],"error":"RateLimitError: fireworks rate limit exceeded, retrying"}
+{"ts":1789130462.114,"model":"kimi-k3","prompt_tokens":0,"completion_tokens":0,"spend":null,"session":"#46: Meter spend, durably","session_id":"ses_123","call_id":"call-def-456","stack":"veggie","status":"failure","caller":"opencode","provider_model":"fireworks_ai/accounts/fireworks/models/kimi-k3","key_alias":null,"tags":["caller:opencode","session-id:ses_123"],"error":"RateLimitError: fireworks rate limit exceeded, retrying"}
 ```
 
-Day-one questions are jq one-liners from the costs dir (read
-`costs.jsonl*` to include rotated segments):
+`model` is the router alias (`kimi-k3`, ...); `provider_model` keeps the
+raw upstream id. Keys past the 0051 contract (`call_id`, `stack`,
+`status`, `caller`, `provider_model`, `key_alias`, `tags`) are writer
+extras - readers ignore them; they ride along for forensics.
+
+Day-one questions are jq one-liners from the stack state dir (read
+`spend.jsonl*` to include rotated segments):
 
 ```bash
-# spend per session title (USD; UNATTRIBUTED = null title)
-jq -rs 'group_by(.session_title) | map({t: (.[0].session_title // "UNATTRIBUTED"), usd: ([.[].spend // 0] | add)}) | sort_by(-.usd)[] | "\(.usd)\t\(.t)"' costs.jsonl*
+# spend per session title (USD; empty title = UNATTRIBUTED)
+jq -rs 'group_by(.session) | map({t: (if .[0].session == "" then "UNATTRIBUTED" else .[0].session end), usd: ([.[].spend // 0] | add)}) | sort_by(-.usd)[] | "\(.usd)\t\(.t)"' spend.jsonl*
 
 # spend per UTC day
-jq -rs 'group_by(.ts[:10])[] | "\(.[0].ts[:10])\t\([.[].spend // 0] | add)"' costs.jsonl*
+jq -rs 'group_by(.ts | strftime("%Y-%m-%d"))[] | "\(.[0].ts | strftime("%Y-%m-%d"))\t\([.[].spend // 0] | add)"' spend.jsonl*
 
 # the unattributed bucket: calls with no session title
-jq -rs '[.[] | select(.session_title == null)] | {calls: length, usd: ([.[].spend // 0] | add)}' costs.jsonl*
+jq -rs '[.[] | select(.session == "")] | {calls: length, usd: ([.[].spend // 0] | add)}' spend.jsonl*
+
+# failures only (they parse as 0-token unpriced calls - filter on status)
+jq -rs '[.[] | select(.status == "failure")] | {calls: length}' spend.jsonl*
 ```
 
 The unattributed bucket is a trust feature, not a bug: spend cannot
@@ -803,25 +812,29 @@ Semantics an operator must know:
 
 - `spend` is USD as litellm's price map computes it - an estimate.
   Unpriced/unknown models record `spend: null` on a success line;
-  `spend: 0` means priced-at-zero; raw token counts are on every success
-  line, so you can reprice at read time.
-- A mid-stream disconnect is logged as a failure with null usage even
-  though litellm recovers partial usage internally - an accepted
-  undercount; repricing/revisiting belongs to #47.
+  `spend: 0.0` means priced-at-zero; raw token counts are on every
+  success line, so you can reprice at read time.
+- Failure lines parse as 0-token unpriced calls; `status: "failure"`
+  (plus the `error` extra) is how you see them - a retry loop is
+  spend-shaped waste even when the bill is zero. A mid-stream disconnect
+  is logged as a failure with 0 tokens even though litellm recovers
+  partial usage internally - an accepted undercount.
 - The file is attribution, not billing: the Fireworks invoice is
   authoritative.
-- `session_title` is untrusted text (issue titles, agent-written) -
+- `session` is untrusted text (issue titles, agent-written) -
   treat it as data, never eval or shell it.
 - Manual sessions get auto-titled only after their first call, so early
-  calls on an untitled session carry `session_id` but a null title -
-  join on `session_id` at read time.
+  calls on an untitled session carry `session_id` but an empty
+  `session` - join on `session_id` at read time.
 - Rotation caps the log at ~60 MiB and silently drops the oldest beyond
   that.
-- `veggies down <name> --purge` deletes cost history with the state
-  root (the CLI prints a warning naming the path first) - export before
-  purging if it matters.
+- `veggies down <name> --purge` deletes spend history with the state
+  root. When `spend.jsonl` exists the CLI warns first:
+  `!! purge deletes <state_root>/<stack>/spend.jsonl* (spend history,
+  ADR 0051) - export first if it matters` - export before purging if it
+  matters.
 
-Backup status: the costs dir sits inside the backup role's
+Backup status: `spend.jsonl` sits inside the backup role's
 `backup_paths` (`/home/stacks/.local/state/veggies`), but restic stays
 gated off per ADR 0024 (`backup_enabled: false`), so durability today =
 one disk; local stacks have no backup at all. Un-gating is tracked as
@@ -830,11 +843,11 @@ issue #80 (filed from #46).
 First live `veggies up` after this merges - verify, then record the
 findings on #46:
 
-- [ ] one JSONL line per routed call appears in `costs.jsonl`
-- [ ] `spend > 0` on the priced Fireworks aliases
+- [ ] one JSONL line per routed call appears in `spend.jsonl`
+- [ ] `spend > 0` on the priced Fireworks aliases, `null` on unpriced
 - [ ] the litellm container can write the hostPath under rootless UID
       mapping - `veggies logs <name> litellm` shows the
-      `cost metering: appending to /costs/costs.jsonl (10MiB x 5)`
+      `cost metering: appending to /stack-state/spend.jsonl (10MiB x 5)`
       startup line and no `COST METERING DISABLED`
 - [ ] whether compaction/title-gen calls get stamped - either way,
       record the finding

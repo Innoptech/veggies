@@ -167,7 +167,7 @@ def judge(router_url: str, master_key: str, model: str, transcript: str,
     env (podman secret) and never leaves the pod - the ADR 0028 invariant
     the podman-exec path was built for, kept by staying in-pod. The
     metadata stamps the judge call's cost record with the session it
-    judges (ADR 0047); title/id keys are omitted when empty."""
+    judges (ADR 0052); title/id keys are omitted when empty."""
     metadata = {"caller": "supervisor-daemon"}
     if session_title:
         metadata["session_title"] = session_title

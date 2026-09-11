@@ -26,7 +26,7 @@ router_settings:
 
 litellm_settings:
   drop_params: true
-  # ADR 0022/0047: per-call cost metering to /costs/costs.jsonl (host-mounted)
+  # ADR 0022/0051/0052: per-call spend log to /stack-state/spend.jsonl (host-mounted)
   # List form: the string form would take litellm's replace branch and evict
   # the proxy's built-in budget limiter from litellm.callbacks.
   callbacks: ["custom_callbacks.proxy_handler_instance"]

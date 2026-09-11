@@ -86,7 +86,7 @@ def _embedded_payload(script):
 
 
 def test_judge_exec_script_stamps_session_metadata():
-    """ADR 0047: the judge call's cost record attributes to the judged
+    """ADR 0052: the judge call's cost record attributes to the judged
     session via request-body metadata."""
     script = supervisor.judge_exec_script(
         "deepseek-v4", "[user] hi", session_title="#7: do the thing",
