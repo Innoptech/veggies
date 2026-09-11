@@ -78,3 +78,12 @@ RUN set -eux; cd /tmp; \
     mv actionlint /usr/local/bin/actionlint; \
     chmod +x /usr/local/bin/gitleaks /usr/local/bin/actionlint; \
     rm -f /tmp/gitleaks.tar.gz /tmp/actionlint.tar.gz
+
+# ansible.cfg (this repo) hard-fails at startup when vault_password_file is
+# missing (ansible-core >=2.21); the env var overrides the cfg path, so a
+# dummy baked at build satisfies the check. NOT baked under /root: the
+# opencode-home volume mounts over /root at runtime and would shadow it.
+# Real decryption stays impossible in-pod: the vault password never ships.
+RUN mkdir -p /etc/veggies \
+    && printf 'ci-dummy-not-a-real-secret\n' > /etc/veggies/vault-password
+ENV ANSIBLE_VAULT_PASSWORD_FILE=/etc/veggies/vault-password
