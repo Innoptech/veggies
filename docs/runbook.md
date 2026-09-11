@@ -214,10 +214,53 @@ recreate re-injects the current vault keys.
 
 Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
-`veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`.
+`veggies logs <name> [-f] [container]`; `veggies down <name> [--purge]`;
+`veggies sync <name>` (clone-mode stacks: pull + re-up, see below).
 Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over the
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
 `components`, capability keys, `mcps`, `github`; ADR 0016/0023).
+
+### Syncing a stack with the repo
+
+Three things people mean by "the stack is up to date", each synced
+differently:
+
+| What | Source of truth | How it goes live |
+|------|-----------------|------------------|
+| Stack definition (`agent-config/`, component code, images) | the operator's LOCAL infra checkout (the CLI is a shim into it) | every `veggies up` re-ships rendered config over ssh and rebuilds changed images - `git pull` locally, then up |
+| Event path (`agent-trigger.yml`, `scripts/stack_kick.py`) | `origin/main` | automatic on merge: the self-hosted runner does `actions/checkout` every run |
+| The workspace clone (what `/workspace` is; where `veggies.yml` is read from at up time) | `origin/main` | **kicked sessions self-sync** - the kick prompt fetches and branches each worktree off `origin/main` (ADR 0037). The shared checkout itself is only refreshed by `veggies sync` |
+
+So the recipe after merging a feature to main: `git pull` in your local
+infra checkout (so the CLI and the agent-config it ships are current), then:
+
+```bash
+veggies sync veggie
+```
+
+One command: pulls the VPS clone (`--ff-only`, as the stacks user through
+the substrate proxy; private repos get the vault token command-scoped,
+exactly like the initial clone), then re-ups - fresh `veggies.yml`
+(model/components/mcps/supervision), re-shipped agent-config, rebuilt
+images, recreated pod. Port, name and creation date survive (state record);
+the `github: true` opt-in survives too - dropping it is a deliberate
+`down` + `up`.
+
+Two guards:
+
+- **Busy sessions**: sync refuses while a session is busy (the pod recreate
+  would kill it) - wait, or `--force`. A stack whose API is unreachable is
+  considered quiet and syncs normally (that is also how a down stack comes
+  back).
+- **Non-fast-forward pull**: the pull FAILS rather than resetting - kicked
+  sessions may never touch the shared `/workspace` checkout (ADR 0037), so a
+  dirty clone means something misbehaved; investigate (`sudo -u stacks git
+  -C /home/stacks/.local/state/veggies/clones/<name> status`), or go nuclear
+  with `down --purge` + `up` (deletes the clone, volumes and session
+  history).
+
+Mount-mode stacks need no sync: the workspace IS your live checkout, so a
+plain `veggies up` is all there is (`sync` refuses them with that hint).
 
 MCP servers (ADR 0018): opt-in sidecars selected via `mcps: [<name>]` in
 veggies.yml (registry in `cli/veggies_stack.py:MCP_REGISTRY`). They serve

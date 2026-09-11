@@ -1201,6 +1201,69 @@ def test_watchdog_units_are_minimal_and_scoped():
     assert "WantedBy=timers.target" in veggies.WATCHDOG_TIMER
 
 
+# --- veggies sync ---------------------------------------------------------------
+
+
+def test_github_https_url_normalizes_ssh_form():
+    assert veggies.github_https_url("git@github.com:Org/r.git") == \
+        "https://github.com/Org/r.git"
+    assert veggies.github_https_url("https://github.com/Org/r.git") == \
+        "https://github.com/Org/r.git"
+    assert veggies.github_https_url("https://example.com/r.git") == \
+        "https://example.com/r.git"
+
+
+def test_clone_pull_argv_local_is_plain_ff_only():
+    argv = veggies.clone_pull_argv("/state/clones/demo")
+    assert argv == ["git", "-C", "/state/clones/demo", "pull", "--ff-only"]
+
+
+def test_clone_pull_argv_remote_rides_the_proxy():
+    argv = veggies.clone_pull_argv("/home/stacks/.local/state/veggies/clones/d",
+                                   proxy="http://127.0.0.1:3128")
+    assert "-c" in argv and f"http.proxy=http://127.0.0.1:3128" in argv
+    assert argv[-2:] == ["pull", "--ff-only"]
+    # -C and -c are both leading options: the subcommand stays last, and no
+    # config is ever persisted into the clone's .git/config.
+    assert argv.index("-C") < argv.index("pull")
+
+
+def test_clone_pull_argv_token_is_command_scoped():
+    argv = veggies.clone_pull_argv("/c", proxy="http://p", token="tok123")
+    assert "http.extraHeader=Authorization: Bearer tok123" in argv
+    assert argv[-2:] == ["pull", "--ff-only"]
+
+
+def test_busy_titles_filters_by_status():
+    sessions = [{"id": "s1", "title": "#1: a"}, {"id": "s2", "title": "#2: b"}]
+    status = {"s1": {"type": "busy"}, "s2": {"type": "idle"}}
+    assert veggies.busy_titles(sessions, status) == ["#1: a"]
+    assert veggies.busy_titles(sessions, {}) == []
+    # off-shape payloads degrade to "cannot tell" = proceed
+    assert veggies.busy_titles(None, status) == []
+    assert veggies.busy_titles(sessions, "garbage") == []
+    # a busy session without a title still identifies itself
+    assert veggies.busy_titles([{"id": "s1"}], status) == ["s1"]
+
+
+def test_sync_rejects_unknown_stack(tmp_path, monkeypatch):
+    state_cls = veggies.State  # capture before patching (lambda self-reference)
+    monkeypatch.setattr(veggies, "State", lambda: state_cls(root=tmp_path))
+    args = argparse.Namespace(name="nope", force=False)
+    with pytest.raises(ValueError, match="unknown stack"):
+        veggies.cmd_sync(args)
+
+
+def test_sync_refuses_mount_mode(tmp_path, monkeypatch):
+    state_cls = veggies.State
+    monkeypatch.setattr(veggies, "State", lambda: state_cls(root=tmp_path))
+    state_cls(root=tmp_path).add(
+        veggies.StackSpec(name="m", repo="/tmp/m", mode="mount", port=4096))
+    args = argparse.Namespace(name="m", force=False)
+    with pytest.raises(ValueError, match="mount-mode"):
+        veggies.cmd_sync(args)
+
+
 # --- golden file ----------------------------------------------------------------
 
 
