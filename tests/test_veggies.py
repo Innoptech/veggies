@@ -886,6 +886,31 @@ def test_format_sessions_live_beyond_cap_still_shown():
     assert "ses_live" in out
 
 
+def test_format_sessions_status_outage_hides_nothing():
+    # /session/status unreachable (api_call -> None): cannot tell live
+    # from idle, so the cap must not engage - degrade to the full
+    # newest-first table (ADR 0044).
+    sessions = [{"id": f"ses_i{n}", "time": {"updated": n}}
+                for n in range(30)]
+    sessions.append({"id": "ses_old", "time": {"updated": 1}})
+    out = veggies.format_sessions(sessions, None)
+    assert "ses_old" in out and "more idle" not in out
+    assert len(out.splitlines()) == 1 + 31
+
+
+def test_format_sessions_footer_plural():
+    eleven = [{"id": f"ses_{n}", "time": {"updated": n}} for n in range(11)]
+    out = veggies.format_sessions(eleven, {})
+    assert out.splitlines()[-1] == "... and 1 more idle session (use --all)"
+
+
+def test_live_first_tolerates_garbage_entries_and_timestamps():
+    sessions = [{"id": "ses_x", "time": {"updated": "soon"}},
+                {"id": "ses_y", "time": {"updated": 5}}]
+    out = veggies.live_first(sessions, {"ses_x": "busy"})
+    assert [s["id"] for s in out] == ["ses_y", "ses_x"]  # no raise
+
+
 def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
     monkeypatch.setattr(veggies.State, "get", lambda self, n: {
         "repo": "/r", "mode": "mount", "port": 4098, "host": None,
@@ -913,7 +938,7 @@ def test_cmd_ui_prints_live_first_header_and_overflow(monkeypatch, capsys):
     assert veggies.cmd_ui(args) == 0
     out = capsys.readouterr().out
     assert "sessions (live first):" in out
-    assert "... and 2 more - `veggies sessions v` shows all, live first" in out
+    assert "... and 2 more - `veggies sessions v` lists them, live first" in out
 
 
 def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
