@@ -55,7 +55,12 @@ from veggies_stack import (  # noqa: E402
     secret_names,
     state_dir,
 )
-from capabilities import VAULT_GITHUB, VAULT_MODEL  # noqa: E402
+from capabilities import (  # noqa: E402
+    EGRESS_PROXY_CONTAINER,
+    EGRESS_PROXY_USER,
+    VAULT_GITHUB,
+    VAULT_MODEL,
+)
 import costs  # noqa: E402
 
 VAULT_PASSWORD_FILE = "~/.config/infra/vault-password"
@@ -234,18 +239,19 @@ def clone_pull_argv(clone_dir: str, *, proxy: str | None = None,
     return cmd + ["pull", "--ff-only"]
 
 
-_REMOTE_UID: dict[str, str] = {}
+_REMOTE_UID: dict[tuple[str, str], str] = {}
 
 
-def _remote_uid(host: str) -> str:
-    if host not in _REMOTE_UID:
-        _REMOTE_UID[host] = run(
-            ["ssh", host, "sudo", "-n", "-u", REMOTE_USER, "id", "-u"],
+def _remote_uid(host: str, user: str = REMOTE_USER) -> str:
+    key = (host, user)
+    if key not in _REMOTE_UID:
+        _REMOTE_UID[key] = run(
+            ["ssh", host, "sudo", "-n", "-u", user, "id", "-u"],
             capture=True).stdout.strip()
-    return _REMOTE_UID[host]
+    return _REMOTE_UID[key]
 
 
-def remote_sh(host: str, args: list[str]) -> str:
+def remote_sh(host: str, args: list[str], user: str = REMOTE_USER) -> str:
     """The one-string remote command: ssh re-joins argv with spaces for the
     remote login shell, so everything is shlex.quoted - quoted payloads
     (sh -c 'a && b') survive exactly (verified 2026-09-08: unquoted, the &&
@@ -253,11 +259,12 @@ def remote_sh(host: str, args: list[str]) -> str:
     HOME/XDG so nologin service users work (no `sudo -i`: it re-parses
     through the login shell, and stacks' shell is nologin - verified
     2026-09-10 when `logs` broke with "account is currently not
-    available"). cd / first: podman chdirs to $cwd."""
+    available"). cd / first: podman chdirs to $cwd. `user` follows the same
+    rules (the egress diagnostic runs as EGRESS_PROXY_USER)."""
     remote = " ".join(shlex.quote(a) for a in
-                      ["sudo", "-n", "-u", REMOTE_USER,
-                       "env", f"HOME=/home/{REMOTE_USER}",
-                       f"XDG_RUNTIME_DIR=/run/user/{_remote_uid(host)}",
+                      ["sudo", "-n", "-u", user,
+                       "env", f"HOME=/home/{user}",
+                       f"XDG_RUNTIME_DIR=/run/user/{_remote_uid(host, user)}",
                        *args])
     return "cd / && " + remote
 
@@ -307,13 +314,140 @@ def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
     return result.returncode == 0
 
 
+# --- substrate egress diagnostics (issue #70) ---------------------------------
+#
+# A remote Containerfile RUN step that fetches from a domain outside the
+# substrate squid's allowlist dies with a bare curl 56 / npm tunneling
+# error - squid answers the CONNECT with a bare 403 and the domain never
+# reaches the operator. These helpers read the substrate proxy's access log
+# after a failed remote pull/build and name the denied domains.
+
+_RUNBOOK_EGRESS_POINTER = (
+    'see docs/runbook.md section "Image build fails with a blocked domain".')
+
+
+def _squid_log_host(url_field: str) -> str:
+    """Target host from a squid native-log URL field: CONNECT lines log
+    host:port, plain-HTTP lines log scheme://host[:port]/path. Bracketed
+    (IPv6) literals lose their brackets."""
+    host = url_field.split("://", 1)[-1].split("/", 1)[0]
+    host = host.rsplit("@", 1)[-1]  # drop any userinfo
+    if host.startswith("[") and "]" in host:
+        return host[1:host.index("]")]
+    return host.split(":", 1)[0].strip("[]")
+
+
+def squid_denied_domains(log_text: str) -> tuple[list[str], list[str]]:
+    """Pure: hosts the substrate squid DENIED, from its native access-log
+    lines (whitespace fields: 3=client, 4=result, 7=URL). Build-time
+    traffic arrives via loopback (--network=host + REMOTE_PROXY); pod
+    runtime chains through the pasta gateway and logs other source
+    addresses - hence the (loopback, other) partition. Deduped,
+    order-preserved; malformed lines are skipped (this is a diagnostic,
+    it never raises)."""
+    loopback: list[str] = []
+    other: list[str] = []
+    for line in log_text.splitlines():
+        fields = line.split()
+        if len(fields) < 7 or not fields[3].startswith("TCP_DENIED"):
+            continue
+        host = _squid_log_host(fields[6])
+        if not host or host == "-":
+            continue
+        bucket = loopback if fields[2] == "127.0.0.1" else other
+        if host not in bucket:
+            bucket.append(host)
+    return loopback, other
+
+
+def egress_blocked_message(image: str, loopback: list[str], other: list[str],
+                           original: str) -> str:
+    """Pure: the error for a remote image build/pull the substrate egress
+    proxy denied - names the blocked domains and the group_vars fix."""
+    lines = [
+        f"remote image build/pull failed: {image}",
+        "the substrate egress proxy DENIED these domains during this",
+        "build's window:",
+        "",
+        "allow them in ansible/inventory/group_vars/all.yml:",
+        "",
+        "egress_allowlist_extra:",
+        *(f"  - {d}" for d in loopback),
+        "",
+        "then run `mask converge` (restarts the proxy via handler) and",
+        "re-run the veggies command.",
+        "alternative: build the image elsewhere (e.g. GitHub Actions) and",
+        "pull it - ghcr.io is already allowlisted.",
+    ]
+    if other:
+        lines += [
+            "",
+            "also denied in the same window, from pod/runtime sources",
+            "(likely unrelated to this build): " + ", ".join(other),
+        ]
+    lines += ["", _RUNBOOK_EGRESS_POINTER, f"original error: {original}"]
+    return "\n".join(lines)
+
+
+def egress_unrelated_message(image: str, host: str, original: str) -> str:
+    """Pure: the error when a remote image build/pull failed but the
+    substrate proxy logged no denials in the build's window (or its log
+    could not be read) - the suspect is then a tool ignoring the proxy
+    env vars and hitting the per-UID nftables drop."""
+    return "\n".join([
+        f"remote image build/pull failed: {image}",
+        "the substrate egress proxy logged no denials in this build's",
+        "window (or its log could not be read). A tool ignoring the",
+        "proxy env vars hits the per-UID nftables drop instead - check:",
+        f"  ssh {host} 'sudo journalctl -k -g infra-egress-deny'",
+        _RUNBOOK_EGRESS_POINTER,
+        f"original error: {original}",
+    ])
+
+
+def _substrate_squid_denials(
+        host: str, since_seconds: int) -> tuple[list[str], list[str]] | None:
+    """Best-effort read of the substrate squid's recent access log (its
+    quadlet runs as EGRESS_PROXY_USER, not stacks). None on ANY failure -
+    a diagnostic must never mask the real build error."""
+    try:
+        result = run(
+            ["ssh", host, remote_sh(
+                host,
+                ["podman", "logs", "--since",
+                 f"{max(1, int(since_seconds))}s", EGRESS_PROXY_CONTAINER],
+                user=EGRESS_PROXY_USER)],
+            capture=True)
+        return squid_denied_domains(result.stdout)
+    except Exception:
+        return None
+
+
+def _diagnose_egress_failure(host: str | None, t0: float, image: str,
+                             exc: subprocess.CalledProcessError) -> None:
+    """A remote image pull/build failed: name the proxy-denied domains when
+    the substrate squid's log shows them, else point at the per-UID
+    nftables drop. Local (host=None) failures re-raise untouched. Always
+    raises."""
+    if host is None:
+        raise exc
+    denials = _substrate_squid_denials(host, time.monotonic() - t0 + 30)
+    if denials and denials[0]:
+        raise ValueError(
+            egress_blocked_message(image, denials[0], denials[1], str(exc))
+        ) from exc
+    raise ValueError(egress_unrelated_message(image, host, str(exc))) from exc
+
+
 def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
                   verbose: bool = False) -> None:
     """Images are component-owned: build/pull exactly the selected
     components' images. Built images use layer-cache (no-op when unchanged);
     pull-only images are pulled once. Remote: Containerfiles are shipped into
     the remote state dir and built there. verbose streams the full build
-    output (`veggies prepare`); `up` stays quiet (-q)."""
+    output (`veggies prepare`); `up` stays quiet (-q), but the ==>
+    pull/build headers print either way - they bound the silence before a
+    late failure (issue #70)."""
     quiet = [] if verbose else ["-q"]
     for c in stack_components(spec):
         b = c.build
@@ -328,9 +462,12 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
         if b.containerfile is None:
             if hp("image", "exists", b.image,
                   check=False, capture=True).returncode != 0:
-                if verbose:
-                    print(f"==> pull {b.image}")
-                hp("pull", *quiet, b.image)
+                print(f"==> pull {b.image}")
+                t0 = time.monotonic()
+                try:
+                    hp("pull", *quiet, b.image)
+                except subprocess.CalledProcessError as exc:
+                    _diagnose_egress_failure(host, t0, b.image, exc)
             elif verbose:
                 print(f"==> {b.image} present")
             continue
@@ -349,9 +486,13 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
             for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
                 build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
             build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
-        if verbose:
-            print(f"==> build {b.image} ({b.containerfile})")
-        hp("build", *quiet, "-t", b.image, "-f", cf_path, *build_args, images_dir)
+        print(f"==> build {b.image} ({b.containerfile})")
+        t0 = time.monotonic()
+        try:
+            hp("build", *quiet, "-t", b.image, "-f", cf_path, *build_args,
+               images_dir)
+        except subprocess.CalledProcessError as exc:
+            _diagnose_egress_failure(host, t0, b.image, exc)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
