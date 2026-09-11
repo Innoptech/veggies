@@ -26,7 +26,9 @@ listed under Consequences, not assumed.
 
 1. **Export: a custom callback, not a spend DB.**
    `agent-config/litellm/config.yaml` wires
-   `litellm_settings.callbacks: custom_callbacks.proxy_handler_instance`;
+   `litellm_settings.callbacks: ["custom_callbacks.proxy_handler_instance"]`
+   (list form: the string form would *replace* `litellm.callbacks`,
+   evicting the proxy's built-in budget limiter; the list extends it);
    litellm imports the module from the config file's own directory (the
    CLI ships `custom_callbacks.py` next to `config.yaml` on remote
    stacks; locally the vendored `agent-config/litellm/` is live-mounted).
@@ -73,11 +75,14 @@ listed under Consequences, not assumed.
      `caller:opencode`, `session-id:<id>`, `session-title:<uri-encoded>`.
      The title is the ROOT session's - task subagents run in child
      sessions, so the plugin walks `parentID` links upward (max 8 hops).
-     Resolutions are cached positive-only: manual sessions get
-     auto-titled after their first call, and a cached miss would keep
-     them unstamped forever. When no title resolves, the title tag is
-     skipped but caller + session-id still stamp - the record stays
-     joinable.
+      Resolutions are cached positive-only: manual sessions get
+      auto-titled after their first call, and a cached miss would keep
+      them unstamped forever. When no title resolves, the title tag is
+      skipped but caller + session-id still stamp - the record stays
+      joinable. The title tag is also skipped when its encoded length
+      exceeds 1024 chars: an unbounded title would become an unbounded
+      header and kill the call at the HTTP layer, outside the hook's
+      fail-open.
    - Both judge paths stamp request-body metadata instead:
      `caller: veggies-supervise` (`veggies supervise`, exec inside the
      litellm container, 0028) and `caller: supervisor-daemon` (the in-pod
