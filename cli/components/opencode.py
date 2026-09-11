@@ -28,7 +28,7 @@ from capabilities import (
 # official one has no git (verified 2026-09-04). Base pinned by tag+digest.
 # Instruction-file discovery (AGENTS.md/CLAUDE.md auto-loaded from the mounted
 # repo, first match walking up) verified in 1.18.27 session/instruction.ts -
-# re-verify that list when bumping this image (ADR 0044).
+# re-verify that list when bumping this image (ADR 0049).
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096
 

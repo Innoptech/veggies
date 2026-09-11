@@ -99,7 +99,7 @@ jobs:
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           # exit 3 = kick skipped (done-guard ADR 0035 / in-flight
-          # ADR 0040/0043 / no-ask gate ADR 0044): a clean outcome,
+          # ADR 0040/0043 / no-ask gate ADR 0049): a clean outcome,
           # not a job failure - the skip comment step handles it.
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"
@@ -208,7 +208,7 @@ jobs:
 
 
       # rc 3: issue-mode done-guard (ADR 0035), either mode's in-flight
-      # guard (ADR 0043), or the no-ask gate (ADR 0044). Skip feedback
+      # guard (ADR 0043), or the no-ask gate (ADR 0049). Skip feedback
       # lands on the actual subject:
       # discussions take addDiscussionComment, issues addComment (ADR 0039).
       - name: Comment when the kick is skipped
