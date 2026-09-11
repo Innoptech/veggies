@@ -3,7 +3,7 @@
 Pure module, ZERO IO: every function takes text/records and returns data or
 strings, so tests never touch podman, ssh or the filesystem. The record
 contract and reader policies (skip+count malformed, keep-but-exclude
-unpriced) are ADR 0044; the attribution axis (#N:/D#N: titles) is ADR 0022
+unpriced) are ADR 0051; the attribution axis (#N:/D#N: titles) is ADR 0022
 decision 3.
 """
 
@@ -29,7 +29,7 @@ class SpendRecord:
     model: str
     prompt_tokens: int
     completion_tokens: int
-    spend: float | None  # None = unpriced: kept, excluded from sums (ADR 0044)
+    spend: float | None  # None = unpriced: kept, excluded from sums (ADR 0051)
     session: str       # stamped title; "" = unattributed
     session_id: str
     inferred: bool     # attr == "inferred" (reduced-confidence attribution)
@@ -64,7 +64,7 @@ def _is_int(x: object) -> bool:
 def _record(obj: object) -> SpendRecord | None:
     """One JSONL object -> SpendRecord, or None when malformed. Required
     fields with wrong types are malformed (tolerate-by-skip); only `spend`
-    degrades in place (None = unpriced), per ADR 0044 decision 3."""
+    degrades in place (None = unpriced), per ADR 0051 decision 3."""
     if not isinstance(obj, dict):
         return None
     raw_ts = obj.get("ts")
@@ -303,7 +303,7 @@ def render_detail(records: list[SpendRecord], *, subject: str,
     """Per-(session_id, title) cascade + per-model + daily bars for one
     filter. session_id is part of the group key: re-kicks mint new sessions
     under the same `#N:` title (ADR 0035), so title alone cannot separate
-    them (ADR 0044)."""
+    them (ADR 0051)."""
     groups: dict[tuple[str, str], list[SpendRecord]] = {}
     for r in records:
         groups.setdefault((r.session_id, r.session), []).append(r)

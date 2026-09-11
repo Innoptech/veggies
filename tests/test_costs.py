@@ -1,4 +1,4 @@
-"""Tests for cli/costs.py (pure spend-log module, ADR 0044) and the
+"""Tests for cli/costs.py (pure spend-log module, ADR 0051) and the
 `veggies costs` wiring in cli/veggies.py (handler tests never touch real
 ssh/podman/gh - State, host_run, run and shutil.which are stubbed)."""
 
@@ -100,7 +100,7 @@ def test_parse_missing_or_nonnumeric_spend_kept_counted_unpriced():
     assert res.skipped == 0
     assert res.unpriced == 2
     assert [r.spend for r in res.records] == [None, None, 0.5]
-    # excluded from sums, still counted as calls (ADR 0044 reader policy)
+    # excluded from sums, still counted as calls (ADR 0051 reader policy)
     row = costs.summarize(res.records)[-1]
     assert row.calls == 3 and row.spend == 0.5 and row.unpriced == 2
 
