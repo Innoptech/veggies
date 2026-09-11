@@ -400,7 +400,6 @@ def test_main_discussion_mode_without_token_uses_payload_only(
 # --- Elaborate mode (issue #33 / ADR 0041): a /elaborate discussion
 # comment kicks a session that posts five persona POV comments ---------
 
-
 def test_build_elaborate_prompt_carries_thread_personas_and_posting():
     p = stack_kick.build_elaborate_prompt(
         "o/r", "4", "MCP roadmap", "Let us plan MCP support",
@@ -541,3 +540,22 @@ def test_main_discussion_non_elaborate_command_stays_distill(
     assert "gh issue create" in text
     for name, _role in stack_kick.PERSONAS:
         assert name not in text, f"distill prompt leaked persona {name}"
+
+# --- Multi-role plan review (issue #34 / ADR 0042): the issue kick's
+# plan phase fans the draft plan out to the shared persona roster ------
+
+
+def test_build_prompt_mandates_multi_role_plan_review():
+    """Issue #34 / ADR 0042: the plan phase fans out to one task subagent
+    per persona - the shared /elaborate roster (ADR 0041), one definition,
+    two consumers - and the posted plan shows each role's input (or its
+    explicit no-objection) BEFORE implementation starts."""
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    assert stack_kick.PERSONAS  # a gutted roster fails, never vacuously passes
+    for name, role in stack_kick.PERSONAS:
+        assert name in p and role in p
+    assert "task` subagent per persona" in p  # the fan-out
+    assert "## Role review" in p  # per-role section in the posted plan
+    assert "no-objection" in p
+    # role review refines the draft plan; it never implements
+    assert "BEFORE writing code" in p
