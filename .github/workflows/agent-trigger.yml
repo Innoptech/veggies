@@ -4,6 +4,9 @@ name: agent-trigger
 # ADR 0033: an issue labeled `agent-task`, or a trusted comment containing
 # /opencode, kicks this repo's long-lived veggies stack into a fresh
 # session that works the issue autonomously and opens a PR.
+# ADR 0038: a trusted /opencode comment on a *discussion* kicks a session
+# that reads the whole thread and distills it into issues (plan / happy
+# path / criteria of success).
 #
 # Outbound-only on our side: the self-hosted runner polls GitHub, then
 # calls the stack's opencode API on the VPS host gateway
@@ -15,10 +18,13 @@ on:
     types: [labeled]
   issue_comment:
     types: [created]
+  discussion_comment:
+    types: [created]
 
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
   pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035)
+  discussions: write # read the thread for the prompt; comment the session link back (ADR 0038)
 
 jobs:
   kick:
@@ -26,11 +32,20 @@ jobs:
       (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
       (github.event_name == 'issue_comment' &&
         contains(github.event.comment.body, '/opencode') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'discussion_comment' &&
+        contains(github.event.comment.body, '/opencode') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, linux, x64, veggies]
+    env:
+      # GraphQL addComment is the only comment API covering discussions,
+      # and it takes issues too - one mutation for every feedback step.
+      ADD_COMMENT: 'mutation($subjectId: ID!, $body: String!) { addComment(input: {subjectId: $subjectId, body: $body}) { clientMutationId } }'
     concurrency:
-      # one kick per issue at a time; a re-label queues behind, not parallel
-      group: agent-kick-${{ github.event.issue.number }}
+      # one kick per subject at a time; a re-label/re-comment queues behind,
+      # not parallel. Prefixed by event: issue and discussion numbers are
+      # independent sequences and would otherwise collide.
+      group: agent-kick-${{ github.event_name }}-${{ github.event.issue.number || github.event.discussion.number }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -45,10 +60,15 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
+          # discussion mode when set (ADR 0038); empty on issue events
+          DISCUSSION_NUMBER: ${{ github.event.discussion.number }}
+          DISCUSSION_TITLE: ${{ github.event.discussion.title }}
+          DISCUSSION_BODY: ${{ github.event.discussion.body }}
+          DISCUSSION_URL: ${{ github.event.discussion.html_url }}
           REPO: ${{ github.repository }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # the done-guard's API auth
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # done-guard (issues) / thread fetch (discussions)
         run: |
           set +e
           python3 scripts/stack_kick.py
@@ -60,13 +80,19 @@ jobs:
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"
 
-      # The issue is where people look - tell it which session is working it
-      # and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
-      # not involved. The password is never posted, only how to read it.
-      - name: Comment the session link on the issue
+      # The subject (issue or discussion) is where people look - tell it
+      # which session is working it and how to watch (ADR 0034). GITHUB_TOKEN
+      # comments; the bot PAT is not involved. The password is never posted,
+      # only how to read it. Commenting is GraphQL addComment: the only API
+      # that covers discussions, and it takes issues too (ADR 0038). The
+      # session comment is the user-facing value, so it runs BEFORE the
+      # best-effort label housekeeping below (verified 2026-09-11: a failed
+      # DELETE swallowed the success comment).
+      - name: Comment the session link on the subject
         if: success() && steps.kick.outputs.rc == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
         run: |
           set -euo pipefail
           sid="${{ steps.kick.outputs.session_id }}"
@@ -76,32 +102,42 @@ jobs:
           # base64url(/workspace), no padding (ADR 0034).
           dirseg=$(printf '/workspace' | base64 | tr '+/' '-_' | tr -d '=')
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          issue_n="${{ github.event.issue.number }}"
-          body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
+          if [ "${{ github.event_name }}" = "discussion_comment" ]; then
+            body="**veggies agent kicked** - session \`${sid}\` is distilling this discussion into issues on stack \`veggie\`."
+            tail="The agent reads the whole thread, opens one issue per piece of work"
+            tail="$tail (plan / happy path / criteria of success), and comments the issue"
+            tail="$tail links back here. [Workflow log](${run_url})."
+          else
+            issue_n="${{ github.event.issue.number }}"
+            body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
+            tail="The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
+            tail="$tail that closes this issue. [Workflow log](${run_url})."
+          fi
           body="$body"$'\n\n'"Watch it live:"
           body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
           body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
           body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
-          body="$body"$'\n\n'"The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
-          body="$body"$' that closes this issue. '"[Workflow log](${run_url})."
-          jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
-          api="https://api.github.com/repos"
-          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
-          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+          body="$body"$'\n\n'"$tail"
+          jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
+            '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
+          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json "$api" > /dev/null
+            --data @/tmp/comment.json https://api.github.com/graphql)
+          echo "$resp"
+          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
 
-      # The session comment is the user-facing value; label clearing is
-      # best-effort housekeeping and must never eat it (verified 2026-09-11:
-      # a failed DELETE swallowed the success comment even though the label
-      # WAS removed - so: continue-on-error + loud status print, and the
-      # success comment above runs first).
+      # Label clearing is best-effort housekeeping and must never eat the
+      # session comment (verified 2026-09-11: a failed DELETE swallowed the
+      # success comment even though the label WAS removed - so:
+      # continue-on-error + loud status print, and the comment runs first).
+      # Issues only - discussions carry no agent-task label (ADR 0038).
       - name: Clear the agent-task label
         # One-shot trigger semantics (ADR 0035): a kicked or skipped issue
         # is handled; re-adding the label is the deliberate retrigger.
         # On kick failure the label stays, so the intent survives.
         if: >-
-          always() && (steps.kick.outputs.rc == '0' || steps.kick.outputs.rc == '3')
+          always() && github.event_name == 'issues' &&
+          (steps.kick.outputs.rc == '0' || steps.kick.outputs.rc == '3')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -118,31 +154,35 @@ jobs:
         if: success() && steps.kick.outputs.rc == '3'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
         run: |
           set -euo pipefail
           body="**veggies kick skipped** - already handled: ${{ steps.kick.outputs.skip_reason }}."
           body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
-          jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
-          api="https://api.github.com/repos"
-          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
-          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+          jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
+            '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
+          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json "$api" > /dev/null
+            --data @/tmp/comment.json https://api.github.com/graphql)
+          echo "$resp"
+          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
 
       - name: Comment when the kick fails
         if: always() && steps.kick.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
         run: |
           set -euo pipefail
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body="**veggies kick failed** - the stack accepted no session for this issue."
+          body="**veggies kick failed** - the stack accepted no session for this ${{ github.event_name == 'discussion_comment' && 'discussion' || 'issue' }}."
           body="$body"$' Check \`veggies status veggie\` and that the Actions variable'
           body="$body"$' \`VEGGIES_STACK_PORT\` matches \`veggies ls\`.'
           body="$body"$' [Workflow log]('"${run_url})."
-          jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
-          api="https://api.github.com/repos"
-          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
-          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+          jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
+            '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
+          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json "$api" > /dev/null
+            --data @/tmp/comment.json https://api.github.com/graphql)
+          echo "$resp"
+          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
