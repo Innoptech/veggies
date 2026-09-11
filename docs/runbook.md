@@ -69,6 +69,13 @@ Converge + verify:
       veggies; the PR cannot merge without your review (ADR 0007).
 - [ ] Deny test: in a runner, `curl https://example.com` fails and
       `journalctl -k -g infra-egress-deny` shows the drop (ADR 0006).
+- [ ] Build-time deny test (ADR 0054): in the local demo checkout,
+      `echo 'RUN curl -sSf https://example.com' >> deploy/images/opencode.Containerfile`,
+      then `veggies prepare --host veggies --repo .` - the build must
+      FAIL with an error naming `example.com` and the
+      `egress_allowlist_extra` remediation block (earlier layers are
+      cached, so the appended step is reached fast); revert with
+      `git checkout -- deploy/images/opencode.Containerfile`.
 - [ ] `systemctl list-timers 'backup*'` shows the timers; a manual
       `systemctl start backup` succeeds (needs real restic creds).
 - [ ] Restore drill on a scratch dir: section 6.
@@ -190,7 +197,70 @@ at render time); select it via `litellm/<alias>` in agent frontmatter or
 `/models`. Existing stacks: `veggies down <name>` + `veggies up` - the
 recreate re-injects the current vault keys.
 
-## 8. Add an agent or a skill
+## 8. Image build fails with a blocked domain
+
+Remote image builds (`veggies prepare` / `veggies up`) run as the
+egress-denied `stacks` user and fetch through the substrate squid
+(ADR 0006). A build step reaching a non-allowlisted domain fails, and the
+CLI reads the substrate squid's access log for the build window and
+re-raises the error naming the image and EVERY denied domain sourced from
+loopback (the build's path), plus a paste-ready `egress_allowlist_extra`
+YAML block (ADR 0054).
+
+The fix loop:
+
+1. Add the domain(s) to `egress_allowlist_extra` in
+   `ansible/inventory/group_vars/all.yml` - the error prints the exact
+   YAML block to paste.
+2. `mask converge` - the allowlist template change notifies the handler
+   that restarts squid.
+3. Re-run the same veggies command. Safe: the layer cache keeps every
+   step that already succeeded; only the failed step re-runs.
+
+Doctrine before you paste: the extra list is HOST-WIDE and PERMANENT -
+once converged it serves every stack, every runner job, and every host
+build, not just yours. Treat a denial as a review prompt, not a rubber
+stamp: add narrow domains only (one registry, one API host). CDN-fronting
+domains stay off - `storage.googleapis.com` fronts all of GCS and is
+deliberately absent from the base list (pinned by tests); a domain like
+it does not belong in `_extra` either.
+
+Build-time vs runtime: this error covers BUILD-time fetches against the
+substrate list. An agent fetching at RUNTIME rides the in-pod squid,
+whose allowlist comes from the components' `egress_domains()` hooks
+(ADR 0018) - a runtime denial is a component change, not a converge. An
+overlay toolchain (its image built by `veggies prepare`) normally needs
+the substrate list only.
+
+Alternative for exotic or one-shot toolchains: build the image in GitHub
+Actions, push to ghcr.io (already on the base allowlist), and `FROM`/pull
+it - no converge, no permanent list entry.
+
+If the error says NO proxy denials were logged in the window, the build
+tool bypassed the proxy env vars and hit the per-UID nftables drop
+instead - check with:
+
+```bash
+ssh veggies 'sudo journalctl -k -g infra-egress-deny'
+```
+
+Domains denied from NON-loopback sources in the same window come from
+pod runtime traffic (chained through the pasta gateway) and are usually
+unrelated to the failing build. To read the proxy log by hand:
+
+```bash
+ssh veggies sudo -n -u egress-proxy \
+  env HOME=/home/egress-proxy XDG_RUNTIME_DIR=/run/user/$(ssh veggies \
+  sudo -n -u egress-proxy id -u) podman logs --since 10m squid
+```
+
+Fix the Containerfile to honor the proxy build-args: declare the
+`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy`/`NO_PROXY` ARGs and
+use tools that read them - the ARG pattern in
+`deploy/images/opencode.Containerfile` is the reference (buildah exposes
+the ARGs to RUN steps as env).
+
+## 9. Add an agent or a skill
 
 - Agent: new file in `agent-config/agents/<name>.md` (frontmatter:
   description, mode, model, permission). PR, merge; stacks pick it up at
@@ -212,7 +282,7 @@ recreate re-injects the current vault keys.
   then restart the stack. Telemetry is disabled pod-wide via
   `SUPERPOWERS_DISABLE_TELEMETRY=1` (set by the opencode component).
 
-## 9. veggies stacks (ADR 0013/0014)
+## 10. veggies stacks (ADR 0013/0014)
 
 Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies status <name>` (health + model/agents/sessions via the API);
