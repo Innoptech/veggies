@@ -81,7 +81,11 @@ Rejected / deferred:
 - The gate scans origin/main (the workflow checkout) while the live merge
   reads the mounted clone; a lagging clone can refuse a kick whose `ask`
   has not reached the stack yet - fail direction is safe and `veggies
-  sync` closes the gap.
+  sync` closes the gap. The reverse also holds: a clone dirtied on the host
+  itself (or left stale by a crashed sync) can carry an `ask` the gate never
+  sees - the sync guard treats a dirty clone as misbehavior, and the only
+  true chokepoint remains upstream's config load (the same argument that
+  shelves the `veggies up` gate).
 
 ## Links
 

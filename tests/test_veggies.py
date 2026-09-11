@@ -287,6 +287,32 @@ def test_project_tier_scan_fails_closed_on_unparseable(tmp_path):
     assert any("cannot verify ask-free" in v for v in violations)
 
 
+def test_project_tier_scan_keeps_violations_when_a_later_file_is_unreadable(tmp_path):
+    # An ask found first must survive a later file's decode error: content
+    # problems fail closed per file, they never discard what was found.
+    (tmp_path / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": "ask"}}))
+    d = tmp_path / ".claude/agents"
+    d.mkdir(parents=True)
+    (d / "bad.md").write_bytes(b"---\nname: bad\n---\n\xff\xfe body\n")
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("permission.edit" in v for v in violations)
+    assert any("bad.md" in v and "cannot verify ask-free" in v
+               for v in violations)
+
+
+def test_frontmatter_scan_tolerates_dashes_in_prose(tmp_path):
+    # `---` inside frontmatter prose must not shift the scan window
+    # (line-based fences, not a naive split).
+    d = tmp_path / ".opencode/agents"
+    d.mkdir(parents=True)
+    (d / "p.md").write_text(
+        "---\nname: p\ndescription: a --- b\npermission:\n"
+        "  edit: ask\n---\nbody\n")
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("p.md" in v and "edit: ask" in v for v in violations)
+
+
 def test_project_tier_files_candidate_list(tmp_path):
     # Pins the candidate list against silent drift from upstream's walk set.
     for rel in ("opencode.json", "opencode.jsonc",

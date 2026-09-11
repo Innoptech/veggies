@@ -73,8 +73,8 @@ reviews PRs; agents implement. These rules are not negotiable:
    names are global across hosts (cross-host reuse is refused). The
    permission envelope is allow/deny only - `ask` is banned in the merged
    project+global config: pytest enforces it over `agent-config/` and this
-   repo's own tier, and `scripts/stack_kick.py` refuses to kick a target
-   repo whose project tier carries it (ADR 0031/0044).    Observability
+   repo's own tier, and `scripts/stack_kick.py` refuses to kick when the
+   checked-out project tier carries it (ADR 0031/0044).    Observability
    (ADR 0034):
    kicked sessions are titled `#N: <issue>`, the workflow comments the
    session link back onto the issue, and `veggies ui` / `veggies sessions`

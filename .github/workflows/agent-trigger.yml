@@ -99,7 +99,7 @@ jobs:
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           # exit 3 = kick skipped (done-guard ADR 0035 / in-flight
-          # ADR 0040 / no-ask gate ADR 0044): a clean outcome,
+          # ADR 0040/0043 / no-ask gate ADR 0044): a clean outcome,
           # not a job failure - the skip comment step handles it.
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"
@@ -216,9 +216,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SKIP_REASON: ${{ steps.kick.outputs.skip_reason }}
         run: |
           set -euo pipefail
-          body="**veggies kick skipped** - ${{ steps.kick.outputs.skip_reason }}."
+          body="**veggies kick skipped** - ${SKIP_REASON}."
           body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
           if [ "${{ github.event_name }}" = "discussion_comment" ]; then
             jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
