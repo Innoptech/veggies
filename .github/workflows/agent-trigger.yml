@@ -28,13 +28,22 @@ permissions:
 
 jobs:
   kick:
+    # Trigger gates (ADR 0040): /opencode is a COMMAND - it must start the
+    # comment; a prose mention ("the /opencode flow...") never fires. And
+    # the bot account can never fire: the agent comments as olgam4 (a MEMBER,
+    # so the association gate alone does not stop it) and its mandated plan
+    # comments discuss this very feature - verified 2026-09-11 on issue #33,
+    # where a plan comment re-kicked the issue mid-flight. Hardcoded on
+    # purpose: an Actions variable fails open when unset.
     if: >-
       (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
       (github.event_name == 'issue_comment' &&
-        contains(github.event.comment.body, '/opencode') &&
+        startsWith(github.event.comment.body, '/opencode') &&
+        github.event.comment.user.login != 'olgam4' &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'discussion_comment' &&
-        contains(github.event.comment.body, '/opencode') &&
+        startsWith(github.event.comment.body, '/opencode') &&
+        github.event.comment.user.login != 'olgam4' &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, linux, x64, veggies]
     env:

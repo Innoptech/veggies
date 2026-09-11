@@ -48,6 +48,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0037](0037-per-session-worktrees.md) | Per-session git worktrees inside the shared clone | accepted |
 | [0038](0038-discussion-triggered-issue-distillation.md) | Discussion-triggered kicks: distill a discussion into issues | accepted |
 | [0039](0039-discussion-feedback-contract.md) | Discussion feedback: agent-owned results, workflow-owned acks | accepted |
+| [0040](0040-self-trigger-guard.md) | Self-trigger guard: bot exclusion, command-anchored keyword, in-flight done-guard | accepted |
 
 ## Deviation ledger (vs the original brief)
 

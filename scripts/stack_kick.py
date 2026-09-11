@@ -282,6 +282,27 @@ def api(url: str, password: str, method: str, path: str,
     return json.loads(raw) if raw.strip() else {}
 
 
+def inflight_reason(url: str, password: str, number: str) -> str | None:
+    """Why this issue should not be kicked RIGHT NOW, or None: a session
+    titled '#<number>: ...' is busy on the stack. The done-guard covers
+    finished work (closed issue, existing PR); this covers the race window
+    where a kick is mid-flight - the PR does not exist yet, so without it
+    every stray trigger (a bot comment mentioning /opencode, a label plus a
+    comment, a rapid re-label) double-books the issue (ADR 0040; verified
+    2026-09-11 on issue #33: the agent's own plan comment re-kicked it).
+    Raises on API failure; the caller degrades to proceeding, like the
+    done-guard."""
+    sessions = api(url, password, "GET", "/session")
+    status = api(url, password, "GET", "/session/status")
+    prefix = f"#{number}: "
+    for s in sessions if isinstance(sessions, list) else []:
+        sid = s.get("id", "?")
+        if str(s.get("title", "")).startswith(prefix) and \
+                (status.get(sid) or {}).get("type") == "busy":
+            return f"session {sid} is already working this issue (busy)"
+    return None
+
+
 def kick(url: str, password: str, prompt: str, title: str = "") -> str:
     """Create a session and fire the prompt async. Returns session id.
     The title shows in the web UI session list (ADR 0034)."""
@@ -336,6 +357,21 @@ def main() -> int:
     else:
         print("no GITHUB_TOKEN/GH_TOKEN in env; done-guard skipped",
               file=sys.stderr)
+    # In-flight guard (ADR 0040): never double-book an issue a busy session
+    # holds. Same degrade-to-proceed posture as the done-guard.
+    try:
+        reason = inflight_reason(url, os.environ["STACK_PASSWORD"],
+                                 os.environ["ISSUE_NUMBER"])
+    except Exception as e:
+        print(f"in-flight check failed ({e}); proceeding", file=sys.stderr)
+        reason = None
+    if reason:
+        print(f"SKIP: {reason}")
+        print(f"SKIP_REASON={reason}")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write(f"skip_reason={reason}\n")
+        return SKIP_DONE
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
     prompt = build_prompt(os.environ["REPO"], os.environ["ISSUE_NUMBER"],
                           os.environ["ISSUE_TITLE"],
