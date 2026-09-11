@@ -352,12 +352,19 @@ Every kick also comments on the issue (ADR 0034): session id, deep link
 tunneled), and the password one-liner - and a failure comment when the
 stack rejects the kick. Kicked sessions are titled `#N: <issue title>`.
 
-Web UI map (1.18.27, verified 2026-09-11): `/` is a browser-local projects
-dashboard (empty until you Add project); `/<dir>` (dir = base64url of the
-workspace path, no padding) opens a new-session composer, NOT a session
-list; the session view `/<dir>/session/<id>` is the watch target, with
-project-wide session search in its header. `veggies ui` therefore prints
-deep links to the 5 newest sessions alongside the base URL.
+Web UI map (1.18.27, verified 2026-09-11): `/` is Home - the all-sessions
+view (Today/Yesterday/Older + search), but its project list is
+browser-local state: this build has no server-side project-registration
+API (`GET /api/project` is unimplemented, the SPA catch-all answers its
+HTML). Add the project once per browser profile. The Open-project picker
+defaults to the container's `$HOME` (you'll see dotdirs, not /workspace) -
+its Search folders accepts absolute paths, so type `/workspace` (backend
+verified: `/api/fs/list?path=/workspace` lists the worktree). `/<dir>`
+(dir = base64url of the workspace path, no padding) opens a new-session
+composer, NOT a session list; the session view `/<dir>/session/<id>` is
+the watch target, with project-wide session search in its header and a
+Recent sessions sidebar. `veggies ui` prints the Home URL and deep links
+to the 5 newest sessions - links need no registration at all.
 
 Tunnel gotcha (verified 2026-09-10): if a LOCAL stack already publishes the
 same port, `ssh -L <port>:...` cannot bind it - and anything pointed at
