@@ -37,6 +37,13 @@ reviews PRs; agents implement. These rules are not negotiable:
    leaves the pod. (The canvas control plane was retired - ADR 0028; if a
    component ever needs the podman socket again, that ADR's history and
    0025 document the verified cost.)
+   Events (ADR 0033): `.github/workflows/agent-trigger.yml` kicks the repo
+   stack on `agent-task` labels / `/opencode` comments via
+   `scripts/stack_kick.py`; `github: true` stacks take the serve password
+   from vault key `veggies_stack_password`, never per-stack random. Stack
+   names are global across hosts (cross-host reuse is refused). The
+   permission envelope is allow/deny only - `ask` is banned everywhere in
+   `agent-config/` (ADR 0031, pytest-enforced).
    Pure renderers + state are pytest-covered in `tests/test_veggies.py`;
    `tests/golden/pod.yaml` is machine-generated (lint-excluded) - regenerate
    it whenever the renderer changes. Never add subPath mounts or tcpSocket

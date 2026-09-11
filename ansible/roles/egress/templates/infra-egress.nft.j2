@@ -12,13 +12,20 @@ table inet infra-egress {
     ct state { established, related } accept
 
 {% for uid in egress_denied_uids %}
-    # {{ egress_denied_users[loop.index0] }} may reach exactly two local
+{% set uname = egress_denied_users[loop.index0] %}
+    # {{ uname }} may reach exactly two local
     # services: the filtering proxy and the model gateway. The host's own
     # public IP is required too: pasta forwards container->host proxy
     # connections to it (verified 2026-09-08 - else in-pod proxy use drops).
     meta skuid {{ uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }}, {{ ansible_facts.default_ipv4.address }} } tcp dport {{ egress_squid_port }} counter accept
+{% if egress_extra_local_dports.get(uname) %}
 
-    # Everything else from {{ egress_denied_users[loop.index0] }}: logged and dropped.
+    # {{ uname }} only: extra host-local dports per egress_extra_local_dports
+    # (for gh-runner: the stack API range, agent-trigger kicks - ADR 0033).
+    meta skuid {{ uid }} ip daddr { 127.0.0.1, {{ egress_host_gateway }}, {{ ansible_facts.default_ipv4.address }} } tcp dport {{ egress_extra_local_dports[uname] }} counter accept
+{% endif %}
+
+    # Everything else from {{ uname }}: logged and dropped.
     meta skuid {{ uid }} log prefix "infra-egress-deny: " counter drop
 {% endfor %}
   }
