@@ -1090,16 +1090,19 @@ def live_first(sessions: list, status: object) -> list:
     type other than 'idle' - the endpoint lists only non-idle sessions
     (ADR 0017), and this matches the supervisor daemon's predicate
     (deploy/supervisor/daemon.py) so the two never disagree about the same
-    session. An unknown/garbage status payload degrades to plain
-    newest-first: 'cannot tell' must not reorder anything."""
+    session. An unknown/garbage status payload - top-level or any single
+    entry - degrades to plain newest-first: 'cannot tell' must not
+    reorder anything."""
     def ts(s):
         t = s.get("time") or {}
-        return t.get("updated") or t.get("created") or 0
+        v = t.get("updated") or t.get("created") or 0
+        return v if isinstance(v, (int, float)) else 0
 
     def live(s):
-        return isinstance(status, dict) and \
-            (status.get(str(s.get("id", ""))) or {}).get("type", "idle") \
-            != "idle"
+        if not isinstance(status, dict):
+            return False
+        entry = status.get(str(s.get("id", "")))
+        return isinstance(entry, dict) and entry.get("type", "idle") != "idle"
 
     ordered = sorted(sessions, key=ts, reverse=True)
     return [s for s in ordered if live(s)] + \
@@ -1188,22 +1191,25 @@ def cmd_ui(args: argparse.Namespace) -> int:
             print(line)
         if len(sessions) > len(links):
             print(f"  ... and {len(sessions) - len(links)} more - "
-                  f"`veggies sessions {args.name}` shows all, live first")
+                  f"`veggies sessions {args.name}` lists them, live first")
     if args.open_browser and shutil.which("xdg-open"):
         subprocess.Popen(["xdg-open", url], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return 0
 
 
-def format_sessions(sessions: list, status: dict, issue: int | None = None,
-                    show_all: bool = False,
+def format_sessions(sessions: list, status: dict | None,
+                    issue: int | None = None, show_all: bool = False,
                     idle_limit: int = IDLE_ROWS_DEFAULT) -> str:
     """Pure table, live first (ADR 0044): one row per session; kicked
     sessions carry '#N:' titles (ADR 0034), so --issue filters on the
     title prefix. Idle rows are capped at idle_limit (default
     IDLE_ROWS_DEFAULT; --all lifts the cap, --issue is never capped) -
     live rows are never hidden: the runbook's stale-worktree ownership
-    check stands on seeing every live session."""
+    check stands on seeing every live session. The cap only engages when
+    the status map actually answered: an unreachable /session/status
+    (status=None) degrades to the full newest-first table - 'cannot
+    tell' must never hide a session."""
     rows = []
     for s in live_first(sessions, status):
         sid = str(s.get("id", ""))
@@ -1222,7 +1228,7 @@ def format_sessions(sessions: list, status: dict, issue: int | None = None,
     if not rows:
         return "no sessions" + (f" for issue #{issue}" if issue else "")
     hidden = 0
-    if not show_all and issue is None:
+    if not show_all and issue is None and isinstance(status, dict):
         kept = []
         idle_seen = 0
         for row in rows:
@@ -1238,7 +1244,8 @@ def format_sessions(sessions: list, status: dict, issue: int | None = None,
     for sid, st, when, title in rows:
         out.append(f"{sid:<26} {st:<6} {when:<12} {title[:60]}")
     if hidden:
-        out.append(f"... and {hidden} more idle sessions (use --all)")
+        out.append(f"... and {hidden} more idle "
+                   f"session{'s' if hidden != 1 else ''} (use --all)")
     return "\n".join(out)
 
 
@@ -1255,8 +1262,7 @@ def cmd_sessions(args: argparse.Namespace) -> int:
                          f"(veggies status {args.name})")
     status = api_call(record["host"], record["port"], password, "GET",
                       f"/session/status{q}")
-    print(format_sessions(sessions, status if isinstance(status, dict) else {},
-                          args.issue, show_all=args.all))
+    print(format_sessions(sessions, status, args.issue, show_all=args.all))
     return 0
 
 
