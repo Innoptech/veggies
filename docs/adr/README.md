@@ -45,7 +45,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted |
 | [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted |
 | [0036](0036-always-on-critic-for-kicked-sessions.md) | Always-on critic for kicked sessions: in-pod supervisor component | accepted |
-| [0036](0036-per-session-worktrees.md) | Per-session git worktrees inside the shared clone | accepted |
+| [0037](0037-per-session-worktrees.md) | Per-session git worktrees inside the shared clone | accepted |
 
 ## Deviation ledger (vs the original brief)
 

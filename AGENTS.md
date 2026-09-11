@@ -58,7 +58,7 @@ reviews PRs; agents implement. These rules are not negotiable:
    issue that is closed or already has an `agent/issue-N` PR.
    `veggies prepare` pre-stages images with build logs; `mask demo-stack`
    is the one-command clean-VPS-to-stack path (runbook §1).
-   Session isolation (ADR 0036): every kicked session works in its own git
+   Session isolation (ADR 0037): every kicked session works in its own git
    worktree at `/workspace/.veggies/wt/issue-N` (the kick prompt mandates
    the bootstrap), never in the shared checkout; `veggies up` excludes
    `.veggies/` via the clone's `.git/info/exclude`.
