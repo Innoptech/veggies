@@ -203,6 +203,8 @@ def test_no_ask_anywhere():
         cfg, "agent-config/opencode.json") == []
     assert cfg["permission"]["question"] == "deny"
     for agent in sorted((INFRA_REPO / "agent-config/agents").glob("*.md")):
+        assert len(agent.read_text().split("---", 2)) == 3, \
+            f"{agent.name}: missing frontmatter"
         assert veggies_stack.ask_violations_in_markdown(
             agent.read_text(), f"agent-config/agents/{agent.name}") == [], \
             f"{agent.name}: permission ask parks headless sessions"
@@ -234,6 +236,30 @@ def test_project_tier_scan_flags_frontmatter_ask(tmp_path):
         "---\nname: evil\npermission:\n  bash: ask\n---\nbody\n")
     violations = veggies_stack.scan_project_tier(tmp_path)
     assert any("evil.md" in v and "bash: ask" in v for v in violations)
+
+
+def test_project_tier_scan_flags_quoted_permission_key(tmp_path):
+    # Valid YAML: a quoted top-level key opens the block just the same -
+    # the text scanner must not fail open on it.
+    d = tmp_path / ".opencode/agents"
+    d.mkdir(parents=True)
+    (d / "q.md").write_text(
+        '---\nname: q\n"permission":\n  bash: ask\n---\nbody\n')
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("q.md" in v and "bash: ask" in v for v in violations)
+
+
+def test_config_scan_skips_malformed_agent_section():
+    # {"agent": []} is wrong-shaped but must not crash the scan - a
+    # non-dict agent/mode section carries no permission tree, so skip it.
+    assert veggies_stack.ask_violations_in_config({"agent": []}, "x") == []
+    # Non-empty wrong shape proves the isinstance guard (empty [] slips
+    # through `or {}` vacuously; a list with members raises AttributeError
+    # on .items() without the guard).
+    assert veggies_stack.ask_violations_in_config(
+        {"agent": ["reviewer"]}, "x") == []
+    assert veggies_stack.ask_violations_in_config(
+        {"mode": "str"}, "x") == []
 
 
 def test_project_tier_scan_ignores_comments_and_prose(tmp_path):

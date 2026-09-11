@@ -70,7 +70,10 @@ def ask_violations_in_config(cfg: dict, origin: str) -> list[str]:
     out = [f"{origin}: {p}"
            for p in _ask_paths(cfg.get("permission") or {}, "permission")]
     for section in ("agent", "mode"):
-        for name, sub in (cfg.get(section) or {}).items():
+        subs = cfg.get(section)
+        if not isinstance(subs, dict):
+            continue  # wrong-shaped section carries no permission tree
+        for name, sub in subs.items():
             if isinstance(sub, dict):
                 out += [f"{origin}: {p}" for p in _ask_paths(
                     sub.get("permission") or {},
@@ -98,7 +101,9 @@ def ask_violations_in_markdown(text: str, origin: str) -> list[str]:
     for lineno, line in enumerate(parts[1].splitlines(), 1):
         top = re.match(r"^([^:\s][^:]*):\s*(.*)$", line)
         if top:  # top-level frontmatter key opens/closes the block
-            in_perm = top.group(1).strip() == "permission"
+            # A quoted key ("permission":) is valid YAML and opens the
+            # block just the same - strip quotes or we fail open.
+            in_perm = top.group(1).strip().strip("\"'") == "permission"
             rest = top.group(2)  # flow-style value on the key line itself
             if in_perm and rest and _ASK_VALUE.search(rest):
                 out.append(f"{origin}: frontmatter permission line "
