@@ -7,7 +7,9 @@ queues the prompt; an issue kick works it autonomously in its own
 git worktree (/workspace/.veggies/wt/issue-N, ADR 0037) through the
 mandated pipeline (plan refined by the persona roster and posted on the
 issue, subagent execution, adversarial review, the repo-declared verify
-gate (ADR 0045), PR - ADR 0036/0042), a discussion kick distills
+gate (ADR 0045), and the draft-first lifecycle: a DRAFT PR from the
+first commit, the ready-gate last - ADR 0036/0042/0046), a discussion
+kick distills
 the thread into issues (plan / happy path / criteria of success). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
@@ -83,8 +85,10 @@ def gh_api(token: str, path: str) -> object:
 
 def done_reason(repo: str, number: str, token: str) -> str | None:
     """Why this issue should NOT be (re-)kicked, or None. 'Done' = the issue
-    is closed, or an agent/issue-N PR that is merged or marked ready; an
-    open draft never blocks (it is the session's workbench under
+    is closed, or ANY agent/issue-N PR attempt that is merged or marked
+    ready - the whole per_page=100 list is scanned, not just the newest
+    attempt, so an older merged/ready PR still blocks behind a newer open
+    draft. An open draft never blocks (it is the session's workbench under
     draft-first, ADR 0044) - the in-flight guard (ADR 0040) owns the
     double-book window. Re-kicking a done issue burns a session and
     produces duplicate branches (ADR 0035). Known blind spot: the
@@ -95,17 +99,16 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
         return f"issue state is {issue.get('state')}"
     owner = repo.split("/", 1)[0]
     prs = gh_api(token, f"/repos/{repo}/pulls"
-                        f"?head={owner}:agent/issue-{number}&state=all&per_page=1")
-    if prs:
-        pr = prs[0]
-        url = pr.get("html_url")
-        if pr.get("state") == "open":
-            if pr.get("draft"):
-                # an open draft is a workbench, not handled (ADR 0044)
-                return None
-            return f"PR {url} already exists (ready for review)"
-        if pr.get("merged_at"):
-            return f"PR {url} already exists (merged)"
+                        f"?head={owner}:agent/issue-{number}&state=all"
+                        "&per_page=100")
+    # open non-draft takes precedence: check it across the whole list
+    # before the merged pass
+    for pr in prs:
+        if pr.get("state") == "open" and not pr.get("draft"):
+            return f"PR {pr.get('html_url')} already exists (ready for review)"
+    for pr in prs:
+        if pr.get("state") == "closed" and pr.get("merged_at"):
+            return f"PR {pr.get('html_url')} already exists (merged)"
         # closed-unmerged: an abandoned attempt - a re-kick reconciles
         # the branch
     return None
@@ -187,10 +190,14 @@ Rules of engagement:
   this image - do NOT run `mask setup` or build a venv.
 - Draft-first PR (ADR 0044): the PR exists from the FIRST commit, not at
   the end. Right after the plan comment lands and implementation begins,
-  push the branch and open a DRAFT: `gh pr create --draft` whose body
-  contains "Closes #{number}". If a PR for agent/issue-{number} already
-  exists (a re-kick continuing earlier work), do not create another -
-  reconcile the branch and keep pushing to it. Push early and often: the
+   push the branch and open a DRAFT: `gh pr create --draft` whose body
+   contains "Closes #{number}". An existing PR (`gh pr view
+   agent/issue-{number}` detects it) is continued, never duplicated:
+   holding the branch itself, a plain push continues the PR; holding the
+   -2 suffix (a crashed predecessor owns that worktree/branch), push onto
+   the PR's head with `git push origin HEAD:agent/issue-{number}`
+   (--force-with-lease if the predecessor's commits need rewriting).
+   Push early and often: the
   draft's CI runs on every push and is the feedback loop for the checks
   this environment cannot run (molecule, the docker pre-commit hook).
   The PR is the deliverable - work is not done until it exists, points
@@ -222,9 +229,10 @@ pipeline, not to dive straight into code):
    `subagent-driven-development`) - dispatch implementation to subagents
    (swe-expert, tdd-tester, ...) instead of doing everything in the main
    loop.
-3. Adversarial review: before pushing, dispatch the `adversarial-review`
-   subagent on the full diff (it runs a different model on purpose).
-   Fix, or explicitly rebut in the PR body, every critical/major finding.
+3. Adversarial review: before the ready gate (step 5), dispatch the
+   `adversarial-review` subagent on the full diff (it runs a different
+   model on purpose). Fix, or explicitly rebut in the PR body, every
+   critical/major finding.
 {verify_step}
 5. Ready LAST - "ready" means green AND mergeable against CURRENT main
    (branch protection requires linear history and up-to-date branches -
@@ -238,10 +246,13 @@ pipeline, not to dive straight into code):
       does it silently) and re-approval is needed.
    b. `gh pr checks --watch` - the draft's CI on the final head must be
       green; fix and re-push on red, never mark ready on pending.
-   c. `gh pr view --json mergeable` must read MERGEABLE. UNKNOWN is
+   c. `git fetch origin && git merge-base --is-ancestor origin/main HEAD`
+      - if main moved during the watch, back to a (rebase + re-verify).
+      This narrows ready-while-behind to the length of one fetch.
+   d. `gh pr view --json mergeable` must read MERGEABLE. UNKNOWN is
       transient (GitHub computes it async) - wait a few seconds and
       re-read, NEVER rebase on UNKNOWN; CONFLICTING means back to a.
-   d. Only now: `gh pr ready` - the final act; the done-guard treats
+   e. Only now: `gh pr ready` - the final act; the done-guard treats
       the issue as handled from this moment. If anything must change
       afterwards (a supervisor refinement, a review comment), convert
       back first (`gh pr ready --undo`), rework, and re-run this whole

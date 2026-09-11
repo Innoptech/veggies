@@ -132,7 +132,7 @@ jobs:
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           issue_n="${{ github.event.issue.number }}"
           body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
-          tail="The agent branches \`agent/issue-${issue_n}\` and opens a DRAFT PR early -"
+          tail="The agent branches \`agent/issue-${issue_n}\` and opens (or continues) a DRAFT PR early -"
           tail="$tail commits and CI land there as it works. It marks the PR ready only"
           tail="$tail when checks are green and it merges cleanly against main (ADR 0044)."
           tail="$tail [Workflow log](${run_url})."
