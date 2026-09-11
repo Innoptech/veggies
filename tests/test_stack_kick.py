@@ -117,6 +117,12 @@ def test_build_prompt_mandates_draft_first_lifecycle():
     assert "gh pr ready --undo" in p
     # honesty rule carried over from the pre-0044 step 4
     assert "Claim only what you actually ran" in p
+    # the adversarial review is anchored to the ready gate, not the first
+    # push - under draft-first pushing starts at the first commit
+    assert "before the ready gate" in p
+    # the post-watch freshness check: main may move while the CI watch
+    # runs, and mergeable only means conflict-free, never up-to-date
+    assert "merge-base --is-ancestor" in p
 
 
 def test_build_prompt_truncates_and_defaults():
@@ -191,7 +197,7 @@ def test_done_reason_closed_issue(monkeypatch):
     assert "closed" in stack_kick.done_reason("o/r", "5", "t")
 
 
-def test_done_reason_existing_agent_pr(monkeypatch):
+def test_done_reason_ready_pr_blocks(monkeypatch):
     def fake(tok, path):
         if "/pulls?" in path:
             # "draft" pinned: without it a missing key would pass by accident
@@ -202,6 +208,24 @@ def test_done_reason_existing_agent_pr(monkeypatch):
     monkeypatch.setattr(stack_kick, "gh_api", fake)
     reason = stack_kick.done_reason("o/r", "5", "t")
     assert "https://x/pr/9" in reason and "ready for review" in reason
+
+
+def test_done_reason_merged_behind_newer_draft_blocks(monkeypatch):
+    """The guard is existential over EVERY attempt (AGENTS.md rule 9), not
+    just the newest: a newer open draft (the current session's workbench)
+    must not hide an older merged PR from the per_page=100 list."""
+    def fake(tok, path):
+        if "/pulls?" in path:
+            assert "per_page=100" in path  # the whole list is scanned
+            return [{"html_url": "https://x/pr/10", "state": "open",
+                     "draft": True},
+                    {"html_url": "https://x/pr/9", "state": "closed",
+                     "merged_at": "2026-09-11T12:00:00Z"}]
+        return {"state": "open"}
+
+    monkeypatch.setattr(stack_kick, "gh_api", fake)
+    reason = stack_kick.done_reason("o/r", "5", "t")
+    assert "https://x/pr/9" in reason and "merged" in reason
 
 
 def test_done_reason_open_draft_pr_does_not_block(monkeypatch):
