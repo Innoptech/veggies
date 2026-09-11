@@ -3,7 +3,7 @@
 
 Creates a fresh opencode session on the repo's long-lived stack and durably
 queues the issue as a prompt; the agent works it autonomously in its own
-git worktree (/workspace/.veggies/wt/issue-N, ADR 0036) through the
+git worktree (/workspace/.veggies/wt/issue-N, ADR 0037) through the
 mandated pipeline (plan posted on the issue, subagent execution,
 adversarial review, `mask ci`, PR - ADR 0036). Used by
 .github/workflows/agent-trigger.yml on the
@@ -80,19 +80,25 @@ Rules of engagement:
   your assumptions in the PR body.
 - Read AGENTS.md first and follow it (ADR rules, conventional commits,
   the `mask ci` gate).
-- Isolate first (ADR 0036): other sessions share this clone, so this issue
-  works in its own git worktree. Run exactly:
+- Isolate first (ADR 0037): other sessions share this clone, so this issue
+  works in its own git worktree. Run exactly, in order; if a command
+  fails, stop and read the error before improvising:
     git -C /workspace fetch origin
-    git -C /workspace worktree add -B agent/issue-{number} /workspace/.veggies/wt/issue-{number} origin/main
-    grep -qxF '.veggies/' /workspace/.git/info/exclude 2>/dev/null || echo '.veggies/' >> /workspace/.git/info/exclude
+    git -C /workspace worktree add --lock --reason 'session issue-{number}' -B agent/issue-{number} /workspace/.veggies/wt/issue-{number} origin/main
+    ex=/workspace/.git/info/exclude; mkdir -p "$(dirname "$ex")"; grep -qxF '/.veggies/' "$ex" 2>/dev/null || echo '/.veggies/' >> "$ex"
     cd /workspace/.veggies/wt/issue-{number}
-  ALL work (edits, `mask ci`, commits, push) happens inside that worktree;
-  the shared checkout at /workspace itself is read-only to you - never
-  edit, commit, or switch branches there. If `worktree add` fails because
-  agent/issue-{number} "is already checked out", another (possibly crashed)
-  session owns it: use agent/issue-{number}-2 and wt/issue-{number}-2
-  instead, and say so in the PR body; remove the stale worktree only when
-  certain no live session owns it (e.g. right after a stack restart). If
+  ALL work (edits, `mask ci`, commits, push) happens inside that worktree.
+  File tools resolve relative paths against the session dir (/workspace),
+  not the shell's cwd. Use absolute paths under /workspace/.veggies/wt/issue-{number} for every read/edit.
+  The shared checkout at /workspace itself is read-only to you - never
+  edit, commit, or switch branches there.
+  Recovery: if `worktree add` fails with "already used by worktree" or
+  "already exists", another (possibly crashed) session owns the branch or
+  path - take agent/issue-{number}-2 and wt/issue-{number}-2 and say so in
+  the PR body; never pass -f/--force to `git worktree add` (it overrides
+  the tripwire) and never remove a worktree you did not create. Transient
+  lock errors under parallel kicks ("cannot lock ref", "Unable to
+  create...lock"): wait a few seconds and retry. If
   origin/agent/issue-{number} exists from a crashed run, reconcile
   (merge/rebase); force-push only with --force-with-lease.
 - python/mask/ansible/tofu/tflint/pre-commit/pytest are preinstalled in
