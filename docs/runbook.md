@@ -571,10 +571,23 @@ block, one apply, one merge.
    - the repo's stack is serving - `veggies ls` shows it and its port
      (that port is the block's `stack_port`);
    - the tofu identity (bot PAT or App) holds Actions `Secrets: write` +
-     `Variables: write` ON THE NEW REPO (the 0033 adoption 403);
-   - the repo carries no hand-vendored copies of the workflow/script - if
-     it does, remove them via PR first (`overwrite_on_create = false`
-     refuses to clobber, so the first apply fails loudly otherwise).
+     `Variables: write` + `Contents: write` ON THE NEW REPO (the 0033
+     adoption 403; `Contents: write` covers the delivery-branch push and
+     file commits). TODO(verify): pushing `.github/workflows/*` may need
+     more per token type - classic PAT: the `workflow` scope; GitHub App:
+     the Workflows repository permission; fine-grained PAT behavior
+     unverified - the first apply surfaces it loudly;
+   - if the repo already has the `agent-task` label or `VEGGIES_STACK_*`
+     secret/variables from the manual 0033 adoption, the apply collides:
+     the label create 422s and the variable creates 409 (the secret PUT is
+     a safe upsert). Either delete them in the repo settings first, or
+     import them before applying, e.g.
+     `tofu import module.agent_kick_<name>.github_issue_label.agent_task "<repo>:agent-task"`
+     and the two `github_actions_variable` addresses (`<repo>/<NAME>`
+     form per the provider's import docs - TODO(verify));
+   - hand-vendored copies of the workflow/script no longer hard-fail the
+     apply: `overwrite_on_create = true` lets the delivered PR replace
+     them - review that PR's diff, it is the clobber guard.
 1. Add the block to `terraform/github/agent_kicks.tf`:
 
    ```hcl
@@ -590,18 +603,19 @@ block, one apply, one merge.
    }
    ```
 
-   PR, review, merge.
-2. `mask tofu-plan` - read the plan (two `github_repository_file` on
-   `infra/agent-trigger`, one label, one secret, two variables) - then
-   `mask tofu-apply`.
+   Also add a line per block to the `agent_kick_delivery_branches` output
+   map in `terraform/github/outputs.tf`. PR, review, merge.
+2. `mask tofu-plan` - read the plan (one `github_branch` plus two
+   `github_repository_file` on `infra/agent-trigger`, one label, one
+   secret, two variables) - then `mask tofu-apply`.
 3. In the adopted repo, open the delivered PR (`gh pr create --fill
    --head infra/agent-trigger`), review it (the agent's entire footprint
    on the repo arrives as this one reviewable PR), merge (squash), and
-   DELETE the delivery branch - tofu recreates it from the default-branch
-   tip on the next delivery; a surviving branch accumulates phantom diffs
-   after squash merges. The same lifecycle applies to the labeller's
-   `infra/needs-team-review` branch (the anchor repos.tf's comment points
-   at).
+   DELETE the delivery branch - `github_branch.delivery` recreates it from
+   the default-branch tip on the next delivery; a surviving branch
+   accumulates phantom diffs after squash merges. The same lifecycle
+   applies to the labeller's `infra/needs-team-review` branch (the anchor
+   repos.tf's comment points at).
 4. Label an issue `agent-task` (or comment `/opencode`) - the kick fires.
 
 Drift check: after any apply, open `infra/agent-trigger` PRs across
@@ -620,9 +634,11 @@ guaranteed auth failures.
 Veggies-repo migration (operator, one-time): BEFORE the first apply with
 `moves.tf`, set `stack_port` in `module.agent_kick_veggies` from
 `veggies ls` (the placeholder 0 would publish in place over the moved
-variable; no validation guard exists - `tofu validate` evaluates
-child-module validations, so the placeholder must be caught by the plan
-review), and `mask vault-edit secrets/github.yml` to delete exactly
+variable; a resource-level lifecycle precondition on the port variable
+resource fails the plan loudly on it - variable validations would fail
+`tofu validate` itself on the placeholder, verified on OpenTofu 1.12.6,
+so the guards live on the resources), and `mask vault-edit
+secrets/github.yml` to delete exactly
 `actions_secrets.veggies.VEGGIES_STACK_PASSWORD`,
 `actions_variables.veggies.VEGGIES_STACK_HOST` and
 `actions_variables.veggies.VEGGIES_STACK_PORT`. Then `mask tofu-plan`:
