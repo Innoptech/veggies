@@ -42,8 +42,8 @@ changes, and keep this index's titles and statuses in sync.
 | [0031](0031-no-ask-anywhere.md) | No ask anywhere: agent frontmatter joins the permission envelope | accepted |
 | [0032](0032-dev-toolchain-in-harness-image.md) | Dev toolchain baked into the harness image | accepted |
 | [0033](0033-issue-triggered-agent-kicks.md) | Issue-triggered agent kicks via GitHub Actions on the self-hosted runners | accepted |
-| [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted (amended by 0044) |
-| [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted |
+| [0034](0034-session-observability.md) | Session observability: titled sessions, issue feedback, `veggies ui` | accepted (amended by 0046) |
+| [0035](0035-one-shot-labels-and-done-guard.md) | One-shot labels and the done-guard | accepted (amended by 0046) |
 | [0036](0036-always-on-critic-for-kicked-sessions.md) | Always-on critic for kicked sessions: in-pod supervisor component | accepted |
 | [0037](0037-per-session-worktrees.md) | Per-session git worktrees inside the shared clone | accepted |
 | [0038](0038-discussion-triggered-issue-distillation.md) | Discussion-triggered kicks: distill a discussion into issues | accepted |
@@ -54,6 +54,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0043](0043-interim-shared-identity-trigger.md) | Interim: the shared olgam4 identity may trigger kicks | accepted (interim - sunsets at the GitHub App agent identity) |
 | [0044](0044-live-first-watch-path-no-close-time-deletion.md) | Watch path lists live sessions first; no close-time session deletion | accepted |
 | [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
+| [0046](0046-draft-first-pr-lifecycle.md) | Draft-first PR lifecycle and the redefined done-guard | accepted |
 
 ## Deviation ledger (vs the original brief)
 
