@@ -1448,8 +1448,8 @@ def cmd_costs(args: argparse.Namespace) -> int:
     log_base = f"{spec.state_root()}/{args.name}/{costs.SPEND_LOG_NAME}"
     got = _read_spend_log(record["host"], log_base)
     if got is None:
-        print(f"no spend log for stack {args.name!r} yet - metering lands "
-              f"with #46 (ADR 0022/0051); {log_base}")
+        print(f"no spend log for stack {args.name!r} yet - metering's writer "
+              f"is #46 (ADR 0022/0051); {log_base}")
         return 0
     text, segments = got
     parsed = costs.parse_spend_log(text)
