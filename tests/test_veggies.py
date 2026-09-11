@@ -838,6 +838,54 @@ def test_format_sessions_table_and_issue_filter():
     assert veggies.format_sessions([], {}, issue=4) == "no sessions for issue #4"
 
 
+def test_live_first_orders_live_before_idle_newest_first():
+    sessions = [
+        {"id": "ses_idle_new", "time": {"updated": 3000}},
+        {"id": "ses_live_old", "time": {"updated": 1000}},
+        {"id": "ses_idle_old", "time": {"updated": 2000}},
+        {"id": "ses_retry"},
+    ]
+    status = {"ses_live_old": {"type": "busy"},
+              "ses_retry": {"type": "retry"}}
+    ids = [s["id"] for s in veggies.live_first(sessions, status)]
+    # non-idle of any type is live; live group first, each newest-first
+    assert ids == ["ses_live_old", "ses_retry", "ses_idle_new", "ses_idle_old"]
+    # garbage/absent status = cannot tell -> plain newest-first, nothing lost
+    degraded = [s["id"] for s in veggies.live_first(sessions, None)]
+    assert degraded == ["ses_idle_new", "ses_idle_old", "ses_live_old",
+                        "ses_retry"]
+    assert [s["id"] for s in veggies.live_first(sessions, "garbage")] == degraded
+
+
+def test_format_sessions_live_first_and_idle_cap():
+    sessions = [{"id": f"ses_i{n}", "title": f"idle {n}",
+                 "time": {"updated": n}} for n in range(12)]
+    sessions.append({"id": "ses_live", "title": "#9: grinding",
+                     "time": {"updated": 1}})  # oldest, but live
+    status = {"ses_live": {"type": "busy"}}
+    lines = veggies.format_sessions(sessions, status).splitlines()
+    assert "ses_live" in lines[1]  # live first despite being oldest
+    assert len(lines) == 1 + 11 + 1  # header + 1 live + 10 idle + footer
+    assert lines[-1] == "... and 2 more idle sessions (use --all)"
+    full = veggies.format_sessions(sessions, status, show_all=True)
+    assert "ses_i0" in full and "ses_i11" in full and "more idle" not in full
+    # --issue shows every match, uncapped
+    many = [{"id": f"ses_m{n}", "title": f"#7: t {n}",
+             "time": {"updated": n}} for n in range(12)]
+    filtered = veggies.format_sessions(many, {}, issue=7)
+    assert filtered.count("ses_m") == 12 and "more idle" not in filtered
+
+
+def test_format_sessions_live_beyond_cap_still_shown():
+    # the invariant runbook's stale-worktree ownership check stands on:
+    # live rows are never hidden, no matter how many idle rows are newer
+    sessions = [{"id": f"ses_i{n}", "time": {"updated": n}}
+                for n in range(30)]
+    sessions.append({"id": "ses_live", "time": {"updated": 1}})
+    out = veggies.format_sessions(sessions, {"ses_live": {"type": "busy"}})
+    assert "ses_live" in out
+
+
 def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
     monkeypatch.setattr(veggies.State, "get", lambda self, n: {
         "repo": "/r", "mode": "mount", "port": 4098, "host": None,
@@ -850,6 +898,22 @@ def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
     assert "http://127.0.0.1:4098/L3dvcmtzcGFjZQ" in out and "password: p" in out
     assert "home:   http://127.0.0.1:4098/" in out  # the all-sessions view
     assert "tunnel" not in out
+
+
+def test_cmd_ui_prints_live_first_header_and_overflow(monkeypatch, capsys):
+    monkeypatch.setattr(veggies.State, "get", lambda self, n: {
+        "repo": "/r", "mode": "mount", "port": 4098, "host": None,
+        "password": "p"})
+    seven = [{"id": f"ses_{n}", "time": {"updated": n}} for n in range(7)]
+    monkeypatch.setattr(
+        veggies, "api_call",
+        lambda *a, **k: seven if "/session?" in a[4] else {})
+    args = argparse.Namespace(name="v", port=None, stop=False,
+                              open_browser=False)
+    assert veggies.cmd_ui(args) == 0
+    out = capsys.readouterr().out
+    assert "sessions (live first):" in out
+    assert "... and 2 more - `veggies sessions v` shows all, live first" in out
 
 
 def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
@@ -884,18 +948,20 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
     assert info == {"pid": 4242, "port": 5098}
 
 
-def test_session_links_newest_first_with_urls():
+def test_session_links_live_first_with_urls():
     sessions = [
-        {"id": "ses_old", "title": "old",
-         "time": {"updated": 1000}},
-        {"id": "ses_new", "title": "#15: the fix",
+        {"id": "ses_idle_new", "title": "just finished",
+         "time": {"updated": 3000}},
+        {"id": "ses_live_old", "title": "#15: the fix",
          "time": {"updated": 2000}},
         {"id": "ses_nokeys"},
     ]
-    lines = veggies.session_links(sessions, {"ses_new": {"type": "busy"}},
-                                  "http://127.0.0.1:5098")
-    assert lines[0].startswith("  busy") and "ses_new" in lines[0]
-    assert "http://127.0.0.1:5098/L3dvcmtzcGFjZQ/session/ses_new" in lines[0]
+    lines = veggies.session_links(
+        sessions, {"ses_live_old": {"type": "busy"}}, "http://127.0.0.1:5098")
+    # live first even though an idle session is newer
+    assert lines[0].startswith("  busy") and "ses_live_old" in lines[0]
+    assert "http://127.0.0.1:5098/L3dvcmtzcGFjZQ/session/ses_live_old" \
+        in lines[0]
     assert "(untitled)" in lines[-1]
     assert len(veggies.session_links(sessions * 3, {}, "u", limit=5)) == 5
 
