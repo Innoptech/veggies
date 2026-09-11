@@ -21,6 +21,10 @@ module "agent_kick_veggies" {
   # files that PRs edit here.
   manage_files = false
 
+  # Cosmetic while manage_files = false (no delivery branch is cut here);
+  # documents the wiring every adopted repo relies on.
+  source_branch = var.default_branch
+
   workflow_content    = file("${path.module}/../../.github/workflows/agent-trigger.yml")
   kick_script_content = file("${path.module}/../../scripts/stack_kick.py")
 }

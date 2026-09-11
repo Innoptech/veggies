@@ -43,6 +43,9 @@ resource "github_issue_label" "needs_team_review" {
 
 # The labeller workflow is committed to a side branch, never to the protected
 # branch directly. Open and merge the PR by hand (docs/runbook.md).
+# Latent gap (do NOT fix here): the side branch must pre-exist - when
+# manage_label_workflow is next enabled, port the agent-kick module's
+# github_branch pattern (modules/agent-kick/main.tf, ADR 0044).
 resource "github_repository_file" "needs_team_review_workflow" {
   for_each            = var.manage_label_workflow ? toset(var.repos) : toset([])
   repository          = each.key
