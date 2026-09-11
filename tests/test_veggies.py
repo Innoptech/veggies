@@ -511,9 +511,31 @@ def test_state_records_password(tmp_path):
     assert state.get("a")["password"] == "s3cret"
 
 
-def test_opencode_containerfile_pin_format():
+def _image_tag(image: str) -> str:
+    return image.rsplit(":", 1)[-1]
+
+
+def test_opencode_base_containerfile_pin_format():
+    # ADR 0053 pin chain: the base pins the UPSTREAM by tag+digest (the
+    # digest pins the outside world). Its own tag must match
+    # IMAGE_OPENCODE_BASE and both image constants stay in lockstep - a
+    # partial bump would otherwise tag an overlay 1.x while silently
+    # shipping an older opencode from the stale base.
+    text = (ROOT / "deploy/images/opencode-base.Containerfile").read_text()
+    upstream = (f"ghcr.io/anomalyco/opencode:"
+                f"{_image_tag(veggies_stack.IMAGE_OPENCODE_BASE)}@sha256:")
+    assert upstream in text
+    assert _image_tag(veggies_stack.IMAGE_OPENCODE_BASE) == \
+        _image_tag(veggies_stack.IMAGE_OPENCODE)
+
+
+def test_opencode_overlay_is_from_pinned_base():
+    # The overlay's FROM must be exactly the base image the component
+    # builds (BuildSpec.base) - Containerfile/BuildSpec drift would only
+    # surface as a failed remote build (the ea432ca class).
     text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
-    assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
+    from_lines = [l for l in text.splitlines() if l.startswith("FROM ")]
+    assert from_lines == [f"FROM {veggies_stack.IMAGE_OPENCODE_BASE}"]
 
 
 # --- session worktrees (ADR 0037) ---------------------------------------------
