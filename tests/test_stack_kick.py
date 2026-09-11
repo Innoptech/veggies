@@ -50,23 +50,6 @@ def test_build_prompt_contains_issue_and_rules():
     assert "mask ci" in p
 
 
-def test_build_prompt_mandates_the_pipeline():
-    """Issue #26 / ADR 0036: a kicked session must run the full pipeline -
-    plan first, subagent execution, adversarial review, verified checks -
-    not just dive into code."""
-    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
-    # 1. plan first, posted back to the issue for human review
-    assert "writing-plans" in p
-    assert f"gh issue comment 12" in p
-    # 2. subagent execution, not a solo main loop
-    assert "subagent" in p
-    # 3. adversarial review of the diff (the vendored different-model
-    # subagent) before pushing
-    assert "adversarial-review" in p
-    # 4. verified claims only
-    assert "mask ci" in p
-
-
 def test_build_prompt_mandates_a_per_session_worktree():
     """Issue #27 / ADR 0037: kicked sessions share one clone at /workspace,
     so the prompt must move each session into its own git worktree before
@@ -85,6 +68,23 @@ def test_build_prompt_mandates_a_per_session_worktree():
     # branch-held tripwire - verified 2026-09-11).
     assert "already used by worktree" in p and "already exists" in p
     assert "never pass -f/--force" in p
+
+
+def test_build_prompt_mandates_the_pipeline():
+    """Issue #26 / ADR 0036: a kicked session must run the full pipeline -
+    plan first, subagent execution, adversarial review, verified checks -
+    not just dive into code."""
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    # 1. plan first, posted back to the issue for human review
+    assert "writing-plans" in p
+    assert f"gh issue comment 12" in p
+    # 2. subagent execution, not a solo main loop
+    assert "subagent" in p
+    # 3. adversarial review of the diff (the vendored different-model
+    # subagent) before pushing
+    assert "adversarial-review" in p
+    # 4. verified claims only
+    assert "mask ci" in p
 
 
 def test_build_prompt_truncates_and_defaults():

@@ -59,21 +59,21 @@ prompt's fallback is a `-2` suffix, never `-f`/`--force` (which overrides
 the tripwire) and never removing someone else's worktree. `--lock` makes
 a live session's tree refuse a bare `worktree remove --force` (verified
 2026-09-11, git 2.54: a locked worktree needs the deliberate double
-`-f -f`). Exclusion is two-layer: `/.veggies/` is committed to THIS repo's
-`.gitignore` (our own clones' hygiene), and `veggies up` writes the same
-line to any stack repo's `.git/info/exclude` (`ensure_worktree_exclude`,
-both modes, local and remote, common-dir aware) because mutating a mounted
-repo's tracked `.gitignore` would be wrong. The session directory stays
-`/workspace`.
+`-f -f`). Exclusion is two-layer: `.veggies/` is committed to THIS repo's
+`.gitignore` + `.ansible-lint` (our own clones' hygiene), and `veggies up`
+writes the root-anchored `/.veggies/` to any stack repo's
+`.git/info/exclude` (`ensure_worktree_exclude`, both modes, local and
+remote, common-dir aware) because mutating a mounted repo's tracked
+`.gitignore` would be wrong. The session directory stays `/workspace`.
 
 ## Consequences
 
 - Positive: parallel sessions can no longer clobber each other's files or
   branch state; file-level isolation with zero permission-envelope changes
-  and zero new runtime machinery. Side benefit: pytest's golden test breaks
-  when the checkout path IS `/workspace` (path-substitution collision);
-  sessions now run from `/workspace/.veggies/wt/...`, so that collision
-  disappears for all kicked agents.
+  and zero new runtime machinery. (The golden test's `str(ROOT)`
+  substitution also collided when the checkout path was exactly
+  `/workspace`; main fixed that directly in 8453318 - worktree checkouts
+  were never affected either way.)
 - Negative / accepted: prompt-driven, not enforced - an agent that ignores
   the bootstrap can still clobber the shared checkout (the envelope cannot
   deny writes inside the session dir). Enforcement would need an opencode

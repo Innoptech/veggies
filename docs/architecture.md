@@ -51,12 +51,11 @@ code), execution through task subagents, an adversarial-review subagent
 pass on the diff before pushing, and verified checks. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>`, the workflow comments the
 session link back onto the issue, and operators watch via `veggies ui`
-(ssh tunnel helper) / `veggies sessions` / the web UI. Session isolation (ADR 0037):
-every kicked session works in its own git worktree at
+(ssh tunnel helper) / `veggies sessions` / the web UI. Session isolation
+(ADR 0037): every kicked session works in its own git worktree at
 `/workspace/.veggies/wt/issue-N` inside the shared clone (the kick prompt
 mandates the bootstrap; `veggies up` excludes `.veggies/` via the clone's
 `.git/info/exclude`), so parallel sessions never share a checkout.
-
 
 Supervision has two shapes (ADR 0028/0036): operator-driven
 (`veggies supervise`, judges via `podman exec` into the litellm container)
