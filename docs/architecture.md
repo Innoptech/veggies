@@ -95,7 +95,11 @@ sidecar that judges every finish of a *kicked* session with a different
 model over pod loopback and posts an async refinement below threshold.
 Only sessions created after the daemon starts are judged, PASS/STOP are
 log-only (a posted message would re-run the agent), and the router master
-key never leaves the pod.
+key never leaves the pod. Spend reporting is contract-pinned, writer
+pending (ADR 0022/0051): `veggies costs` reads the per-call spend log
+`<state_root>/<name>/spend.jsonl*` under the stack state root, but no
+stack writes that file until the metering lands with issue #46 - until
+then the command reports no spend log and exits 0.
 
 ## Repo layout
 

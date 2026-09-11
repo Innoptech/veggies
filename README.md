@@ -3,7 +3,9 @@
 Infrastructure-as-code and configuration management for **veggies**: an
 always-on OVHcloud VPS hosting autonomous coding agents (opencode) and
 ephemeral self-hosted GitHub Actions runners, reachable over hardened,
-key-only SSH (Tailscale-only access is deferred - ADR 0024).
+key-only SSH (Tailscale-only access is deferred - ADR 0024). Know what a
+pull request costs, not what an API call costs - `veggies costs` reads a
+spend log that never leaves the host (ADR 0022).
 Everything about the machine - access, secrets, network policy, merge policy -
 is reviewable code in this repo.
 Label an issue `agent-task` and the repo's own agent stack works it in the
