@@ -1303,8 +1303,8 @@ def cmd_ls(args: argparse.Namespace) -> int:
         status = live.get(f"veggies-{name}", "down")
         spec = StackSpec(name=name, repo=s["repo"], host=s["host"])
         persist = "quadlet" if host_exists(spec.host, quadlet_path(spec)) else "-"
-    print(f"{name:<20} {status:<12} {persist:<8} {s['host'] or 'local':<7} "
-          f"{s['port']:<6} {s['repo']} ({s['mode']})")
+        print(f"{name:<20} {status:<12} {persist:<8} {s['host'] or 'local':<7} "
+              f"{s['port']:<6} {s['repo']} ({s['mode']})")
     return 0
 
 
@@ -1337,7 +1337,11 @@ def _read_spend_log(host: str | None,
     when none exist. Rotated segments are plain text (ADR 0044 decision 1)."""
     if host is None:
         d = Path(log_base).parent
-        paths = sorted(d.glob(costs.SPEND_LOG_NAME + "*")) if d.is_dir() else []
+        paths = []
+        if d.is_dir():
+            # is_file: a spend.jsonl* DIRECTORY must not raise past main()
+            paths = sorted(p for p in d.glob(costs.SPEND_LOG_NAME + "*")
+                           if p.is_file())
         if not paths:
             return None
         # errors="replace": a forbidden compressed/rotten segment surfaces as
