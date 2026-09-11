@@ -37,13 +37,23 @@ New child module `terraform/github/modules/agent-kick/`; one literal
 roster of repos the agent serves. One block declares everything the kick
 path needs on the GitHub side:
 
+- A `github_branch.delivery` resource for the `infra/agent-trigger`
+  delivery branch: `github_repository_file` does not create branches
+  (verified against provider v6.13.0; `autocreate_branch` is deprecated in
+  v6). `github_branch`'s create swallows 422 already-exists and its read
+  drops state on 404, so a branch deleted after its PR merged is recreated
+  from the default-branch tip on the next delivery.
 - Two `github_repository_file` resources:
   `.github/workflows/agent-trigger.yml` and `scripts/stack_kick.py`,
   delivered onto the repo's `infra/agent-trigger` branch (the labeller
   precedent - direct pushes to the protected default branch are rejected).
-  `overwrite_on_create = false`, so adoption never clobbers a repo's own
-  file silently; the two file resources serialize via `depends_on` because
-  both commit to the same initially-nonexistent branch.
+  `overwrite_on_create = true`: post-merge a fresh delivery branch inherits
+  the merged file from the default-branch tip, and overwriting it on the
+  DELIVERY branch is the update path (`false` would hard-fail delivery #2).
+  The delivery PR's diff is the clobber guard, since nothing reaches the
+  protected default branch without a human merge; a repo's hand-vendored
+  copy surfaces as that PR's diff instead of an apply error. The chain
+  serializes via `depends_on`: branch -> workflow file -> kick script.
 - The `agent-task` issue label. It leaves the every-governed-repo loop in
   repos.tf and becomes per-block.
 - The `VEGGIES_STACK_PASSWORD` Actions secret, fed by a sensitive variable
@@ -79,18 +89,20 @@ the masters); its live label/secret/variables migrate into the module via
 - Migration precondition (operator, before the first plan/apply with
   moves.tf): set `stack_port` in `module.agent_kick_veggies` from
   `veggies ls` - the placeholder 0 would otherwise publish in place over
-  the moved variable. There is deliberately no validation guard: OpenTofu
-  1.12 evaluates child-module variable validations at `tofu validate`
-  time, so a guard would fail CI on the placeholder. Also delete
+  the moved variable. The guards are resource-level lifecycle
+  preconditions on the port variable and password secret resources:
+  validate-safe and plan-loud - variable validations would fail
+  `tofu validate` on the placeholder (verified on OpenTofu 1.12.6), which
+  would break CI. Also delete
   `actions_secrets.veggies.VEGGIES_STACK_PASSWORD`,
   `actions_variables.veggies.VEGGIES_STACK_HOST` and
   `actions_variables.veggies.VEGGIES_STACK_PORT` from `secrets/github.yml`.
   Delete moves.tf after the first green apply.
 - Accepted: the delivered master is not yet generic - it assumes this
   runner fleet (`runs-on: [self-hosted, linux, x64, veggies]`) and
-  references the `veggie` stack name in its comment text. Third-party
-  adoption is gated on parameterizing the workflow content; out of scope
-  here.
+  references the `veggie` stack name in the issue-comment bodies it
+  posts. Third-party adoption is gated on parameterizing the workflow
+  content; out of scope here.
 
 ## Links
 
@@ -98,5 +110,6 @@ the masters); its live label/secret/variables migrate into the module via
   side-branch delivery precedent),
   [0033](0033-issue-triggered-agent-kicks.md) - amends its adoption story;
   0033's adoption-time 403 becomes this module's documented per-repo
-  permission precondition (Actions `Secrets: write` + `Variables: write`
-  on the adopted repo).
+  permission precondition (Actions `Secrets: write` + `Variables: write` +
+  `Contents: write` on the adopted repo; pushing the workflow file may
+  need a token-type-specific grant - runbook).
