@@ -180,9 +180,13 @@ class BuildSpec:
     """How the runtime materializes this component's image at up-time:
     built from a Containerfile (path relative to the infra repo) or pulled
     as-is (containerfile=None). Components own their images;
-    `ensure_images` builds/pulls exactly the selected components' images."""
+    `ensure_images` builds/pulls exactly the selected components' images.
+    `base` (ADR 0053): another locally-built image this one is FROM -
+    `ensure_images` builds it first. Single level only: a base must not
+    itself carry a base."""
     image: str
     containerfile: str | None = None  # relative to infra repo; None = pull only
+    base: BuildSpec | None = None
 
 
 @dataclass
