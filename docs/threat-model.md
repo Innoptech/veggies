@@ -56,8 +56,11 @@ nftables rules still apply. SELinux stays Enforcing.
 
 - The tailnet can reach squid:3128 (firewalld trusted zone).
   Mitigation: tailnet ACLs (outside this repo) + squid source ACLs.
-  Stack opencode ports bind 127.0.0.1 only, so they are not tailnet-reachable
-  (ADR 0013).
+  Stack opencode ports: local stacks bind 127.0.0.1 only; remote (`--host`)
+  stacks publish 0.0.0.0:<port> by design (ADR 0014) - firewalld default-deny
+  blocks public ingress, the tailnet is the intended attach path, and every
+  attach requires the per-stack basic-auth password. While no Innoptech
+  tailnet exists (ADR 0024), remote attach rides `ssh -L` forwarding instead.
 - CrowdSec's value is bootstrap-window + visibility only while nothing public
   listens (ADR 0010).
 - A determined agent can abuse the *allowlisted* domains themselves (e.g.
