@@ -657,6 +657,65 @@ def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
     assert values == {"token": "x", "model_key": "x"}
 
 
+class _FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def time(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+def test_warm_api_retries_until_answer(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(veggies.time, "time", clock.time)
+    monkeypatch.setattr(veggies.time, "sleep", clock.sleep)
+    seq = iter([None, None, {"model": "m"}])
+    monkeypatch.setattr(veggies, "probe_api", lambda *a, **k: next(seq))
+    assert veggies.warm_api(None, 1, "p", timeout=30) is True
+    monkeypatch.setattr(veggies, "probe_api", lambda *a, **k: None)
+    assert veggies.warm_api(None, 1, "p", timeout=5) is False
+
+
+def test_logs_remote_uses_env_wrap_not_login_shell(monkeypatch):
+    # `sudo -iu stacks` re-parses through the nologin shell and dies with
+    # "account is currently not available" (verified 2026-09-10).
+    monkeypatch.setenv("VEGGIES_STATE_DIR", "/tmp/veggies-test-state")
+    monkeypatch.setattr(veggies.State, "get", lambda self, n: {
+        "repo": "/r", "mode": "clone", "port": 4098, "host": "veggies",
+        "password": "p"})
+    monkeypatch.setattr(veggies, "_remote_uid", lambda h: "1003")
+    calls = []
+    monkeypatch.setattr(veggies.os, "execvp",
+                        lambda exe, argv: calls.append(argv))
+    veggies.cmd_logs(argparse.Namespace(name="v", container="opencode",
+                                        follow=True))
+    argv = calls[0]
+    assert argv[0:2] == ["ssh", "veggies"]
+    payload = argv[2]
+    assert "sudo -n -u stacks env HOME=/home/stacks" in payload
+    assert "-i" not in payload.split("env")[0]
+    assert shlex.split(payload)[-3:] == ["podman", "logs", "-f"] or \
+        shlex.split(payload)[-4:] == ["podman", "logs", "-f", "veggies-v-opencode"]
+
+
+def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
+    # The state primary key is the name: without this guard, re-upping a
+    # name on a different host reuses its port and overwrites its record,
+    # orphaning the original stack (hit live 2026-09-10).
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(
+        veggies.StackSpec(name="v", repo=str(tmp_path), port=4096,
+                          host="veggies"), password="p")
+    args = argparse.Namespace(repo=".", name="v", host=None, clone=False,
+                              model=None, github=False, yes=True,
+                              no_attach=True, no_install=True)
+    with pytest.raises(ValueError, match="already exists on host"):
+        veggies.cmd_up(args)
+
+
 def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_path):
     # cmd_down --purge must remove EVERY declared secret, github's included.
     # No down/purge test precedent exists, so drive the real cmd_down with
