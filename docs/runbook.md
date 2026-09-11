@@ -406,7 +406,10 @@ in-flight guard, ADR 0040). An open DRAFT never blocks a re-kick - it is
 the session's workbench, and the in-flight guard still covers a busy
 session. A stale or conflicted draft means the session died: comment
 `/opencode` on the issue (or re-add the label) - the next session
-reconciles the branch and continues the same draft.
+reconciles the branch and continues the same draft. A ready PR that fell
+behind main is done-guarded (ready = handled) and PR comments never kick -
+convert it back with `gh pr ready --undo`, then re-kick the issue; the
+session rebases and re-runs the ready-gate.
 A failed kick keeps the label. Discussions have no done-guard: every
 `/opencode` comment is a deliberate kick, and re-kicking an evolving
 discussion is normal (the agent dedupes against issues it already created

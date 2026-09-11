@@ -10,11 +10,11 @@ date: 2026-09-11
 Until now the PR existed only at the end: the kick prompt told the session
 to push and `gh pr create` as the last step, so a session's work was
 invisible - and unreviewable - until it declared itself done. When the PR
-finally appeared it could be marked ready while unmergeable: this repo is
-rebase-only by code, with branch protection tofu-managed in
-[terraform/github/repos.tf](../../terraform/github/repos.tf)
-(`required_linear_history = true`, `strict = true` - the branch must be up
-to date before merging, `dismiss_stale_reviews = true`), so "ready" said
+finally appeared it could be marked ready while unmergeable: this repo's
+branch protection (tofu-managed in
+[terraform/github/repos.tf](../../terraform/github/repos.tf)) requires a
+linear history and up-to-date branches (`required_linear_history = true`,
+`strict = true`, `dismiss_stale_reviews = true`), so "ready" said
 nothing about merging against current main.
 
 Draft-first was the obvious fix, and
@@ -95,7 +95,11 @@ Rejected / deferred:
   password, no tunnel needed - for the work
   [0034](0034-session-observability.md) instrumented.
 - Positive: a ready PR is green and mergeable against current main; the
-  merge button works when the human presses it.
+  merge button works when the human presses it. Honesty clause: the gate's
+  post-watch freshness check (`git merge-base --is-ancestor origin/main
+  HEAD` after the CI watch) only narrows the ready-while-behind race to
+  the length of one fetch - without a merge queue, that residual window
+  is accepted.
 - Positive: re-kicking an open-draft issue continues the existing branch
   instead of duplicating it; ready and merged stay blocked.
 - Accepted risk, named: the in-flight guard
