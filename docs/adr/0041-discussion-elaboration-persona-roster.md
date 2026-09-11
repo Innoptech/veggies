@@ -89,6 +89,7 @@ being called - deferred past MVP by the thread.
   (no done-guard on discussions); roster convention of
   [0019](0019-agent-rosters-and-skills.md); permission envelope of
   [0031](0031-no-ask-anywhere.md); subagent fan-out of
-  [0036](0036-always-on-critic-for-kicked-sessions.md).
+  [0036](0036-always-on-critic-for-kicked-sessions.md); kick mechanics of
+  [0033](0033-issue-triggered-agent-kicks.md).
 - Issue: <https://github.com/Innoptech/veggies/issues/33>
 - Discussion: <https://github.com/Innoptech/veggies/discussions/32>
