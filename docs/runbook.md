@@ -338,13 +338,19 @@ run host-side there instead. Smoke-test a fresh image:
 kicks the repo's long-lived stack when:
 
 - an issue gets the `agent-task` label, or
-- an OWNER/MEMBER/COLLABORATOR comment contains `/opencode`.
+- an OWNER/MEMBER/COLLABORATOR comment contains `/opencode` - on an issue
+  (the agent works it, ADR 0033) or on a **discussion** (the agent reads
+  the whole thread and distills it into issues with Plan / Happy path /
+  Criteria of success sections, ADR 0038).
 
 `agent-task` is one-shot (ADR 0035): the label is cleared after a
 successful kick or a skip - re-add it to retrigger. Done-issues are never
 re-kicked: the kick skips (with a comment saying why) when the issue is
 closed or an `agent/issue-N` PR already exists. A failed kick keeps the
-label.
+label. Discussions have no done-guard: every `/opencode` comment is a
+deliberate kick, and re-kicking an evolving discussion is normal (the
+agent dedupes against issues it already created from that discussion;
+ADR 0038).
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in its
@@ -381,10 +387,12 @@ veggies logs veggie -f                       # raw pod logs
 veggies ui veggie --stop           # close the tunnel
 ```
 
-Every kick also comments on the issue (ADR 0034): session id, deep link
+Every kick also comments on the issue or discussion (ADR 0034; GraphQL
+`addComment` covers both): session id, deep link
 (`http://127.0.0.1:<port+1000>/L3dvcmtzcGFjZQ/session/<id>` once
 tunneled), and the password one-liner - and a failure comment when the
-stack rejects the kick. Kicked sessions are titled `#N: <issue title>`.
+stack rejects the kick. Kicked sessions are titled `#N: <issue title>`
+(`D#N: <discussion title>` for discussions).
 
 Web UI map (1.18.27, verified 2026-09-11): `/` is Home - the all-sessions
 view (Today/Yesterday/Older + search), but its project list is
