@@ -333,16 +333,24 @@ below.
 Watch a kicked run (the demo path):
 
 ```bash
-veggies ls                                   # confirm the stack + port
-ssh -N -L 5098:127.0.0.1:<port> veggies      # then open http://127.0.0.1:5098
-veggies supervise veggie --session <id>      # critic loop, from the web UI session list
+veggies ui veggie                  # background tunnel + prints URL/password
+veggies sessions veggie            # all sessions, busiest info first
+veggies sessions veggie --issue 15 # the sessions working one issue
+veggies supervise veggie --session <id>      # critic loop
 veggies logs veggie -f                       # raw pod logs
+veggies ui veggie --stop           # close the tunnel
 ```
+
+Every kick also comments on the issue (ADR 0034): session id, deep link
+(`http://127.0.0.1:<port+1000>/session/<id>` once tunneled), and the
+password one-liner - and a failure comment when the stack rejects the
+kick. Kicked sessions are titled `#N: <issue title>`, so the web UI
+session list reads like an issue list.
 
 Tunnel gotcha (verified 2026-09-10): if a LOCAL stack already publishes the
 same port, `ssh -L <port>:...` cannot bind it - and anything pointed at
-`127.0.0.1:<port>` silently talks to the LOCAL stack instead. Use a
-distinct local side (5098 above) or `veggies down` the local stack first.
+`127.0.0.1:<port>` silently talks to the LOCAL stack instead. `veggies ui`
+picks a really-free local port for you (stack port + 1000 by default).
 
 Manual fallback (workflow down, demo must go on): run `scripts/stack_kick.py`
 by hand - the header comment has the exact env. From the operator machine,

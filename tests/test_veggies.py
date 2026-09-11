@@ -707,6 +707,101 @@ def test_logs_remote_uses_env_wrap_not_login_shell(monkeypatch):
         shlex.split(payload)[-4:] == ["podman", "logs", "-f", "veggies-v-opencode"]
 
 
+def test_pick_ui_port_default_and_fallback():
+    assert veggies.pick_ui_port(4098, is_free=lambda p: True) == 5098
+    # busy default + busy scan head -> next free in the scan range
+    taken = {5098, 5200, 5201}
+    assert veggies.pick_ui_port(4098, is_free=lambda p: p not in taken) == 5202
+    with pytest.raises(ValueError):
+        veggies.pick_ui_port(4098, is_free=lambda p: False)
+
+
+def test_format_sessions_table_and_issue_filter():
+    sessions = [
+        {"id": "ses_a", "title": "#15: fix docs",
+         "time": {"updated": 1789080967955}},
+        {"id": "ses_b", "title": "New session", "time": {}},
+        {"id": "ses_c"},
+    ]
+    status = {"ses_a": {"type": "busy"}}
+    out = veggies.format_sessions(sessions, status)
+    lines = out.splitlines()
+    assert "ses_a" in lines[1] and "busy" in lines[1] and "#15" in lines[1]
+    assert "09-10" in lines[1]  # epoch ms rendered as a date (UTC)
+    assert lines[2].split()[1] == "idle"  # ses_b not busy
+    # --issue filters on the '#N:' title prefix
+    filtered = veggies.format_sessions(sessions, status, issue=15)
+    assert "ses_a" in filtered and "ses_b" not in filtered
+    assert veggies.format_sessions([], {}, issue=4) == "no sessions for issue #4"
+
+
+def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
+    monkeypatch.setattr(veggies.State, "get", lambda self, n: {
+        "repo": "/r", "mode": "mount", "port": 4098, "host": None,
+        "password": "p"})
+    args = argparse.Namespace(name="v", port=None, stop=False,
+                              open_browser=False)
+    assert veggies.cmd_ui(args) == 0
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:4098" in out and "password: p" in out
+    assert "tunnel" not in out
+
+
+def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(veggies.State, "get", lambda self, n: {
+        "repo": "/r", "mode": "clone", "port": 4098, "host": "veggies",
+        "password": "p"})
+    monkeypatch.setattr(veggies, "port_free", lambda p: True)
+    monkeypatch.setattr(veggies, "probe_api", lambda *a, **k: {"ok": 1})
+
+    class FakeProc:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    calls = []
+    monkeypatch.setattr(veggies.subprocess, "Popen",
+                        lambda argv, **kw: calls.append(argv) or FakeProc())
+    args = argparse.Namespace(name="v", port=None, stop=False,
+                              open_browser=False)
+    assert veggies.cmd_ui(args) == 0
+    argv = calls[0]
+    assert argv[0] == "ssh" and "-N" in argv and "veggies" in argv
+    assert "5098:127.0.0.1:4098" in argv
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:5098" in out and "--stop" in out
+    # pidfile lets a second run reuse the live tunnel
+    info = json.loads((tmp_path / "tunnels" / "v.json").read_text())
+    assert info == {"pid": 4242, "port": 5098}
+
+
+def test_cmd_ui_reuses_live_tunnel_and_stop_kills(monkeypatch, tmp_path):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(veggies.State, "get", lambda self, n: {
+        "repo": "/r", "mode": "clone", "port": 4098, "host": "veggies",
+        "password": "p"})
+    tdir = tmp_path / "tunnels"
+    tdir.mkdir()
+    (tdir / "v.json").write_text(json.dumps({"pid": 4242, "port": 5098}))
+    killed = []
+    monkeypatch.setattr(veggies.os, "kill",
+                        lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(veggies.subprocess, "Popen",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("must not respawn")))
+    args = argparse.Namespace(name="v", port=None, stop=False,
+                              open_browser=False)
+    assert veggies.cmd_ui(args) == 0  # reused: os.kill(pid, 0) liveness check
+    assert killed == [(4242, 0)]
+    stop = argparse.Namespace(name="v", port=None, stop=True,
+                              open_browser=False)
+    assert veggies.cmd_ui(stop) == 0
+    assert killed[-1] == (4242, 15)
+    assert not (tdir / "v.json").exists()
+
+
 def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
     # The state primary key is the name: without this guard, re-upping a
     # name on a different host reuses its port and overwrites its record,

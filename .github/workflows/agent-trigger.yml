@@ -17,7 +17,7 @@ on:
     types: [created]
 
 permissions:
-  issues: read
+  issues: write # comment the kicked session back onto the issue (ADR 0034)
 
 jobs:
   kick:
@@ -36,6 +36,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Kick the veggies stack
+        id: kick
         env:
           STACK_URL: http://${{ vars.VEGGIES_STACK_HOST }}:${{ vars.VEGGIES_STACK_PORT }}
           STACK_PASSWORD: ${{ secrets.VEGGIES_STACK_PASSWORD }}
@@ -44,4 +45,52 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
           REPO: ${{ github.repository }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
         run: python3 scripts/stack_kick.py
+
+      # The issue is where people look - tell it which session is working it
+      # and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
+      # not involved. The password is never posted, only how to read it.
+      - name: Comment the session link on the issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sid="${{ steps.kick.outputs.session_id }}"
+          port="${{ vars.VEGGIES_STACK_PORT }}"
+          ui_port=$((1000 + port))
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          issue_n="${{ github.event.issue.number }}"
+          body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
+          body="$body"$'\n\n'"Watch it live:"
+          body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
+          body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/session/${sid}>"
+          body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
+          body="$body"$'\n\n'"The agent branches \`agent/issue-${issue_n}\`, runs the checks, and opens a PR"
+          body="$body"$' that closes this issue. '"[Workflow log](${run_url})."
+          jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
+          api="https://api.github.com/repos"
+          api="$api/${{ github.repository }}/issues/${issue_n}/comments"
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            --data @/tmp/comment.json "$api" > /dev/null
+
+      - name: Comment when the kick fails
+        if: always() && steps.kick.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body="**veggies kick failed** - the stack accepted no session for this issue."
+          body="$body"$' Check \`veggies status veggie\` and that the Actions variable'
+          body="$body"$' \`VEGGIES_STACK_PORT\` matches \`veggies ls\`.'
+          body="$body"$' [Workflow log]('"${run_url})."
+          jq -n --arg body "$body" '{body: $body}' > /tmp/comment.json
+          api="https://api.github.com/repos"
+          api="$api/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            --data @/tmp/comment.json "$api" > /dev/null
