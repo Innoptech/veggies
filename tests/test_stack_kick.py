@@ -211,7 +211,7 @@ def test_inflight_reason_busy_titled_session_blocks(monkeypatch):
                     [{"id": "s1", "title": "#7: fix the thing"},
                      {"id": "s2", "title": "#70: other issue"}],
                     {"s1": {"type": "busy"}, "s2": {"type": "busy"}})
-    reason = stack_kick.inflight_reason("http://h:1", "pw", "7")
+    reason = stack_kick.inflight_reason("http://h:1", "pw", ("#7: ",))
     assert reason and "s1" in reason and "busy" in reason
 
 
@@ -219,14 +219,31 @@ def test_inflight_reason_idle_absent_or_foreign_proceeds(monkeypatch):
     # finished (idle) sessions never block a deliberate re-kick
     _route_sessions(monkeypatch, [{"id": "s1", "title": "#7: t"}],
                     {"s1": {"type": "idle"}})
-    assert stack_kick.inflight_reason("http://h:1", "pw", "7") is None
+    assert stack_kick.inflight_reason("http://h:1", "pw", ("#7: ",)) is None
     # prefix matches the exact issue only (#7 must not match #70)
     _route_sessions(monkeypatch, [{"id": "s2", "title": "#70: t"}],
                     {"s2": {"type": "busy"}})
-    assert stack_kick.inflight_reason("http://h:1", "pw", "7") is None
+    assert stack_kick.inflight_reason("http://h:1", "pw", ("#7: ",)) is None
     # odd payloads (degraded endpoints) proceed rather than block
     _route_sessions(monkeypatch, {}, {})
-    assert stack_kick.inflight_reason("http://h:1", "pw", "7") is None
+    assert stack_kick.inflight_reason("http://h:1", "pw", ("#7: ",)) is None
+
+
+def test_inflight_reason_discussion_prefix_shapes(monkeypatch):
+    # ADR 0043: the two discussion prefixes match their own title forms...
+    prefixes = ("D#7: ", "D#7 elaborate: ")
+    for title in ("D#7: some thread", "D#7 elaborate: some thread"):
+        _route_sessions(monkeypatch, [{"id": "s1", "title": title}],
+                        {"s1": {"type": "busy"}})
+        reason = stack_kick.inflight_reason("http://h:1", "pw", prefixes,
+                                            subject="discussion")
+        assert reason and "s1" in reason and "discussion" in reason, title
+    # ...but never a near-miss number (D#70 vs D#7) in either form
+    for title in ("D#70: other", "D#70 elaborate: other"):
+        _route_sessions(monkeypatch, [{"id": "s2", "title": title}],
+                        {"s2": {"type": "busy"}})
+        assert stack_kick.inflight_reason(
+            "http://h:1", "pw", prefixes, subject="discussion") is None
 
 
 def test_main_skips_inflight_issue_with_exit_3(monkeypatch, tmp_path, capsys):
@@ -361,6 +378,9 @@ def test_main_discussion_mode_kicks_with_thread(monkeypatch, calls, tmp_path):
                  "GITHUB_OUTPUT": str(out)}.items():
         monkeypatch.setenv(k, v)
     _clear_issue_env(monkeypatch)
+    # the in-flight guard is covered by its own tests; here it would only
+    # add two probe calls ahead of the kick
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
                         lambda r, n, t: [("alice", "hi")])
     # no done-guard for discussions (ADR 0038): every /opencode is deliberate
@@ -383,6 +403,7 @@ def test_main_discussion_mode_without_token_uses_payload_only(
                  "DISCUSSION_URL": "u", "REPO": "o/r"}.items():
         monkeypatch.setenv(k, v)
     _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     for k in ("GITHUB_TOKEN", "GH_TOKEN", "DISCUSSION_BODY",
               "GITHUB_OUTPUT"):
         monkeypatch.delenv(k, raising=False)
@@ -395,6 +416,63 @@ def test_main_discussion_mode_without_token_uses_payload_only(
     text = json.loads(calls[1].data)["parts"][0]["text"]
     assert "(no description)" in text
     assert "thread" in capsys.readouterr().err
+
+
+def test_main_discussion_skips_inflight_with_exit_3(monkeypatch, calls,
+                                                    tmp_path, capsys):
+    """ADR 0043: with the shared olgam4 identity allowed to trigger, a busy
+    'D#N ' session is the bound on self-kick loops - serial, never
+    parallel. The guard runs before the thread fetch (a skipped kick
+    renders no prompt)."""
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "REPO": "o/r", "GITHUB_TOKEN": "t",
+                 "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    _route_sessions(monkeypatch, [{"id": "s9", "title": "D#7: dt"}],
+                    {"s9": {"type": "busy"}})
+
+    def no_fetch(*a):
+        raise AssertionError("a skipped kick never fetches the thread")
+
+    monkeypatch.setattr(stack_kick, "fetch_discussion_comments", no_fetch)
+    assert stack_kick.main() == stack_kick.SKIP_DONE
+    assert calls == []  # no session created, no prompt queued
+    assert "skip_reason=session s9" in out.read_text()
+    assert "SKIP" in capsys.readouterr().out
+
+
+def test_main_discussion_inflight_failure_proceeds(monkeypatch, calls):
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "REPO": "o/r"}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN", "DISCUSSION_BODY",
+              "GITHUB_OUTPUT"):
+        monkeypatch.delenv(k, raising=False)
+
+    def boom(url, password, method, path, body=None):
+        raise TimeoutError("stack down")
+
+    monkeypatch.setattr(stack_kick, "api", boom)
+    monkeypatch.setattr(stack_kick, "kick", lambda *a, **k: "ses_x")
+    assert stack_kick.main() == 0  # the guard degrades, it never blocks
+
+
+def test_all_prompts_forbid_leading_command_comments():
+    """ADR 0043: while olgam4 may trigger, the agent must never emit a
+    comment STARTING with /opencode or /elaborate - the one remaining
+    self-kick vector. Every prompt template must carry the hygiene line."""
+    builders = [
+        stack_kick.build_prompt("o/r", "1", "t", "b", "u"),
+        stack_kick.build_discussion_prompt("o/r", "1", "t", "b", "u", []),
+        stack_kick.build_elaborate_prompt("o/r", "1", "t", "b", "u", []),
+    ]
+    for p in builders:
+        assert "NEVER start a GitHub comment" in p
 
 
 # --- Elaborate mode (issue #33 / ADR 0041): a /elaborate discussion
@@ -506,6 +584,7 @@ def test_main_elaborate_command_routes_and_titles(monkeypatch, calls, tmp_path):
                    "GITHUB_OUTPUT": str(out)}.items():
         monkeypatch.setenv(k, v)
     _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
                         lambda r, n, t: [("alice", "hi")])
     assert stack_kick.main() == 0
@@ -530,6 +609,7 @@ def test_main_discussion_non_elaborate_command_stays_distill(
                  "GITHUB_OUTPUT": str(out)}.items():
         monkeypatch.setenv(k, v)
     _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
     monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
                         lambda r, n, t: [("alice", "hi")])
     assert stack_kick.main() == 0

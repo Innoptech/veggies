@@ -103,6 +103,8 @@ GitHub issue #{number}: {title}
 {body}
 
 Rules of engagement:
+- NEVER start a GitHub comment you post with `/opencode` or `/elaborate` -
+  a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
 - Read AGENTS.md first and follow it (ADR rules, conventional commits,
@@ -216,6 +218,8 @@ For each distinct piece of work the discussion asks for:
    `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
 
 Rules of engagement:
+- NEVER start a GitHub comment you post with `/opencode` or `/elaborate` -
+  a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the issue bodies (or the discussion comment).
 - Read AGENTS.md first and follow it.
@@ -270,6 +274,8 @@ allowed; being generic is not.
    `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
 
 Rules of engagement:
+- NEVER start a GitHub comment you post with `/opencode` or `/elaborate` -
+  a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the persona comments.
 - Read AGENTS.md first and follow it.
@@ -386,25 +392,49 @@ def api(url: str, password: str, method: str, path: str,
     return json.loads(raw) if raw.strip() else {}
 
 
-def inflight_reason(url: str, password: str, number: str) -> str | None:
-    """Why this issue should not be kicked RIGHT NOW, or None: a session
-    titled '#<number>: ...' is busy on the stack. The done-guard covers
-    finished work (closed issue, existing PR); this covers the race window
-    where a kick is mid-flight - the PR does not exist yet, so without it
-    every stray trigger (a bot comment mentioning /opencode, a label plus a
-    comment, a rapid re-label) double-books the issue (ADR 0040; verified
-    2026-09-11 on issue #33: the agent's own plan comment re-kicked it).
+def inflight_reason(url: str, password: str, prefixes: tuple[str, ...],
+                    subject: str = "issue") -> str | None:
+    """Why this subject should not be kicked RIGHT NOW, or None: a session
+    whose title starts with one of `prefixes` is busy on the stack. The
+    done-guard covers finished work (closed issue, existing PR); this
+    covers the race window where a kick is mid-flight - the PR does not
+    exist yet, so without it every stray trigger (a comment mentioning
+    /opencode, a label plus a comment, a rapid re-label) double-books the
+    subject (ADR 0040; verified 2026-09-11 on issue #33: the agent's own
+    plan comment re-kicked it). ADR 0043 (interim shared identity):
+    discussions get the guard too - with olgam4 allowed to trigger, a
+    self-kick loop must at least be SERIAL. Prefixes carry their
+    terminator ('#7: ', 'D#7 elaborate: ') so #7 never matches #70.
     Raises on API failure; the caller degrades to proceeding, like the
     done-guard."""
     sessions = api(url, password, "GET", "/session")
     status = api(url, password, "GET", "/session/status")
-    prefix = f"#{number}: "
     for s in sessions if isinstance(sessions, list) else []:
         sid = s.get("id", "?")
-        if str(s.get("title", "")).startswith(prefix) and \
+        if str(s.get("title", "")).startswith(prefixes) and \
                 (status.get(sid) or {}).get("type") == "busy":
-            return f"session {sid} is already working this issue (busy)"
+            return f"session {sid} is already working this {subject} (busy)"
     return None
+
+
+def inflight_guard(url: str, password: str, prefixes: tuple[str, ...],
+                   subject: str) -> int | None:
+    """SKIP_DONE when a session titled with one of `prefixes` is busy, else
+    None. The guard degrades to proceeding on API failure, like the
+    done-guard."""
+    try:
+        reason = inflight_reason(url, password, prefixes, subject)
+    except Exception as e:
+        print(f"in-flight check failed ({e}); proceeding", file=sys.stderr)
+        return None
+    if reason is None:
+        return None
+    print(f"SKIP: {reason}")
+    print(f"SKIP_REASON={reason}")
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"skip_reason={reason}\n")
+    return SKIP_DONE
 
 
 def kick(url: str, password: str, prompt: str, title: str = "") -> str:
@@ -463,19 +493,10 @@ def main() -> int:
               file=sys.stderr)
     # In-flight guard (ADR 0040): never double-book an issue a busy session
     # holds. Same degrade-to-proceed posture as the done-guard.
-    try:
-        reason = inflight_reason(url, os.environ["STACK_PASSWORD"],
-                                 os.environ["ISSUE_NUMBER"])
-    except Exception as e:
-        print(f"in-flight check failed ({e}); proceeding", file=sys.stderr)
-        reason = None
-    if reason:
-        print(f"SKIP: {reason}")
-        print(f"SKIP_REASON={reason}")
-        if os.environ.get("GITHUB_OUTPUT"):
-            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                f.write(f"skip_reason={reason}\n")
-        return SKIP_DONE
+    rc = inflight_guard(url, os.environ["STACK_PASSWORD"],
+                        (f"#{os.environ['ISSUE_NUMBER']}: ",), "issue")
+    if rc is not None:
+        return rc
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
     prompt = build_prompt(os.environ["REPO"], os.environ["ISSUE_NUMBER"],
                           os.environ["ISSUE_TITLE"],
@@ -502,8 +523,16 @@ def main_discussion(number: str) -> int:
     """Discussion mode (ADR 0038): no done-guard - unlike a lingering label,
     a /opencode (or /elaborate, issue #33) comment is a deliberate act, and
     re-kicking an evolving discussion is the point (the prompt dedupes
-    against existing issues)."""
+    against existing issues). There IS an in-flight guard (ADR 0043): while
+    the agent shares the operator's olgam4 identity, a self-kick loop must
+    at least be serial - a busy 'D#N: '/'D#N elaborate: ' session blocks
+    the next kick."""
     url = os.environ["STACK_URL"].rstrip("/")
+    rc = inflight_guard(url, os.environ["STACK_PASSWORD"],
+                        (f"D#{number}: ", f"D#{number} elaborate: "),
+                        "discussion")
+    if rc is not None:
+        return rc
     gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if gh_token:
         comments = fetch_discussion_comments(os.environ["REPO"], number,
