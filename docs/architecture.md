@@ -41,18 +41,23 @@ toolchain (python/mask/ansible/tofu/tflint - ADR 0032) so agents run the
 repo's own checks in-pod; molecule is excluded (no podman socket, ADR
 0028).
 
-Event path (ADR 0033/0038): `.github/workflows/agent-trigger.yml` on the
-self-hosted runners kicks this repo's stack via `scripts/stack_kick.py` on
-`agent-task` labels and `/opencode` comments - on issues (the agent works
-the issue and opens a PR) and on discussions (the agent reads the fetched
-thread and distills it into issues: plan / happy path / criteria of
-success). Runners reach the stack
+Event path (ADR 0033/0038/0041): `.github/workflows/agent-trigger.yml` on
+the self-hosted runners kicks this repo's stack via `scripts/stack_kick.py`
+on `agent-task` labels and `/opencode` comments - on issues (the agent
+works the issue and opens a PR) and on discussions (the agent reads the
+fetched thread and distills it into issues: plan / happy path / criteria
+of success). A trusted `/elaborate` discussion comment instead kicks one
+session that fans out to the vendored persona roster (domain expert,
+infra/architecture, marketer, seller, CTO - `agent-config/agents/`) and
+posts one attributed POV comment per persona back on the discussion - the
+comments are the deliverable (no branch, no PR). Runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
 exceptions. No inbound listener on the VPS. The issue kick prompt mandates
 the full pipeline (ADR 0036): plan first (posted as an issue comment before
 code), execution through task subagents, an adversarial-review subagent
 pass on the diff before pushing, and verified checks. Observability (ADR
-0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`, the
+0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
+(`D#N elaborate: <title>` for persona-roster runs), the
 workflow comments the session link back (GraphQL `addComment` covers both
 subject types), and operators watch via `veggies ui`
 (ssh tunnel helper) / `veggies sessions` / the web UI. Session isolation

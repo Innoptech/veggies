@@ -342,8 +342,10 @@ kicks the repo's long-lived stack when:
   (command-style; prose mentions never fire) - on an issue (the agent
   works it, ADR 0033) or on a **discussion** (the agent reads the whole
   thread and distills it into issues with Plan / Happy path / Criteria of
-  success sections, ADR 0038). The bot account (`olgam4`) can never
-  trigger by comment - the agent must not re-kick itself (ADR 0040).
+  success sections, ADR 0038) - or **starts with** `/elaborate` on a
+  discussion (five persona POV comments, ADR 0041). The bot account
+  (`olgam4`) can never trigger by comment - the agent must not re-kick
+  itself (ADR 0040).
 
 `agent-task` is one-shot (ADR 0035): the label is cleared after a
 successful kick or a skip - re-add it to retrigger. Done-issues are never
@@ -354,6 +356,12 @@ A failed kick keeps the label. Discussions have no done-guard: every
 `/opencode` comment is a deliberate kick, and re-kicking an evolving
 discussion is normal (the agent dedupes against issues it already created
 from that discussion; ADR 0038).
+
+`/elaborate` on a discussion (ADR 0041) kicks one session that fans out
+to the vendored persona roster and posts one `**<Role> POV**` comment
+per persona back on the discussion - no branch, no PR. No done-guard:
+re-comment `/elaborate` to re-run. Personas register at stack boot (ADR
+0019): run `veggies up veggie` after this merges before `/elaborate` works.
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in its
@@ -372,7 +380,8 @@ role).
 
 TODO(you): the bot PAT (account `olgam4`, fine-grained) is missing
 `Discussions: write` on Innoptech/veggies: the distilling agent's closing
-comment on the source discussion degrades to a named-permission final
+comment on the source discussion and the `/elaborate` persona POV
+comments (ADR 0041) both degrade to a named-permission final
 message until granted (the created issues still link the discussion, so
 the back-reference appears regardless). The four permissions verified
 missing on 2026-09-10 (`Contents`/`Pull requests`/`Secrets`/`Variables`
