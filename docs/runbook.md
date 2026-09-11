@@ -230,7 +230,8 @@ differently:
 | What | Source of truth | How it goes live |
 |------|-----------------|------------------|
 | Stack definition (`agent-config/`, component code, images) | the operator's LOCAL infra checkout (the CLI is a shim into it) | every `veggies up` re-ships rendered config over ssh and rebuilds changed images - `git pull` locally, then up |
-| Event path (`agent-trigger.yml`, `scripts/stack_kick.py`) | `origin/main` | automatic on merge: the self-hosted runner does `actions/checkout` every run |
+| Event path - this (master) repo (`agent-trigger.yml`, `scripts/stack_kick.py`) | `origin/main` | automatic on merge: the self-hosted runner does `actions/checkout` every run |
+| Event path - adopted repos | the repo's agent-kick block in `terraform/github/agent_kicks.tf` (ADR 0044) | the module delivers the master copies onto `infra/agent-trigger` at apply; live when the delivery PR merges |
 | The workspace clone (what `/workspace` is; where `veggies.yml` is read from at up time) | `origin/main` | **kicked sessions self-sync** - the kick prompt fetches and branches each worktree off `origin/main` (ADR 0037). The shared checkout itself is only refreshed by `veggies sync` |
 
 So the recipe after merging a feature to main: `git pull` in your local
@@ -449,9 +450,11 @@ first). On stacks with `supervision: supervisor` the in-pod critic
 additionally
 judges every finish and injects refinements (see the supervision section).
 Plumbing: Actions variable
-`VEGGIES_STACK_HOST`/`VEGGIES_STACK_PORT` + secret `VEGGIES_STACK_PASSWORD`
-(all tofu-managed from the vault); the runner reaches the stack at
-`http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound
+`VEGGIES_STACK_HOST`/`VEGGIES_STACK_PORT` + secret `VEGGIES_STACK_PASSWORD`,
+all declared by the repo's agent-kick block in
+`terraform/github/agent_kicks.tf` (ADR 0044) - the password is the vault
+key `veggies_stack_password` via `TF_VAR_`; the runner reaches the stack
+at `http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound
 ports on the VPS; allowed by `egress_extra_local_dports` in the egress
 role).
 
@@ -557,6 +560,80 @@ story.
 
 Scope: the marker is ONLY the verify gate. Broader respect for a repo's
 own agent files (instructions, skills, rosters) is issue #54's territory.
+### Install agent kicks on a repo (ADR 0048)
+
+The agent-kick module wires only the GitHub side; the stack itself is
+stood up per repo beforehand (`veggies up --clone` on the VPS; substrate
+per sections 1-2). Stand up the host once - every repo after that is one
+block, one apply, one merge.
+
+0. Prerequisites:
+   - the repo's stack is serving - `veggies ls` shows it and its port
+     (that port is the block's `stack_port`);
+   - the tofu identity (bot PAT or App) holds Actions `Secrets: write` +
+     `Variables: write` ON THE NEW REPO (the 0033 adoption 403);
+   - the repo carries no hand-vendored copies of the workflow/script - if
+     it does, remove them via PR first (`overwrite_on_create = false`
+     refuses to clobber, so the first apply fails loudly otherwise).
+1. Add the block to `terraform/github/agent_kicks.tf`:
+
+   ```hcl
+   module "agent_kick_data_pipelines" {
+     source = "./modules/agent-kick"
+
+     repo           = "data-pipelines"
+     stack_port     = 8123 # from `veggies ls`
+     stack_password = var.veggies_stack_password
+
+     workflow_content    = file("${path.module}/../../.github/workflows/agent-trigger.yml")
+     kick_script_content = file("${path.module}/../../scripts/stack_kick.py")
+   }
+   ```
+
+   PR, review, merge.
+2. `mask tofu-plan` - read the plan (two `github_repository_file` on
+   `infra/agent-trigger`, one label, one secret, two variables) - then
+   `mask tofu-apply`.
+3. In the adopted repo, open the delivered PR (`gh pr create --fill
+   --head infra/agent-trigger`), review it (the agent's entire footprint
+   on the repo arrives as this one reviewable PR), merge (squash), and
+   DELETE the delivery branch - tofu recreates it from the default-branch
+   tip on the next delivery; a surviving branch accumulates phantom diffs
+   after squash merges. The same lifecycle applies to the labeller's
+   `infra/needs-team-review` branch (the anchor repos.tf's comment points
+   at).
+4. Label an issue `agent-task` (or comment `/opencode`) - the kick fires.
+
+Drift check: after any apply, open `infra/agent-trigger` PRs across
+adopted repos = undelivered updates; master-copy edits in this repo
+propagate by apply + merging each delivery PR. An adopted repo's event
+path no longer self-syncs from its own checkout on merge - its copy is a
+tofu snapshot (only this master repo keeps the automatic-on-merge
+property).
+
+Uninstall: remove the block + apply (destroys the label/secret/variables
+and the delivery-branch copies), then merge a PR deleting
+`.github/workflows/agent-trigger.yml` from the repo's default branch -
+otherwise the merged workflow keeps firing on `/opencode` comments into
+guaranteed auth failures.
+
+Veggies-repo migration (operator, one-time): BEFORE the first apply with
+`moves.tf`, set `stack_port` in `module.agent_kick_veggies` from
+`veggies ls` (the placeholder 0 would publish in place over the moved
+variable; no validation guard exists - `tofu validate` evaluates
+child-module validations, so the placeholder must be caught by the plan
+review), and `mask vault-edit secrets/github.yml` to delete exactly
+`actions_secrets.veggies.VEGGIES_STACK_PASSWORD`,
+`actions_variables.veggies.VEGGIES_STACK_HOST` and
+`actions_variables.veggies.VEGGIES_STACK_PORT`. Then `mask tofu-plan`:
+expect exactly 4 moves and no destroy of the trio; the secret should show
+no change - if the plan shows it changing, the vault key and the old trio
+diverged; investigate before applying. After the green apply, delete
+`terraform/github/moves.tf` in a follow-up PR.
+
+The serve password now lives in the local tofu state like the other
+Actions secrets (gitignored, restic-backed - ADR 0008; state handling per
+section 6).
 
 ### Session worktrees (ADR 0037)
 
@@ -600,8 +677,9 @@ stack deletes the whole clone, worktrees included; in mount mode the
 worktrees live in YOUR repo and cleanup is yours.
 
 Re-up caveat: the Actions variable `VEGGIES_STACK_PORT` must match the
-live stack (`veggies ls`); the password can never drift (both sides read
-the same vault key).
+live stack (`veggies ls`) - the fix is editing the repo's block in
+`terraform/github/agent_kicks.tf` + apply; the password can never drift
+(both sides read the same vault key).
 
 ### Teammate onboarding (stack user, not operator)
 
