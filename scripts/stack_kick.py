@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Kick a veggies stack from a GitHub issue (ADR 0033).
+"""Kick a veggies stack from a GitHub issue (ADR 0033) or discussion
+(ADR 0038).
 
 Creates a fresh opencode session on the repo's long-lived stack and durably
-queues the issue as a prompt; the agent works it autonomously in its own
+queues the prompt; an issue kick works it autonomously in its own
 git worktree (/workspace/.veggies/wt/issue-N, ADR 0037) through the
 mandated pipeline (plan posted on the issue, subagent execution,
-adversarial review, `mask ci`, PR - ADR 0036). Used by
-.github/workflows/agent-trigger.yml on the
-self-hosted runners, and by hand from an operator machine:
+adversarial review, `mask ci`, PR - ADR 0036), a discussion kick distills
+the thread into issues (plan / happy path / criteria of success). Used by
+.github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
+from an operator machine:
 
     ssh -L 4099:127.0.0.1:4099 veggies   # if the stack is remote
     STACK_URL=http://127.0.0.1:4099 STACK_PASSWORD=... \
@@ -18,13 +20,20 @@ self-hosted runners, and by hand from an operator machine:
 Stdlib-only. Exits non-zero with a message on any API failure.
 
 Env:
-    STACK_URL        base URL of the stack's opencode serve (no trailing /)
-    STACK_PASSWORD   opencode serve basic-auth password
-    ISSUE_NUMBER     GitHub issue number
-    ISSUE_TITLE      issue title
-    ISSUE_BODY       issue body (truncated to 4000 chars; may be empty)
-    ISSUE_URL        issue html_url
-    REPO             owner/name
+    STACK_URL          base URL of the stack's opencode serve (no trailing /)
+    STACK_PASSWORD     opencode serve basic-auth password
+    REPO               owner/name
+    ISSUE_NUMBER       GitHub issue number (issue mode)
+    ISSUE_TITLE        issue title
+    ISSUE_BODY         issue body (truncated to 4000 chars; may be empty)
+    ISSUE_URL          issue html_url
+    DISCUSSION_NUMBER  discussion number (discussion mode; beats ISSUE_*)
+    DISCUSSION_TITLE   discussion title
+    DISCUSSION_BODY    opening post (payload copy; truncated like ISSUE_BODY)
+    DISCUSSION_URL     discussion html_url
+    GITHUB_TOKEN       issue mode: done-guard (ADR 0035); discussion mode:
+                       fetches the comment thread (REST) - without it the
+                       prompt carries the opening post only
 """
 
 from __future__ import annotations
@@ -38,6 +47,8 @@ import urllib.request
 
 TIMEOUT = 60
 BODY_LIMIT = 4000
+COMMENT_LIMIT = 2000  # per discussion comment
+THREAD_BUDGET = 12000  # total chars of rendered discussion thread
 SKIP_DONE = 3  # exit code: issue already handled (ADR 0035)
 
 
@@ -134,11 +145,111 @@ pipeline, not to dive straight into code):
 """
 
 COMMENT_SECTION = """
-Triggered by a comment from @{author} on the issue:
+Triggered by a comment from @{author}:
 \"\"\"
 {comment}
 \"\"\"
 """
+
+DISCUSSION_PROMPT_TEMPLATE = """You are the veggies agent for {repo}, working unattended in the stack's clone at /workspace.
+
+GitHub discussion #{number}: {title}
+{url}
+
+{body}
+
+{thread}
+
+Mission: distill this discussion into GitHub issues. Read the whole thread
+first - the value is in what we had been talking about, not only in the
+opening post. Never invent work the thread does not call for.
+
+For each distinct piece of work the discussion asks for:
+1. Check it is not already tracked: `gh issue list --repo {repo} --search "<keywords>"`.
+   Issues previously spawned from this discussion link back to it; refine
+   your plan instead of duplicating them (never edit issues you did not
+   create).
+2. Create it with `gh issue create --repo {repo} --title "..." --body-file -`.
+   Every issue body carries exactly these sections:
+   - ## Context - one short paragraph, linking back to this discussion.
+   - ## Plan - the approach as the thread converged on it.
+   - ## Happy path - the walkthrough of the thing working as intended.
+   - ## Criteria of success - the checkable conditions that make it done.
+3. Do NOT add the `agent-task` label: a human reviews the new issues first
+   and labels deliberately (the label kicks another agent, ADR 0035).
+4. When every issue exists, comment the created issue links back on the
+   discussion (best effort - the bot PAT may lack Discussions: write):
+   fetch the node id with
+   `gh api repos/{repo}/discussions/{number} --jq .node_id`, then
+   `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addComment(input: {{subjectId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
+
+Rules of engagement:
+- Work autonomously. Never block waiting for a human - decide, and record
+  your assumptions in the issue bodies (or the discussion comment).
+- Read AGENTS.md first and follow it.
+- No code changes: do not branch, commit, push, or open a PR - the
+  deliverable is the set of issues plus the summary comment.
+- gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If issue
+  creation is denied, name the exact missing token permission in your
+  final message and stop (the operator grants it).
+- Finish the task completely; never end your turn with a next step
+  unexecuted.
+"""
+
+
+def fetch_discussion_comments(repo: str, number: str,
+                              token: str) -> list[tuple[str, str]]:
+    """(author, body) per discussion comment, oldest first (REST; ADR 0033
+    feared GraphQL but discussions read fine over REST - verified 2026-09).
+    The fetch degrades to [] like the done-guard degrades to proceeding
+    (ADR 0035): a hiccup must never block a deliberate kick."""
+    try:
+        raw = gh_api(token, f"/repos/{repo}/discussions/{number}/comments"
+                            "?per_page=100")
+    except Exception as e:
+        print(f"comment fetch failed ({e}); kicking with the opening post "
+              "only", file=sys.stderr)
+        return []
+    return [((c.get("user") or {}).get("login") or "?", c.get("body") or "")
+            for c in raw]
+
+
+def render_thread(comments: list[tuple[str, str]]) -> str:
+    """Pure: the thread section, chronological, per-comment and total
+    budgets. Over budget, the tail is what gets omitted - the opening
+    context frames the whole discussion, so it is kept verbatim first."""
+    if not comments:
+        return "Discussion thread: (no comments yet)"
+    parts, used, shown = [], 0, 0
+    for author, body in comments:
+        chunk = f"@{author}:\n{body.strip()[:COMMENT_LIMIT]}"
+        if used + len(chunk) > THREAD_BUDGET:
+            break
+        parts.append(chunk)
+        used += len(chunk)
+        shown += 1
+    out = "Discussion thread:\n" + "\n\n".join(parts)
+    if shown < len(comments):
+        out += (f"\n\n(thread truncated: {len(comments) - shown} more "
+                "comment(s) omitted)")
+    return out
+
+
+def build_discussion_prompt(repo: str, number: str, title: str, body: str,
+                            url: str, comments: list[tuple[str, str]],
+                            comment: str = "",
+                            comment_author: str = "") -> str:
+    """Pure: the discussion->issues kick prompt. The triggering comment
+    rides along like on issue kicks - it is the only context a token-less
+    manual kick has beyond the opening post."""
+    body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
+    prompt = DISCUSSION_PROMPT_TEMPLATE.format(
+        repo=repo, number=number, title=title, body=body, url=url,
+        thread=render_thread(comments))
+    if comment.strip():
+        prompt += COMMENT_SECTION.format(author=comment_author or "?",
+                                         comment=comment.strip()[:2000])
+    return prompt
 
 
 def build_prompt(repo: str, number: str, title: str, body: str,
@@ -189,12 +300,19 @@ def kick(url: str, password: str, prompt: str, title: str = "") -> str:
 
 
 def main() -> int:
-    missing = [k for k in ("STACK_URL", "STACK_PASSWORD", "ISSUE_NUMBER",
-                           "ISSUE_TITLE", "ISSUE_URL", "REPO")
-               if not os.environ.get(k)]
+    discussion = os.environ.get("DISCUSSION_NUMBER", "")
+    required = ["STACK_URL", "STACK_PASSWORD", "REPO"]
+    if discussion:
+        required += ["DISCUSSION_NUMBER", "DISCUSSION_TITLE",
+                     "DISCUSSION_URL"]
+    else:
+        required += ["ISSUE_NUMBER", "ISSUE_TITLE", "ISSUE_URL"]
+    missing = [k for k in required if not os.environ.get(k)]
     if missing:
         print(f"missing env: {', '.join(missing)}", file=sys.stderr)
         return 2
+    if discussion:
+        return main_discussion(discussion)
     url = os.environ["STACK_URL"].rstrip("/")
     # Done-guard (ADR 0035): never re-kick a handled issue. Needs a GitHub
     # token (the workflow's own GITHUB_TOKEN); without one, warn and proceed
@@ -232,6 +350,40 @@ def main() -> int:
         return 1
     print(f"session queued: {sid} on {url} "
           f"(issue #{os.environ['ISSUE_NUMBER']})")
+    print(f"SESSION_ID={sid}")  # machine-readable, one per line
+    if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"session_id={sid}\n")
+    return 0
+
+
+def main_discussion(number: str) -> int:
+    """Discussion mode (ADR 0038): no done-guard - unlike a lingering label,
+    a /opencode comment is a deliberate act, and re-kicking an evolving
+    discussion is the point (the prompt dedupes against existing issues)."""
+    url = os.environ["STACK_URL"].rstrip("/")
+    gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if gh_token:
+        comments = fetch_discussion_comments(os.environ["REPO"], number,
+                                             gh_token)
+    else:
+        print("no GITHUB_TOKEN/GH_TOKEN in env; discussion thread not "
+              "fetched (opening post + triggering comment only)",
+              file=sys.stderr)
+        comments = []
+    title = f"D#{number}: {os.environ['DISCUSSION_TITLE']}"
+    prompt = build_discussion_prompt(
+        os.environ["REPO"], number, os.environ["DISCUSSION_TITLE"],
+        os.environ.get("DISCUSSION_BODY", ""), os.environ["DISCUSSION_URL"],
+        comments, comment=os.environ.get("COMMENT_BODY", ""),
+        comment_author=os.environ.get("COMMENT_AUTHOR", ""))
+    try:
+        sid = kick(url, os.environ["STACK_PASSWORD"], prompt, title=title)
+    except (urllib.error.URLError, RuntimeError, TimeoutError,
+            json.JSONDecodeError) as e:
+        print(f"kick failed: {e}", file=sys.stderr)
+        return 1
+    print(f"session queued: {sid} on {url} (discussion #{number})")
     print(f"SESSION_ID={sid}")  # machine-readable, one per line
     if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:

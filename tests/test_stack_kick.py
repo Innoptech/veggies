@@ -1,4 +1,5 @@
-"""Tests for scripts/stack_kick.py - the issue->session kick (ADR 0033)."""
+"""Tests for scripts/stack_kick.py - the issue/discussion->session kick
+(ADR 0033 issues, ADR 0038 discussions)."""
 
 import importlib.util
 import io
@@ -207,3 +208,113 @@ def test_main_happy_path(monkeypatch, calls):
     assert stack_kick.main() == 0
     # trailing slash stripped from STACK_URL
     assert calls[0].full_url.startswith("http://h:1/session")
+
+
+# --- Discussion mode (ADR 0038): a /opencode discussion comment kicks a
+# session that distills the whole thread into issues ---------------------
+
+
+def _clear_issue_env(monkeypatch):
+    for k in ("ISSUE_NUMBER", "ISSUE_TITLE", "ISSUE_URL", "ISSUE_BODY",
+              "COMMENT_BODY", "COMMENT_AUTHOR"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_build_discussion_prompt_carries_thread_and_mission():
+    p = stack_kick.build_discussion_prompt(
+        "o/r", "4", "MCP roadmap", "Let us plan MCP support",
+        "https://x/d/4", [("alice", "what about mcp?"), ("bob", "later")])
+    assert "#4" in p and "MCP roadmap" in p
+    assert "Let us plan MCP support" in p
+    assert "@alice" in p and "what about mcp?" in p and "@bob" in p
+    # the mission: issues with plan / happy path / criteria of success
+    assert "gh issue create" in p
+    assert "Happy path" in p and "Criteria of success" in p
+    # discussion kicks never branch or PR, and must not self-retrigger
+    assert "agent/issue-" not in p and "Closes #" not in p
+    assert "agent-task" in p  # named as the do-NOT-add label
+
+
+def test_build_discussion_prompt_defaults_and_empty_thread():
+    p = stack_kick.build_discussion_prompt("o/r", "1", "t", "", "u", [])
+    assert "(no description)" in p and "(no comments yet)" in p
+
+
+def test_build_discussion_prompt_truncates_thread():
+    big = [("a", "x" * 5000) for _ in range(10)]
+    p = stack_kick.build_discussion_prompt("o/r", "1", "t", "b", "u", big)
+    assert len(p) < 5000 * 10
+    assert "thread truncated" in p
+
+
+def test_build_discussion_prompt_trigger_comment_section():
+    # no-token manual kicks never see the thread; the triggering comment
+    # still rides along like on issue kicks (ADR 0034).
+    p = stack_kick.build_discussion_prompt(
+        "o/r", "3", "t", "b", "u", [], comment="/opencode go",
+        comment_author="josee")
+    assert "Triggered by a comment from @josee" in p
+    assert "/opencode go" in p
+
+
+def test_fetch_discussion_comments_maps_authors_and_bodies(monkeypatch):
+    monkeypatch.setattr(stack_kick, "gh_api", lambda tok, path: [
+        {"body": "first", "user": {"login": "alice"}},
+        {"body": "second", "user": {"login": "bob"}},
+    ])
+    assert stack_kick.fetch_discussion_comments("o/r", "3", "tok") == [
+        ("alice", "first"), ("bob", "second")]
+
+
+def test_fetch_discussion_comments_degrades_to_empty(monkeypatch, capsys):
+    def boom(tok, path):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(stack_kick, "gh_api", boom)
+    assert stack_kick.fetch_discussion_comments("o/r", "3", "tok") == []
+    assert "comment fetch failed" in capsys.readouterr().err
+
+
+def test_main_discussion_mode_kicks_with_thread(monkeypatch, calls, tmp_path):
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "DISCUSSION_BODY": "db",
+                 "REPO": "o/r", "GITHUB_TOKEN": "t",
+                 "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
+                        lambda r, n, t: [("alice", "hi")])
+    # no done-guard for discussions (ADR 0038): every /opencode is deliberate
+    def no_guard(*a):
+        raise AssertionError("done-guard must not run for discussions")
+
+    monkeypatch.setattr(stack_kick, "done_reason", no_guard)
+    assert stack_kick.main() == 0
+    create, prompt = calls
+    assert json.loads(create.data) == {"title": "D#7: dt"}  # ADR 0034 style
+    text = json.loads(prompt.data)["parts"][0]["text"]
+    assert "hi" in text and "db" in text
+    assert "session_id=ses_test" in out.read_text()
+
+
+def test_main_discussion_mode_without_token_uses_payload_only(
+        monkeypatch, calls, capsys):
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "REPO": "o/r"}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN", "DISCUSSION_BODY",
+              "GITHUB_OUTPUT"):
+        monkeypatch.delenv(k, raising=False)
+
+    def no_api(*a):
+        raise AssertionError("no token -> the thread is never fetched")
+
+    monkeypatch.setattr(stack_kick, "gh_api", no_api)
+    assert stack_kick.main() == 0
+    text = json.loads(calls[1].data)["parts"][0]["text"]
+    assert "(no description)" in text
+    assert "thread" in capsys.readouterr().err
