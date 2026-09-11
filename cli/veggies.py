@@ -360,6 +360,56 @@ def label_for_containers(host: str | None, path: str) -> None:
     host_run(host, ["chcon", "-R", "-t", "container_file_t", "-l", "s0", path])
 
 
+# Session worktrees (ADR 0036): kicked sessions each work in their own git
+# worktree under <repo>/.veggies/wt/ so parallel sessions never share a
+# checkout. The dir is hidden via the clone's .git/info/exclude (local to
+# this clone, never committed - .gitignore would be a repo change).
+WORKTREE_EXCLUDE = ".veggies/"
+
+
+def info_exclude_add(text: str, line: str) -> str:
+    """Add `line` to git info/exclude content, idempotently. Matching is
+    whole-line: an existing '.veggies' pattern must not satisfy '.veggies/'."""
+    if line in text.splitlines():
+        return text
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text + line + "\n"
+
+
+def ensure_worktree_exclude(host: str | None, repo_path: str) -> None:
+    """Exclude the session-worktree dir in the stack repo's info/exclude
+    (ADR 0036) so parallel sessions never appear in each other's - or the
+    operator's - git status. Best-effort: not-a-git-repo or an unwritable
+    file only warns; `up` must not fail over an ignore line."""
+    if host is not None:
+        q = shlex.quote(WORKTREE_EXCLUDE)
+        sh = ('gd=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)'
+              ' || exit 0; mkdir -p "$gd/info" && '
+              f'(grep -qxF {q} "$gd/info/exclude" 2>/dev/null || '
+              f'echo {q} >> "$gd/info/exclude")')
+        r = host_run(host, ["sh", "-c", sh, "sh", repo_path],
+                     check=False, capture=True)
+        if r.returncode != 0:
+            print(f"warning: could not exclude {WORKTREE_EXCLUDE} in "
+                  f"{repo_path}: {r.stderr.strip()}", file=sys.stderr)
+        return
+    r = run(["git", "-C", repo_path, "rev-parse", "--absolute-git-dir"],
+            check=False, capture=True)
+    if r.returncode != 0:
+        return  # not a git repo: nothing to exclude in
+    try:
+        info = Path(r.stdout.strip()) / "info"
+        info.mkdir(parents=True, exist_ok=True)
+        exclude = info / "exclude"
+        exclude.write_text(info_exclude_add(
+            exclude.read_text() if exclude.exists() else "",
+            WORKTREE_EXCLUDE))
+    except OSError as exc:
+        print(f"warning: could not exclude {WORKTREE_EXCLUDE} in "
+              f"{repo_path}: {exc}", file=sys.stderr)
+
+
 def write_stack_config(spec: StackSpec, infra_repo: Path) -> None:
     ctx = build_context(spec, infra_repo)
     files: dict[str, str] = {}
@@ -643,6 +693,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     if host is None:
         label_for_containers(None, str(infra_repo / "agent-config" / "litellm"))
     label_for_containers(host, repo_path)
+    ensure_worktree_exclude(host, repo_path)
 
     # Idempotent refresh: drop the old pod and secrets before replaying.
     host_podman(host, "pod", "rm", "-f", spec.pod, check=False, capture=True)

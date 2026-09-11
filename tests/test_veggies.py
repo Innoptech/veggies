@@ -336,6 +336,28 @@ def test_opencode_containerfile_pin_format():
     assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
 
 
+# --- session worktrees (ADR 0036) ---------------------------------------------
+
+
+def test_info_exclude_add_appends_and_is_idempotent():
+    assert veggies.info_exclude_add("", ".veggies/") == ".veggies/\n"
+    once = veggies.info_exclude_add("# comment\n*.pyc\n", ".veggies/")
+    assert once == "# comment\n*.pyc\n.veggies/\n"
+    assert veggies.info_exclude_add(once, ".veggies/") == once
+
+
+def test_info_exclude_add_matches_whole_lines():
+    # '.veggies' (no slash) is a different pattern - it must not satisfy
+    # a request for '.veggies/'.
+    assert veggies.info_exclude_add(".veggies\n", ".veggies/") == \
+        ".veggies\n.veggies/\n"
+
+
+def test_info_exclude_add_repairs_missing_trailing_newline():
+    assert veggies.info_exclude_add("*.pyc", ".veggies/") == \
+        "*.pyc\n.veggies/\n"
+
+
 # --- persistence -----------------------------------------------------
 
 
