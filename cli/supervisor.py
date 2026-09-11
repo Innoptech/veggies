@@ -123,7 +123,7 @@ req_body = json.loads(base64.b64decode("__PAYLOAD_B64__"))
 body = json.dumps({
     "model": req_body["model"],
     "messages": req_body["messages"],
-    # cost metering (ADR 0047): the router copies request-body metadata
+    # cost metering (ADR 0052): the router copies request-body metadata
     # into call metadata, where the callback reads caller/session_*.
     "metadata": req_body["metadata"],
     "temperature": 0,
@@ -144,7 +144,7 @@ def judge_exec_script(model: str, transcript: str, session_title: str = "",
                       session_id: str = "") -> str:
     """The script for `podman exec -i <pod>-litellm python3 -`. The
     metadata stamps the judge call's cost record with the session it
-    judges (ADR 0047); title/id keys are omitted when empty."""
+    judges (ADR 0052); title/id keys are omitted when empty."""
     metadata = {"caller": "veggies-supervise"}
     if session_title:
         metadata["session_title"] = session_title

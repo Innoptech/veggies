@@ -103,7 +103,7 @@ def test_only_kicked_titles_are_judged():
 
 
 def test_judge_call_is_stamped_with_session_title_and_id():
-    """ADR 0047: the judge call carries the judged session's title/id so
+    """ADR 0052: the judge call carries the judged session's title/id so
     the cost log attributes judge spend to the kicked session."""
     s, st, m = kicked("s1", title="#7: do the thing")
     api = FakeApi([s], st, m)

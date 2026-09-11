@@ -183,23 +183,25 @@ def test_repo_is_the_only_code_mount(spec):
     assert opencode["workingDir"] == "/workspace"
 
 
-def test_litellm_costs_hostpath_mount(spec):
-    # ADR 0047: per-call cost log on a durable per-stack host dir - the only
-    # writable hostPath the litellm container gets.
+def test_litellm_stack_state_hostpath_mount(spec):
+    # ADR 0051/0052: spend.jsonl lives at the stack state root - the whole
+    # stack dir is the litellm container's only writable hostPath.
     pod = _pod(spec)
     litellm = next(c for c in pod["spec"]["containers"] if c["name"] == "litellm")
     mounts = {m["name"]: m for m in litellm["volumeMounts"]}
-    assert mounts["costs"]["mountPath"] == "/costs"
-    assert "readOnly" not in mounts["costs"]
+    assert mounts["stack-state"]["mountPath"] == "/stack-state"
+    assert "readOnly" not in mounts["stack-state"]
+    assert "costs" not in mounts
     env = {e["name"]: e.get("value") for e in litellm["env"]}
     assert env["VEGGIES_STACK"] == spec.name
     # custom_callbacks.py is imported from the readOnly /agent-config mount
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
     volumes = {v["name"]: v for v in pod["spec"]["volumes"]}
-    assert volumes["costs"]["hostPath"] == {
-        "path": f"{spec.state_root()}/{spec.name}/costs", "type": "Directory"}
+    assert volumes["stack-state"]["hostPath"] == {
+        "path": f"{spec.state_root()}/{spec.name}", "type": "Directory"}
+    assert "costs" not in volumes
     names = [v["name"] for v in pod["spec"]["volumes"]]
-    assert names.index("costs") < names.index("tmp")  # VOLUME_ORDER pinned
+    assert names.index("stack-state") < names.index("tmp")  # VOLUME_ORDER pinned
 
 
 def test_litellm_config_files_ship_callbacks_remote_only(spec):
@@ -233,7 +235,7 @@ def test_opencode_config_files_ship_plugins(spec):
     files = opencode.COMPONENT.config_files(
         veggies_stack.build_context(spec, INFRA_REPO))
     # the metering plugin ships next to the vendored agents/skills so the
-    # wrapper can copy it into opencode's global config dir (ADR 0047)
+    # wrapper can copy it into opencode's global config dir (ADR 0052)
     assert files["plugins/metering.js"] == (
         INFRA_REPO / "agent-config/plugins/metering.js").read_text()
     assert any(k.startswith("agents/") for k in files)
@@ -1152,7 +1154,7 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
 
 
 def test_cmd_supervise_stamps_judge_call_metadata(monkeypatch):
-    """ADR 0047: the operator-driven judge call's exec payload carries the
+    """ADR 0052: the operator-driven judge call's exec payload carries the
     session's title/id so the cost log attributes judge spend."""
     monkeypatch.setattr(veggies.State, "get", lambda self, n: {
         "repo": "/r", "mode": "clone", "port": 4098, "host": None,
@@ -1307,10 +1309,10 @@ def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
         veggies.cmd_up(args)
 
 
-def test_up_creates_costs_dir_before_stack_config(monkeypatch, tmp_path):
-    # ADR 0047: hostPath type: Directory fails kube play on a missing source,
-    # so cmd_up mkdirs the costs dir right before write_stack_config (whose
-    # chcon -R on the stack dir then labels it too).
+def test_up_creates_stack_dir_before_stack_config(monkeypatch, tmp_path):
+    # ADR 0051/0052: hostPath type: Directory fails kube play on a missing
+    # source, so cmd_up mkdirs the stack dir (the spend log's hostPath)
+    # right before write_stack_config (whose chcon -R then labels it).
     monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -1341,7 +1343,7 @@ def test_up_creates_costs_dir_before_stack_config(monkeypatch, tmp_path):
                               model=None, github=False, yes=True,
                               no_attach=True, no_install=True)
     veggies.cmd_up(args)
-    mkdir = ("run", ["mkdir", "-p", f"{tmp_path}/u/costs"])
+    mkdir = ("run", ["mkdir", "-p", f"{tmp_path}/u"])
     assert mkdir in events
     cfg_write = next(i for i, e in enumerate(events)
                      if e[0] == "write" and "/u/config/" in e[1])
@@ -1377,8 +1379,8 @@ def test_down_purge_removes_github_secret_via_declared_names(monkeypatch, tmp_pa
                                        "github": True})))
 
 
-def test_down_purge_warns_before_deleting_cost_history(monkeypatch, tmp_path, capsys):
-    # ADR 0047: the costs dir is durable history - warn once before purge
+def test_down_purge_warns_before_deleting_spend_history(monkeypatch, tmp_path, capsys):
+    # ADR 0051: spend.jsonl is durable history - warn once before purge
     # deletes it, but never block.
     monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
     veggies.State().add(
@@ -1392,17 +1394,17 @@ def test_down_purge_warns_before_deleting_cost_history(monkeypatch, tmp_path, ca
     rmtree = []
     monkeypatch.setattr(veggies, "safe_rmtree",
                         lambda *a, **k: rmtree.append(a))
-    costs = f"{tmp_path}/c/costs"
+    spend = f"{tmp_path}/c/spend.jsonl"
     monkeypatch.setattr(veggies, "host_exists",
-                        lambda host, path, kind="f": path == costs)
+                        lambda host, path, kind="f": path == spend)
     veggies.cmd_down(argparse.Namespace(name="c", purge=True))
     out = capsys.readouterr().out
-    assert (f"!! purge deletes {costs} (cost history, ADR 0047) - "
+    assert (f"!! purge deletes {spend}* (spend history, ADR 0051) - "
             "export first if it matters") in out
     assert rmtree  # the warning never blocks the purge
 
 
-def test_down_purge_no_costs_dir_no_warning(monkeypatch, tmp_path, capsys):
+def test_down_purge_no_spend_log_no_warning(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
     veggies.State().add(
         veggies.StackSpec(name="c", repo="/tmp/c", port=4096), password="p")

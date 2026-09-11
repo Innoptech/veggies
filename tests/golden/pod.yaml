@@ -145,8 +145,8 @@ spec:
     - mountPath: /agent-config
       name: agent-config
       readOnly: true
-    - mountPath: /costs
-      name: costs
+    - mountPath: /stack-state
+      name: stack-state
     - mountPath: /tmp
       name: tmp
   - args:
@@ -196,13 +196,13 @@ spec:
       path: @ROOT@/agent-config/litellm
       type: Directory
     name: agent-config
-  - hostPath:
-      path: /tmp/veggies-test-state/demo/costs
-      type: Directory
-    name: costs
   - name: opencode-home
     persistentVolumeClaim:
       claimName: veggies-demo-opencode
+  - hostPath:
+      path: /tmp/veggies-test-state/demo
+      type: Directory
+    name: stack-state
   - emptyDir: {}
     name: tmp
   - emptyDir: {}

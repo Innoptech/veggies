@@ -41,7 +41,7 @@ def _render(ctx: PodContext) -> dict:
             secret_env("LITELLM_MASTER_KEY", spec.secret_litellm, "master_key"),
             secret_env("LITELLM_SALT_KEY", spec.secret_litellm, "salt_key"),
             secret_env("FIREWORKS_API_KEY", spec.secret_litellm, "fireworks_api_key"),
-            # ADR 0047: the cost callback stamps each JSONL line with this.
+            # ADR 0052: the cost callback stamps each JSONL line with this.
             {"name": "VEGGIES_STACK", "value": spec.name},
             # /agent-config mounts readOnly: never attempt bytecode cache.
             {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},
@@ -50,9 +50,11 @@ def _render(ctx: PodContext) -> dict:
         ] + [{"name": k, "value": v} for k, v in ctx.service("egress").env.items()],
         "volumeMounts": [
             {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
-            # ADR 0047 cost log: NOT readOnly - the only writable hostPath
-            # this container gets.
-            {"name": "costs", "mountPath": "/costs"},
+            # ADR 0051 pins spend.jsonl at the stack state root; no subPath
+            # mounts (verified broken), so the whole stack dir mounts writable.
+            # The CLI rewrites pod.yaml/config on every up, so tampering is
+            # recoverable.
+            {"name": "stack-state", "mountPath": "/stack-state"},
             {"name": "tmp", "mountPath": "/tmp"},
         ],
         "resources": {"limits": {"memory": "768Mi"}},
@@ -78,8 +80,9 @@ def _volumes(ctx: PodContext) -> list[dict]:
     )
     return [
         {"name": "agent-config", "hostPath": {"path": litellm_cfg, "type": "Directory"}},
-        # ADR 0047: durable per-call cost log; survives down/up/sync; inside the backup role's backup_paths.
-        {"name": "costs", "hostPath": {"path": f"{spec.state_root()}/{spec.name}/costs", "type": "Directory"}},
+        # ADR 0051/0052: durable per-call spend log at the stack state root;
+        # survives down/up/sync; inside the backup role's backup_paths.
+        {"name": "stack-state", "hostPath": {"path": f"{spec.state_root()}/{spec.name}", "type": "Directory"}},
     ]
 
 

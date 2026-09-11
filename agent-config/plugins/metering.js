@@ -1,6 +1,6 @@
 /**
  * Veggies cost metering: stamp every harness LLM request with its session
- * identity (ADR 0047).
+ * identity (ADR 0052).
  *
  * The stack's litellm router copies the request's `x-litellm-tags` header
  * (comma-separated) into call metadata, and
@@ -65,7 +65,7 @@ export const VeggiesMetering = async ({ client, directory }) => {
         if (!sessionID) return;
         const tags = ["caller:opencode", `session-id:${sessionID}`];
         const title = await rootTitle(sessionID);
-        // Header-size safety (ADR 0047): an unbounded title tag would make
+        // Header-size safety (ADR 0052): an unbounded title tag would make
         // an unbounded x-litellm-tags header and kill every model call at
         // the HTTP layer - outside this hook's fail-open.
         if (title && encodeURIComponent(title).length <= 1024)
