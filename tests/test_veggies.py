@@ -613,6 +613,10 @@ def test_github_optin_adds_secret_env_and_gitconfig():
     secs = {s.name_suffix: s for s in opencode.COMPONENT.secrets(spec)}
     assert secs["github"].keys["token"] == capabilities.VaultKey(
         "github_token", "secrets/github.yml")
+    # ADR 0033: the serve password comes from the vault on github stacks so
+    # the repo's Actions secret (same vault key via tofu) never goes stale.
+    assert secs["opencode"].keys["password"] == capabilities.VaultKey(
+        "veggies_stack_password", "secrets/github.yml")
     ctx = veggies_stack.build_context(spec, INFRA_REPO)
     cont = opencode.COMPONENT.render(ctx)
     env = {e["name"]: e for e in cont["env"] if "name" in e}
@@ -630,8 +634,10 @@ def test_github_optin_adds_secret_env_and_gitconfig():
 def test_github_default_off_leaves_render_untouched():
     import components.opencode as opencode
     spec = veggies.StackSpec(name="demo", repo="/tmp/r", port=4096)
-    secs = [s.name_suffix for s in opencode.COMPONENT.secrets(spec)]
+    secs = {s.name_suffix: s for s in opencode.COMPONENT.secrets(spec)}
     assert "github" not in secs
+    # non-github stacks keep the per-stack random serve password
+    assert isinstance(secs["opencode"].keys["password"], capabilities.Generated)
     cont = opencode.COMPONENT.render(veggies_stack.build_context(spec, INFRA_REPO))
     blob = str(cont)
     assert "GH_TOKEN" not in blob and "credential.helper" not in blob

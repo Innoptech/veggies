@@ -1,0 +1,47 @@
+---
+name: agent-trigger
+
+# ADR 0033: an issue labeled `agent-task`, or a trusted comment containing
+# /opencode, kicks this repo's long-lived veggies stack into a fresh
+# session that works the issue autonomously and opens a PR.
+#
+# Outbound-only on our side: the self-hosted runner polls GitHub, then
+# calls the stack's opencode API on the VPS host gateway
+# (host.containers.internal bypasses the proxy via NO_PROXY in the runner
+# quadlet). No inbound listener exists on the VPS.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: read
+
+jobs:
+  kick:
+    if: >-
+      (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
+      (github.event_name == 'issue_comment' &&
+        contains(github.event.comment.body, '/opencode') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: [self-hosted, linux, x64, veggies]
+    concurrency:
+      # one kick per issue at a time; a re-label queues behind, not parallel
+      group: agent-kick-${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Kick the veggies stack
+        env:
+          STACK_URL: http://${{ vars.VEGGIES_STACK_HOST }}:${{ vars.VEGGIES_STACK_PORT }}
+          STACK_PASSWORD: ${{ secrets.VEGGIES_STACK_PASSWORD }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          REPO: ${{ github.repository }}
+        run: python3 scripts/stack_kick.py

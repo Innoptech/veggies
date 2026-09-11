@@ -92,6 +92,14 @@ def _render(ctx: PodContext) -> dict:
             # config dirs are where opencode discovers them.
             "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
+            # ansible-core >=2.21 hard-fails at startup when the configured
+            # vault password file is missing (ansible.cfg points at
+            # ~/.config/infra/vault-password); a dummy satisfies the check -
+            # same trick as infra-ci. Real decryption stays impossible
+            # in-pod: the vault password is never shipped here.
+            "mkdir -p /root/.config/infra; "
+            "[ -f /root/.config/infra/vault-password ] || "
+            "printf 'ci-dummy-not-a-real-secret\\n' > /root/.config/infra/vault-password; "
             + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"
         ],
@@ -144,7 +152,13 @@ def _volumes(ctx: PodContext) -> list[dict]:
 
 
 def _secrets(spec: StackSpec) -> list[SecretSpec]:
-    out = [SecretSpec("opencode", {"password": Generated(12)})]
+    # github-enabled stacks take the serve password from the vault: the same
+    # value is published as the repo's VEGGIES_STACK_PASSWORD Actions secret
+    # (ADR 0033), so the GHA trigger never goes stale on re-up. Other stacks
+    # keep a per-stack random password.
+    password = (VaultKey("veggies_stack_password", VAULT_GITHUB) if spec.github
+                else Generated(12))
+    out = [SecretSpec("opencode", {"password": password})]
     if spec.github:
         out.append(SecretSpec("github", {"token": VaultKey("github_token", VAULT_GITHUB)}))
     return out

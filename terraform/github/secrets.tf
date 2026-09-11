@@ -14,6 +14,16 @@ locals {
     }
   ]...)
 
+  # for_each cannot take a sensitive value (verified 2026-09-10: first
+  # non-empty actions_secrets broke the plan). Keys only, de-sensitized -
+  # repo and secret NAMES are visible in the GitHub UI; only values are
+  # secret, and those are looked up from the still-sensitive local above.
+  repo_secret_keys = nonsensitive(merge([
+    for repo, secrets in var.actions_secrets : {
+      for name, _ in secrets : "${repo}/${name}" => { repo = repo, name = name }
+    }
+  ]...))
+
   repo_variables = merge([
     for repo, variables in var.actions_variables : {
       for name, value in variables : "${repo}/${name}" => { repo = repo, name = name, value = value }
@@ -22,10 +32,10 @@ locals {
 }
 
 resource "github_actions_secret" "this" {
-  for_each        = local.repo_secrets
+  for_each        = local.repo_secret_keys
   repository      = each.value.repo
   secret_name     = each.value.name
-  plaintext_value = each.value.value
+  plaintext_value = local.repo_secrets[each.key].value
 }
 
 resource "github_actions_variable" "this" {
