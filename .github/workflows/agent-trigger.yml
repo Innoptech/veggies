@@ -5,7 +5,7 @@ name: agent-trigger
 # /opencode, kicks this repo's long-lived veggies stack into a fresh
 # session that works the issue autonomously: opens a DRAFT PR at its
 # first commit and marks it ready only when checks are green and it
-# merges cleanly against main (ADR 0044).
+# merges cleanly against main (ADR 0046).
 # ADR 0038: a trusted /opencode comment on a *discussion* kicks a session
 # that reads the whole thread and distills it into issues (plan / happy
 # path / criteria of success).
@@ -28,7 +28,7 @@ on:
 
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
-  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0044)
+  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0046)
   discussions: write # read the thread for the prompt; comment the session link back (ADR 0038)
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
     # command anchoring, the in-flight guard (both modes, stack_kick.py)
     # and the issue done-guard; the hard bot exclusion returns with the
     # GitHub App identity. PR comments never kick - `/opencode` recovery
-    # lives on the issue; the first-class PR path is deferred (ADR 0044).
+    # lives on the issue; the first-class PR path is deferred (ADR 0046).
     if: >-
       (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
       (github.event_name == 'issue_comment' &&
@@ -134,7 +134,7 @@ jobs:
           body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
           tail="The agent branches \`agent/issue-${issue_n}\` and opens (or continues) a DRAFT PR early -"
           tail="$tail commits and CI land there as it works. It marks the PR ready only"
-          tail="$tail when checks are green and it merges cleanly against main (ADR 0044)."
+          tail="$tail when checks are green and it merges cleanly against main (ADR 0046)."
           tail="$tail [Workflow log](${run_url})."
           body="$body"$'\n\n'"Watch it live:"
           body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"

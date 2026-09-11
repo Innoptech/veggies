@@ -95,7 +95,7 @@ def test_build_prompt_mandates_the_pipeline():
 
 
 def test_build_prompt_mandates_draft_first_lifecycle():
-    """Issue #53 / ADR 0044: the PR exists from the FIRST commit as a
+    """Issue #53 / ADR 0046: the PR exists from the FIRST commit as a
     draft - `gh pr create --draft` right after the plan comment, pushed
     early and often so the draft's CI is the feedback loop for the checks
     this environment cannot run - and `ready` is the final act of a
@@ -116,7 +116,7 @@ def test_build_prompt_mandates_draft_first_lifecycle():
     assert "git rebase origin/main" in p and "--force-with-lease" in p
     # the supervisor collision: rework converts back first
     assert "gh pr ready --undo" in p
-    # honesty rule carried over from the pre-0044 step 4
+    # honesty rule carried over from the pre-0046 verify step
     assert "Claim only what you actually ran" in p
     # the adversarial review is anchored to the ready gate, not the first
     # push - under draft-first pushing starts at the first commit
@@ -130,7 +130,7 @@ def test_build_prompt_truncates_and_defaults():
     p = stack_kick.build_prompt("o/r", "1", "t", "x" * 9000, "u")
     # the body is cut at BODY_LIMIT: the prompt's size is bounded by the
     # template plus that budget, never by the raw body (the draft-first
-    # lifecycle, ADR 0044, grew the template past the old absolute 9000 -
+    # lifecycle, ADR 0046, grew the template past the old absolute 9000 -
     # assert the shape, not a number the template legitimately crosses)
     assert "x" * (stack_kick.BODY_LIMIT + 1) not in p
     assert len(p) < len(stack_kick.build_prompt("o/r", "1", "t", "", "u")) \
@@ -230,7 +230,7 @@ def test_done_reason_merged_behind_newer_draft_blocks(monkeypatch):
 
 
 def test_done_reason_open_draft_pr_does_not_block(monkeypatch):
-    """ADR 0044: an open draft PR is the session's workbench under
+    """ADR 0046: an open draft PR is the session's workbench under
     draft-first, not handled work - the done-guard must not block the
     re-kick (the in-flight guard, ADR 0040, owns the double-book
     window)."""
@@ -258,7 +258,7 @@ def test_done_reason_merged_pr_blocks(monkeypatch):
 
 def test_done_reason_closed_unmerged_pr_does_not_block(monkeypatch):
     """A closed-unmerged PR is an abandoned attempt - a re-kick
-    reconciles the branch (ADR 0044)."""
+    reconciles the branch (ADR 0046)."""
     def fake(tok, path):
         if "/pulls?" in path:
             return [{"html_url": "https://x/pr/9", "state": "closed",

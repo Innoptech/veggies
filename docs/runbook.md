@@ -400,7 +400,7 @@ kicks the repo's long-lived stack when:
 `agent-task` is one-shot (ADR 0035): the label is cleared after a
 successful kick or a skip - re-add it to retrigger. Done-issues are never
 re-kicked: the kick skips (with a comment saying why) when the issue is
-closed or an `agent/issue-N` PR is merged or marked ready (ADR 0044), or
+closed or an `agent/issue-N` PR is merged or marked ready (ADR 0046), or
 when a session titled `#N: ...` is currently busy on the stack (the
 in-flight guard, ADR 0040). An open DRAFT never blocks a re-kick - it is
 the session's workbench, and the in-flight guard still covers a busy
@@ -431,7 +431,7 @@ task subagent per persona reviews the draft, and the posted comment
 carries a `## Role review` section with each role's input or explicit
 no-objection. It then executes through task subagents, runs the
 `adversarial-review` subagent on the diff, and pushes to a draft PR
-opened at the first commit (ADR 0044); ready is the last act - only when
+opened at the first commit (ADR 0046); ready is the last act - only when
 checks are green and the PR merges cleanly against current main (rebasing
 first). On stacks with `supervision: supervisor` the in-pod critic
 additionally

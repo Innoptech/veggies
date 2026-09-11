@@ -89,7 +89,7 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
     ready - the whole per_page=100 list is scanned, not just the newest
     attempt, so an older merged/ready PR still blocks behind a newer open
     draft. An open draft never blocks (it is the session's workbench under
-    draft-first, ADR 0044) - the in-flight guard (ADR 0040) owns the
+    draft-first, ADR 0046) - the in-flight guard (ADR 0040) owns the
     double-book window. Re-kicking a done issue burns a session and
     produces duplicate branches (ADR 0035). Known blind spot: the
     head=owner:agent/issue-N lookup never sees PRs opened from a -2
@@ -188,7 +188,7 @@ Rules of engagement:
   (merge/rebase); force-push only with --force-with-lease.
 - python/mask/ansible/tofu/tflint/pre-commit/pytest are preinstalled in
   this image - do NOT run `mask setup` or build a venv.
-- Draft-first PR (ADR 0044): the PR exists from the FIRST commit, not at
+- Draft-first PR (ADR 0046): the PR exists from the FIRST commit, not at
   the end. Right after the plan comment lands and implementation begins,
   push the branch and open a DRAFT: `gh pr create --draft` whose body
   contains "Closes #{number}". An existing PR (`gh pr view

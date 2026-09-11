@@ -47,9 +47,10 @@ that defines "done", and a done-guard whose states match both.
    draft's CI runs on every push and is the feedback loop for the checks
    the kick environment cannot run (molecule, the docker pre-commit hook).
    The workflow's kick-comment text (0034) now says exactly this.
-2. **Ready is the last act**, behind a gate. Verify first -
-   `SKIP=actionlint-docker mask ci` green, claiming only what actually ran
-   (the PR's own CI runs the docker hook and molecule) - then:
+2. **Ready is the last act**, behind a gate. Verify first - the repo's
+   declared verify gate (the `veggies-verify-gate` marker, ADR
+   [0045](0045-repo-declared-verify-gate.md)) green, claiming only what
+   actually ran - then:
    a. `git fetch origin && git rebase origin/main` inside the session's
       own worktree - a no-op when main never moved. After any rebase:
       re-run the verify gate (a rebase invalidates the green earned
@@ -123,4 +124,7 @@ Rejected / deferred:
   text).
 - Builds on [0037](0037-per-session-worktrees.md) - the rebase runs in
   the session's own worktree.
+- Composes with [0045](0045-repo-declared-verify-gate.md): 0045's
+  repo-declared gate is the prompt's step 4; this ADR's ready-gate is
+  step 5 and re-runs that gate after any rebase.
 - Leaves [0040](0040-self-trigger-guard.md) untouched.
