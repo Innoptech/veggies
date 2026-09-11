@@ -247,6 +247,9 @@ def test_squid_allowlist_excludes_googleapis_storage():
     # ADR 0044: proxy.golang.org redirects module zips to signed
     # storage.googleapis.com URLs - the domain is all of GCS and stays OFF
     # the allowlist (baking pinned binaries was the chosen fix, issue #48).
+    # This guards the in-repo BASE lists only - a live host could still add
+    # the domain via egress_allowlist_extra in group_vars (out of repo by
+    # design).
     assert "storage.googleapis.com" not in veggies_stack.SQUID_ALLOWLIST_BASE
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/egress/defaults/main.yml").read_text())

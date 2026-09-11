@@ -44,8 +44,9 @@ C. **Chosen:** `repo: local` + `language: system` hooks over image-baked
    binaries, pinned by version AND sha256 (the `tofu-fmt` precedent).
    CI (`.github/workflows/infra-ci.yml` env) and `mask setup` install
    the same pinned pair; `tests/test_tool_pins.py` binds the three pin
-   sites. Hook entries are byte-identical to the upstream v8.30.1 /
-   v1.7.12 hooks, so behavior is unchanged.
+   sites. Hook entries are identical to the upstream v8.30.1 / v1.7.12
+   hooks except `language` (the description fields and upstream's
+   `minimum_pre_commit_version` are dropped), so behavior is unchanged.
 
 The staged-scan boundary, stated plainly: `gitleaks git --pre-commit
 --staged` scans the git index. At commit time on a dev host that is
@@ -66,16 +67,17 @@ image. Their conversion is the natural follow-up.
 ## Consequences
 
 - Positive: plain `mask ci` is the in-pod gate again (the kick prompt
-  says so); hook time involves zero network fetches; the actionlint hook
-  gains upstream's `files: ^\.github/workflows/` filter, so plain file
-  edits no longer trigger it on every `--all-files` run.
-- Negative / accepted: the image grows ~15 MB. Hook id
+  says so); hook time involves zero network fetches.
+- Negative / accepted: the image grows ~27 MB (the layer stores the
+  uncompressed binaries). Hook id
   `actionlint-docker` -> `actionlint`; a stale `SKIP=actionlint-docker`
   becomes a harmless no-op (pre-commit ignores unknown SKIP ids).
 - Rollout ordering: merging lands the hooks + kick prompt instantly, but
   the baked binaries exist in-pod only after the operator rebuilds the
   image (`veggies prepare` / `up`) - do that before the next
-  `agent-task` label.
+  `agent-task` label. On hosts, re-run `mask setup` after pulling -
+  setup now installs the four pinned binaries into `~/.local/bin`, and
+  `mask ci`'s local hooks fail until it runs.
 - Amends [0032](0032-dev-toolchain-in-harness-image.md): its two
   documented `mask ci` exclusions shrink to one (molecule).
 

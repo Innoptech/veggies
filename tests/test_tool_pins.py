@@ -26,6 +26,15 @@ TOOLS = {
                "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537"),
 }
 
+# tool -> asset filename in the `mask setup` curl URL (carries the version;
+# the sha256 echo lines reference the bare download names instead)
+ASSETS = {
+    "GITLEAK": "gitleaks_8.30.1_linux_x64.tar.gz",
+    "ACTIONLINT": "actionlint_1.7.12_linux_amd64.tar.gz",
+    "TOFU": "tofu_1.12.6_linux_amd64.zip",
+    "TFLINT": "tflint_linux_amd64.zip",
+}
+
 
 def _containerfile_pins():
     text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
@@ -58,10 +67,20 @@ def test_workflow_env_matches_containerfile():
 
 
 def test_maskfile_setup_matches_containerfile():
-    text = _maskfile_text()
+    lines = _maskfile_text().splitlines()
     for tool, (version, sha) in TOOLS.items():
-        assert version in text, f"{tool} version missing from maskfile"
-        assert sha in text, f"{tool} sha256 missing from maskfile"
+        asset = ASSETS[tool]
+        # each tool's curl line names its asset (and carries the version in
+        # the URL); the sha must sit on the echo line right after it -
+        # swapping two tools' shas breaks this windowing
+        for i, line in enumerate(lines[:-1]):
+            if asset in line:
+                assert version in line, f"{tool} version not on the curl line"
+                assert sha in lines[i + 1], \
+                    f"{tool} sha256 not on the line after the {asset} curl"
+                break
+        else:
+            raise AssertionError(f"{tool} asset {asset} missing from maskfile")
 
 
 def test_lint_hooks_are_local_system():
@@ -72,6 +91,15 @@ def test_lint_hooks_are_local_system():
     for hook_id in ("gitleaks", "actionlint"):
         assert hook_id in by_id, f"{hook_id} hook missing"
         assert by_id[hook_id]["language"] == "system"
+    # the converted entries mirror upstream v8.30.1 / v1.7.12 (ADR 0044)
+    gitleaks = by_id["gitleaks"]
+    assert gitleaks["entry"] == \
+        "gitleaks git --pre-commit --redact --staged --verbose"
+    assert gitleaks["pass_filenames"] is False
+    actionlint = by_id["actionlint"]
+    assert actionlint["entry"] == "actionlint"
+    assert actionlint["files"] == "^\\.github/workflows/"
+    assert actionlint["types"] == ["yaml"]
     # the network-fetching hook forms stay gone
     ids = [h["id"] for repo in doc["repos"] for h in repo["hooks"]]
     assert "actionlint-docker" not in ids

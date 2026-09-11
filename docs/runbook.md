@@ -375,9 +375,7 @@ version+sha256 pinned in
 the image, `.github/workflows/infra-ci.yml`, and `mask setup` in
 agreement. A stale `SKIP=actionlint-docker` is now a harmless no-op -
 the hook id is `actionlint` today and pre-commit ignores unknown SKIP
-ids. The actionlint hook carries upstream's `files: ^\.github/workflows/`
-filter, so plain file edits no longer trigger it on every
-`pre-commit run --all-files`. The python hooks (yamllint, ansible-lint,
+ids. The python hooks (yamllint, ansible-lint,
 pre-commit-hooks) still pip-install into pre-commit's cache on a cold
 cache - expected; pypi is allowlisted, and ADR 0044 names their
 conversion as the follow-up. Behind slow proxy egress `tofu init` can
@@ -390,7 +388,8 @@ run host-side there instead. On merging hook/binary changes, rebuild the
 image (`veggies prepare`/`up`, or `mask demo-stack`'s prepare step)
 before the next `agent-task` label: kicks branch off `origin/main`, so
 the hooks take effect at merge while the binaries arrive with the
-rebuild. Smoke-test a rebuilt image:
+rebuild. Hosts re-run `mask setup` after pulling - it installs the same
+pinned binaries into `~/.local/bin`. Smoke-test a rebuilt image:
 `podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`.
 
 ### Issue-triggered agent kicks (ADR 0033)
