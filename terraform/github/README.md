@@ -68,6 +68,9 @@ note: [the runbook](../../docs/runbook.md#install-agent-kicks-on-a-repo-adr-0048
 - Each project repo needs a `CODEOWNERS` file naming the human, or
   `require_code_owner_review` has nothing to bind to.
 - The merge queue adds a `merge_group` event: every required context must
-  ALSO report on merge-group runs or queued merges stall Pending forever.
+  ALSO report on merge-group runs or queued merges stall until the check
+  timeout evicts them (every retry re-wedges).
   Gate a repo's `merge_queue_repos` opt-in on its CI triggering on
   `merge_group` (this repo: infra-ci.yml).
+- The ruleset requires at least one required-check context (provider schema
+  floor): an empty effective required_checks list fails at plan.

@@ -1,4 +1,4 @@
-# Branch policy and merge queue for every governed repo, as one ruleset per repo.
+# Branch policy for every governed repo, as one ruleset per repo (merge queue is opt-in, ADR 0053).
 
 data "github_repository" "this" {
   for_each = toset(var.repos)
@@ -48,8 +48,9 @@ resource "github_repository_ruleset" "main" {
     }
 
     # The merge queue is opt-in per repo (var.merge_queue_repos): a queue whose
-    # required checks never report on merge_group runs stalls every merge as
-    # Pending forever - the repo's CI must trigger on merge_group first.
+    # required checks never report on merge_group runs stalls every queued
+    # merge until the check timeout evicts it - the repo's CI must trigger on
+    # merge_group first.
     dynamic "merge_queue" {
       for_each = contains(var.merge_queue_repos, each.key) ? [1] : []
       content {
