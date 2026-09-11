@@ -50,3 +50,9 @@ RUN set -eux; cd /tmp; \
     unzip -q tflint.zip tflint -d /usr/local/bin; \
     chmod +x /usr/local/bin/mask /usr/local/bin/tofu /usr/local/bin/tflint; \
     rm -rf /tmp/mask.zip /tmp/mask-x /tmp/tofu.zip /tmp/tflint.zip
+
+# In-pod egress rides the chained squid; cold fetches measured 20-35s vs
+# tofu's 10s default registry timeout, and init always fetches the registry
+# discovery doc (issue #50). ENV so every in-pod tofu run - any dogfooded
+# repo, not just mask ci here - tolerates cold egress.
+ENV TF_REGISTRY_CLIENT_TIMEOUT=120
