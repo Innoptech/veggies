@@ -10,7 +10,8 @@ issue, subagent execution, adversarial review, the repo-declared verify
 gate (ADR 0045), and the draft-first lifecycle: a DRAFT PR from the
 first commit, the ready-gate last - ADR 0036/0042/0046), a discussion
 kick distills
-the thread into issues (plan / happy path / criteria of success). Used by
+the thread into issues (plan / happy path / criteria of success), then
+closes it as resolved (ADR 0050). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
 
@@ -37,7 +38,8 @@ Env:
     DISCUSSION_COMMAND discussion sub-command: "elaborate" fans the thread
                        out to five persona subagents, each posting one
                        attributed POV comment (issue #33); anything else
-                       (incl. unset) distills the thread into issues
+                       (incl. unset) distills the thread into issues,
+                       then closes the discussion as resolved (ADR 0050)
     GITHUB_TOKEN       issue mode: done-guard (ADR 0035); discussion mode:
                        fetches the comment thread (REST) - without it the
                        prompt carries the opening post only
@@ -174,8 +176,9 @@ GitHub issue #{number}: {title}
 {body}
 
 Rules of engagement:
-- NEVER start a GitHub comment you post with `/opencode` or `/elaborate` -
-  a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
+- NEVER start a GitHub comment you post with `/opencode`, `/distill`, or
+  `/elaborate` - a leading command re-kicks this workflow (self-trigger
+  loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
 - Read the repo's own agent-instruction file first - whichever of
@@ -320,10 +323,19 @@ For each distinct piece of work the discussion asks for:
    fetch the node id with
    `gh api repos/{repo}/discussions/{number} --jq .node_id`, then
    `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
+5. Close the discussion as resolved - ONLY IF the summary comment above
+   actually landed AND you created at least one issue (a denied comment
+   or a zero-issue conversational thread leaves the discussion open).
+   Reuse the node id fetched for the comment, with the default reason
+   (RESOLVED):
+   `gh api graphql -f query='mutation($id: ID!) {{ closeDiscussion(input: {{discussionId: $id}}) {{ clientMutationId }} }}' -f id=<node id>`
+   Best effort like the comment: if denied, name the exact missing token
+   permission (Discussions: write) in your final message and stop.
 
 Rules of engagement:
-- NEVER start a GitHub comment you post with `/opencode` or `/elaborate` -
-  a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
+- NEVER start a GitHub comment you post with `/opencode`, `/distill`, or
+  `/elaborate` - a leading command re-kicks this workflow (self-trigger
+  loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the issue bodies (or the discussion comment).
 - Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
@@ -378,8 +390,9 @@ allowed; being generic is not.
    `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
 
 Rules of engagement:
-- NEVER start a GitHub comment you post with `/opencode` or `/elaborate` -
-  a leading command re-kicks this workflow (self-trigger loop, ADR 0043).
+- NEVER start a GitHub comment you post with `/opencode`, `/distill`, or
+  `/elaborate` - a leading command re-kicks this workflow (self-trigger
+  loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the persona comments.
 - Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
@@ -693,7 +706,7 @@ def main() -> int:
 
 def main_discussion(number: str) -> int:
     """Discussion mode (ADR 0038): no done-guard - unlike a lingering label,
-    a /opencode (or /elaborate, issue #33) comment is a deliberate act, and
+    a /distill (or /elaborate, issue #33) comment is a deliberate act, and
     re-kicking an evolving discussion is the point (the prompt dedupes
     against existing issues). There IS an in-flight guard (ADR 0043): while
     the agent shares the operator's olgam4 identity, a self-kick loop must
