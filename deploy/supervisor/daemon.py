@@ -71,22 +71,31 @@ def _judge_finish(ocall, judge_call, sid: str, title: str, st: dict, *,
         return
     try:
         verdict = judge_call(transcript)
-    except Exception as e:
-        st["judged"].add(last_id)  # never retry the same garbage forever
+    except ValueError as e:
+        # Deterministic garbage (unparseable reply): fail loud and mark
+        # judged - never a silent pass, never a token-burning retry of the
+        # same input. Transient errors (router restart, timeout, 5xx)
+        # propagate instead: the finish stays UNJUDGED and the next pass
+        # retries - the gate reappears when the router does (ADR 0036).
+        st["judged"].add(last_id)
         log(f"!! judge failed for {title!r}: {e}")
         return
-    st["judged"].add(last_id)
-    st["scores"].append(verdict["score"])
-    action = supervisor.decide(st["scores"], threshold, max_iters)
+    action = supervisor.decide(st["scores"] + [verdict["score"]],
+                               threshold, max_iters)
     log(f"critic: {title} score {verdict['score']:.2f} "
         f"issues={verdict['issues'] or '[]'} -> {action}")
     if action == "refine":
+        # Post BEFORE recording state: a failed POST propagates with the
+        # finish still unjudged, so the next pass re-judges and re-posts -
+        # the one action this loop exists for is never silently dropped.
         # async so one slow session never blocks the pass; an idle session
         # restarts on admit (the endpoint the kick itself uses, ADR 0033).
         ocall("POST", f"/session/{sid}/prompt_async?directory=/workspace",
               {"parts": [{"type": "text",
                           "text": supervisor.refinement_prompt(verdict)}]})
-    elif action == "stop":
+    st["judged"].add(last_id)
+    st["scores"].append(verdict["score"])
+    if action == "stop":
         st["stopped"] = True
         log(f"STOP: {title} exhausted {max_iters} refinements "
             f"(scores {st['scores']}) - needs a human")
@@ -94,11 +103,14 @@ def _judge_finish(ocall, judge_call, sid: str, title: str, st: dict, *,
 
 
 def tick(ocall, judge_call, state: dict, *, start_ms: float,
-         threshold: float, max_iters: int, log=print) -> None:
+         threshold: float, max_iters: int, log=print,
+         announced: set | None = None) -> None:
     """One supervision pass over the stack's sessions. ocall(method, path,
     body=None) is the opencode API; judge_call(transcript) returns a
     verdict - both injected so the loop is unit-testable. One bad session
-    never stalls the pass."""
+    never stalls the pass. `announced` (a caller-owned set) makes skipped
+    pre-start sessions visible exactly once - the gate being off must be
+    distinguishable from the gate passing."""
     sessions = ocall("GET", "/session?directory=/workspace")
     if not isinstance(sessions, list):
         return
@@ -112,6 +124,10 @@ def tick(ocall, judge_call, state: dict, *, start_ms: float,
         title = str(s.get("title") or "")
         if not supervised(title, (s.get("time") or {}).get("created"),
                           start_ms):
+            if (announced is not None and KICKED_TITLE.match(title)
+                    and sid not in announced):
+                announced.add(sid)
+                log(f"skipping {title} ({sid}): predates supervisor start")
             continue
         st = state.setdefault(sid, {"judged": set(), "scores": [],
                                     "stopped": False})
@@ -176,18 +192,19 @@ def main() -> int:
     max_iters = int(os.environ.get("SUPERVISE_MAX_ITERS", "2"))
     start_ms = time.time() * 1000  # opencode session times are ms epoch
     state: dict = {}  # sid -> judged/scores/stopped; pod restart re-dates
+    announced: set = set()  # pre-start sessions already skip-logged
     print(f"supervisor up: judging kicked sessions on {base} "
           f"(judge {judge_model}, threshold {threshold}, "
           f"max {max_iters} refinements)", flush=True)
     while True:
         # First thing every pass: the liveness probe reads this file; a
-        # wedged pass (e.g. a hung judge call) goes unhealthy within 5 min.
+        # wedged pass (e.g. a hung judge call) goes unhealthy eventually.
         HEARTBEAT.write_text(f"{time.time():.0f}\n")
         try:
             tick(lambda m, p, b=None: api(base, password, m, p, b),
                  lambda t: judge(router, master_key, judge_model, t),
                  state, start_ms=start_ms, threshold=threshold,
-                 max_iters=max_iters)
+                 max_iters=max_iters, announced=announced)
         except Exception as e:
             print(f"!! tick failed: {e}", flush=True)
         time.sleep(interval)

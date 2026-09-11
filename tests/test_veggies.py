@@ -473,6 +473,13 @@ def test_supervisor_component_render(spec):
     assert by_name["ROUTER_URL"]["value"] == "http://127.0.0.1:4000/v1"
     # zero egress by construction: no proxy env reaches the container
     assert not set(by_name) & {"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"}
+    # unbuffered logs: the pod log is the ONLY operator surface (PASS/STOP
+    # are log-only by design), block-buffered prints would hide verdicts
+    assert by_name["PYTHONUNBUFFERED"]["value"] == "1"
+    # the heartbeat lives on a dedicated emptyDir the agent cannot write
+    assert sup.volumes(ctx) == [{"name": "supervisor-tmp", "emptyDir": {}}]
+    mounts = {m["name"]: m["mountPath"] for m in container["volumeMounts"]}
+    assert mounts["supervisor-tmp"] == "/tmp"
     files = sup.config_files(ctx)
     assert files["supervisor.py"] == (INFRA_REPO / "cli/supervisor.py").read_text()
     assert "supervise-daemon.py" in files

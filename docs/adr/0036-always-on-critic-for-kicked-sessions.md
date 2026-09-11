@@ -88,8 +88,9 @@ execution, and adversarial review. Two separate gaps:
   env, like the litellm container - same pod, same secret store, same
   trust domain; the 0028 invariant is "never leaves the pod", kept.
 - The judge model defaults to deepseek-v4 judging kimi-k3; stacks that
-  re-point the author model should keep the two different (SUPERVISE_*
-  env overrides in the daemon).
+  re-point the author model must keep the two different. There is no
+  per-stack tuning knob - the defaults live in the daemon and changing
+  them is a PR, like everything else here.
 - `veggies up` on a supervision stack pulls one more image and waits on
   the supervisor's heartbeat probe (first beat lands before any IO, so
   cold pods come up healthy).
