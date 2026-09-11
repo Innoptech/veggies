@@ -37,6 +37,12 @@ from capabilities import (  # noqa: E402  (re-exported for cli/veggies.py)
 )
 from components import litellm, mcp_toolbox, opencode, squid  # noqa: E402
 from components import supervisor as supervisor_component  # noqa: E402
+from permission_envelope import (  # noqa: E402
+    ask_violations_in_config,
+    ask_violations_in_markdown,
+    project_tier_files,
+    scan_project_tier,
+)
 
 # Re-exported for tests and cli/veggies.py (single import surface).
 IMAGE_LITELLM = litellm.IMAGE_LITELLM

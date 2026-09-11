@@ -193,31 +193,90 @@ def test_opencode_json_stack_variant(spec):
     assert rendered == source
 
 
-def _scalars(node):
-    if isinstance(node, dict):
-        for k, v in node.items():
-            yield from _scalars(k)
-            yield from _scalars(v)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _scalars(item)
-    else:
-        yield node
-
-
 def test_no_ask_anywhere():
-    # ADR 0031: unattended sessions park forever on `ask` - the whole
-    # vendored envelope (global config + agent frontmatter) is allow/deny
+    # ADR 0031 (scope amended by 0044): unattended sessions park forever on
+    # `ask` - the merged envelope (vendored global config + agent frontmatter
+    # + the repo's own project tier, which overrides global) is allow/deny
     # only, and `question` is denied explicitly (its default is ask).
     cfg = json.loads((INFRA_REPO / "agent-config/opencode.json").read_text())
-    assert "ask" not in set(_scalars(cfg["permission"]))
+    assert veggies_stack.ask_violations_in_config(
+        cfg, "agent-config/opencode.json") == []
     assert cfg["permission"]["question"] == "deny"
     for agent in sorted((INFRA_REPO / "agent-config/agents").glob("*.md")):
-        parts = agent.read_text().split("---", 2)
-        assert len(parts) == 3, f"{agent.name}: missing frontmatter"
-        front = yaml.safe_load(parts[1])
-        assert "ask" not in set(_scalars(front.get("permission") or {})), \
+        assert veggies_stack.ask_violations_in_markdown(
+            agent.read_text(), f"agent-config/agents/{agent.name}") == [], \
             f"{agent.name}: permission ask parks headless sessions"
+    # The project tier of THIS repo (none today; live forever after - the
+    # fixtures below prove the scan bites the moment one appears).
+    assert veggies_stack.scan_project_tier(INFRA_REPO) == []
+
+
+def test_project_tier_scan_flags_config_ask(tmp_path):
+    (tmp_path / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": "ask"}}))
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("opencode.json" in v and "permission.edit" in v
+               for v in violations)
+
+
+def test_project_tier_scan_flags_inline_agent_ask(tmp_path):
+    (tmp_path / ".opencode").mkdir()
+    (tmp_path / ".opencode/opencode.json").write_text(json.dumps(
+        {"agent": {"reviewer": {"permission": {"bash": "ask"}}}}))
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("agent.reviewer.permission.bash" in v for v in violations)
+
+
+def test_project_tier_scan_flags_frontmatter_ask(tmp_path):
+    d = tmp_path / ".claude/agents"
+    d.mkdir(parents=True)
+    (d / "evil.md").write_text(
+        "---\nname: evil\npermission:\n  bash: ask\n---\nbody\n")
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("evil.md" in v and "bash: ask" in v for v in violations)
+
+
+def test_project_tier_scan_ignores_comments_and_prose(tmp_path):
+    # The vendored adversarial-review.md shape: the word "ask" inside a
+    # frontmatter COMMENT or in body prose is not a permission value.
+    d = tmp_path / ".agents/agents"
+    d.mkdir(parents=True)
+    (d / "ok.md").write_text(
+        "---\nname: ok\npermission:\n"
+        "  # no ask anywhere - asks park headless sessions\n"
+        "  edit: deny\n  bash: allow\n---\nbody prose: ask away\n")
+    (tmp_path / "opencode.jsonc").write_text(
+        '{\n  // ask the user? never\n  "permission": {"edit": "deny"}\n}\n')
+    assert veggies_stack.scan_project_tier(tmp_path) == []
+
+
+def test_project_tier_scan_absent_and_clean(tmp_path):
+    assert veggies_stack.project_tier_files(tmp_path) == []
+    assert veggies_stack.scan_project_tier(tmp_path) == []
+
+
+def test_project_tier_scan_fails_closed_on_unparseable(tmp_path):
+    (tmp_path / "opencode.json").write_text('{"permission": ')
+    violations = veggies_stack.scan_project_tier(tmp_path)
+    assert any("cannot verify ask-free" in v for v in violations)
+
+
+def test_project_tier_files_candidate_list(tmp_path):
+    # Pins the candidate list against silent drift from upstream's walk set.
+    for rel in ("opencode.json", "opencode.jsonc",
+                ".opencode/opencode.json", ".opencode/opencode.jsonc",
+                ".opencode/agents/a.md", ".claude/agents/b.md",
+                ".agents/agent/c.md"):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}" if "md" not in rel.rsplit(".", 1)[-1]
+                     else "---\n---\n")
+    found = {str(f.relative_to(tmp_path))
+             for f in veggies_stack.project_tier_files(tmp_path)}
+    assert found == {"opencode.json", "opencode.jsonc",
+                     ".opencode/opencode.json", ".opencode/opencode.jsonc",
+                     ".opencode/agents/a.md", ".claude/agents/b.md",
+                     ".agents/agent/c.md"}
 
 
 def test_squid_conf_matches_prod_shape():
