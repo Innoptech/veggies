@@ -11,12 +11,12 @@ reviews PRs; agents implement. These rules are not negotiable:
    the conversation. `tofu plan`, Molecule, and lint runs are fine.
 3. **Verify before finishing**: run `mask ci` and make it pass. Kicked
    sessions instead run the repo's declared in-pod verify gate,
-   `SKIP=actionlint-docker mask ci`, declared machine-readably by the
+   `mask ci`, declared machine-readably by the
    marker line below (consumed by scripts/stack_kick.py at kick time, ADR
-   0045) - the SKIP excludes the dockerized actionlint hook, and molecule
-   stays excluded by the banned podman socket (ADR 0028); CI on
-   GitHub-hosted runners covers both.
-   <!-- veggies-verify-gate: SKIP=actionlint-docker mask ci -->
+   0045) - every hook in it runs in-pod (gitleaks/actionlint are
+   image-baked, ADR 0046), and molecule stays excluded by the banned
+   podman socket (ADR 0028); CI on GitHub-hosted runners covers it.
+   <!-- veggies-verify-gate: mask ci -->
    Kicked sessions scale the gate to the diff: a change touching one
    area runs that area's file-scoped pre-commit hooks plus its targeted
    tests (e.g. `pre-commit run --files <files>` and the focused pytest),

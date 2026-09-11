@@ -186,8 +186,8 @@ Rules of engagement:
   create...lock"): wait a few seconds and retry. If
   origin/agent/issue-{number} exists from a crashed run, reconcile
   (merge/rebase); force-push only with --force-with-lease.
-- python/mask/ansible/tofu/tflint/pre-commit/pytest are preinstalled in
-  this image - do NOT run `mask setup` or build a venv.
+- python/mask/ansible/tofu/tflint/gitleaks/actionlint/pre-commit/pytest are
+  preinstalled in this image - do NOT run `mask setup` or build a venv.
 - Draft-first PR (ADR 0046): the PR exists from the FIRST commit, not at
   the end. Right after the plan comment lands and implementation begins,
   push the branch and open a DRAFT: `gh pr create --draft` whose body
@@ -198,8 +198,7 @@ Rules of engagement:
   the PR's head with `git push origin HEAD:agent/issue-{number}`
   (--force-with-lease if the predecessor's commits need rewriting).
   Push early and often: the draft's CI runs on every push and is the feedback
-  loop for the checks this environment cannot run (molecule, the docker
-  pre-commit hook).
+  loop for the checks this environment cannot run (molecule).
   The PR is the deliverable - work is not done until it exists, points
   at the issue, and is marked ready.
 
