@@ -1290,7 +1290,8 @@ def main(argv: list[str] | None = None) -> int:
     p_logs = sub.add_parser("logs", help="pod logs (or one container)")
     p_logs.add_argument("name")
     p_logs.add_argument("container", nargs="?",
-                        choices=["opencode", "litellm", "squid"])
+                        choices=["opencode", "litellm", "squid",
+                                 "supervisor"])
     p_logs.add_argument("-f", "--follow", action="store_true")
     p_logs.set_defaults(func=cmd_logs)
 

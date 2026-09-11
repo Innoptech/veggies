@@ -4,3 +4,6 @@
 mcps: [toolbox]
 # Dogfooding: GH_TOKEN + gh in our own stack for pushes/PRs (ADR 0030).
 github: true
+# Dogfooding: the always-on critic supervises issue-kicked sessions in-pod
+# (ADR 0036) - the issue->agent loop judges itself.
+supervision: supervisor

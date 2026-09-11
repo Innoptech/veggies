@@ -426,6 +426,60 @@ def test_toolbox_render_and_mcp_entry():
     assert "mcp-toolbox-server.py" in tb.config_files(ctx)
 
 
+def test_parse_repo_config_supervision():
+    cfg, warnings = veggies_stack.parse_repo_config("supervision: supervisor\n")
+    assert cfg == {"selections": {"supervision": "supervisor"}}
+    assert warnings == []
+    with pytest.raises(ValueError, match="unknown supervision implementation"):
+        veggies_stack.parse_repo_config("supervision: bogus\n")
+    with pytest.raises(ValueError, match="'supervision' must be a string"):
+        veggies_stack.parse_repo_config("supervision: [x]\n")
+
+
+def test_supervision_is_opt_in_and_order_stable(spec):
+    # default stacks are untouched (the golden file proves the render)
+    assert "supervisor" not in [c.name for c in veggies_stack.stack_components(spec)]
+    spec.selections = {"supervision": "supervisor"}
+    names = [c.name for c in veggies_stack.stack_components(spec)]
+    assert names == ["opencode", "litellm", "squid", "supervisor"]
+    # the v0 `components:` path can name it too
+    by_name = veggies_stack.StackSpec(
+        name="t", repo="/tmp/x",
+        components=["opencode", "litellm", "squid", "supervisor"])
+    assert [c.name for c in veggies_stack.stack_components(by_name)][-1] == "supervisor"
+    # and it flows into the pod render + health wait
+    pod = _pod(spec)
+    assert [c["name"] for c in pod["spec"]["containers"]] == names
+    assert veggies.container_names(spec)[-1] == "veggies-demo-supervisor"
+
+
+def test_supervisor_component_render(spec):
+    """The always-on critic sidecar (ADR 0036): loopback-only, hardened,
+    zero egress, reusing existing pod secrets (never declaring its own)."""
+    spec.selections = {"supervision": "supervisor"}
+    ctx = veggies_stack.build_context(spec, INFRA_REPO)
+    sup = ctx.components[-1]
+    assert sup.provides == "supervision"
+    container = sup.render(ctx)
+    assert "ports" not in container  # pod loopback only, never published
+    assert container["securityContext"] == veggies_stack.HARDENED
+    assert sup.secrets(spec) == []  # reuses harness + router secrets
+    by_name = {e["name"]: e for e in container["env"]}
+    assert by_name["OPENCODE_SERVER_PASSWORD"]["valueFrom"]["secretKeyRef"] == \
+        {"name": "veggies-demo-opencode", "key": "password"}
+    assert by_name["LITELLM_MASTER_KEY"]["valueFrom"]["secretKeyRef"] == \
+        {"name": "veggies-demo-litellm", "key": "master_key"}
+    assert by_name["OPENCODE_URL"]["value"] == "http://127.0.0.1:4096"
+    assert by_name["ROUTER_URL"]["value"] == "http://127.0.0.1:4000/v1"
+    # zero egress by construction: no proxy env reaches the container
+    assert not set(by_name) & {"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"}
+    files = sup.config_files(ctx)
+    assert files["supervisor.py"] == (INFRA_REPO / "cli/supervisor.py").read_text()
+    assert "supervise-daemon.py" in files
+    (probe,) = sup.probes(spec)
+    assert probe.label == "critic" and probe.kind == "exec"
+
+
 def test_render_opencode_json_mcp_block():
     out = json.loads(veggies_stack.render_opencode_json(
         INFRA_REPO, "http://127.0.0.1:4000/v1",
