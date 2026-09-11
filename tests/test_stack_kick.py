@@ -472,7 +472,10 @@ def test_main_discussion_elaborate_command_routes_and_retitles(
 def test_persona_roster_files_exist_and_are_subagents():
     """Every persona the elaborate prompt dispatches must exist in the
     stack's agent roster as a subagent - a missing or mis-moded file
-    means the kicked session names an agent that cannot be dispatched."""
+    means the kicked session names an agent that cannot be dispatched.
+    Personas also stay read-only (ADR 0039): the envelope is
+    allow-by-default, so edit/bash/task/webfetch must each be an explicit
+    deny - a missing key silently inherits allow."""
     agents = Path(__file__).parent.parent / "agent-config/agents"
     for name, _role in stack_kick.PERSONAS:
         f = agents / f"{name}.md"
@@ -481,6 +484,11 @@ def test_persona_roster_files_exist_and_are_subagents():
         assert len(parts) == 3, f"{f.name}: missing frontmatter"
         front = yaml.safe_load(parts[1])
         assert front.get("mode") == "subagent", f"{f.name}: not a subagent"
+        for key in ("edit", "bash", "task", "webfetch"):
+            assert front["permission"].get(key) == "deny", (
+                f"{f.name}: permission.{key} must be 'deny' "
+                f"(read-only persona, ADR 0039), "
+                f"got {front['permission'].get(key)!r}")
 
 
 # --- Elaborate mode (issue #33): a /elaborate discussion comment kicks a
