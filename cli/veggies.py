@@ -866,6 +866,26 @@ def _ui_stop(name: str) -> int:
     return 0
 
 
+def session_links(sessions: list, status: dict, base_url: str,
+                  limit: int = 5) -> list[str]:
+    """Pure: 'state title url' lines, newest-updated first. The web UI's
+    dir route alone opens a composer, not a session list (verified
+    2026-09-11), so ui prints deep links to the actual session views."""
+    def key(s):
+        ts = (s.get("time") or {})
+        return ts.get("updated") or ts.get("created") or 0
+
+    lines = []
+    for s in sorted(sessions, key=key, reverse=True)[:limit]:
+        sid = s.get("id", "")
+        st = (status.get(sid) or {}).get("type", "idle") \
+            if isinstance(status, dict) else "idle"
+        title = str(s.get("title") or "(untitled)")[:44]
+        lines.append(f"  {st:<6} {title:<46} "
+                     f"{base_url}/{ui_dir_segment()}/session/{sid}")
+    return lines
+
+
 def cmd_ui(args: argparse.Namespace) -> int:
     """Easy web UI access: print URL+password; for remote stacks, hold a
     background ssh -L tunnel (pidfile in the state dir) so the terminal
@@ -911,6 +931,19 @@ def cmd_ui(args: argparse.Namespace) -> int:
           f"(user: opencode, password: {password})")
     if pid:
         print(f"tunnel pid {pid}; close with: veggies ui {args.name} --stop")
+    # Deep links to live sessions: after tunneling, the API is loopback-
+    # local on either host flavor, so this works for local and remote alike.
+    probe_port = local if record["host"] else record["port"]
+    sessions = api_call(None, probe_port, password, "GET",
+                        "/session?directory=/workspace")
+    if isinstance(sessions, list) and sessions:
+        status = api_call(None, probe_port, password, "GET",
+                          "/session/status?directory=/workspace")
+        print("sessions (newest first):")
+        for line in session_links(sessions,
+                                  status if isinstance(status, dict) else {},
+                                  url):
+            print(line)
     if args.open_browser and shutil.which("xdg-open"):
         subprocess.Popen(["xdg-open", url], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
