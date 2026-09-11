@@ -26,6 +26,8 @@ router_settings:
 
 litellm_settings:
   drop_params: true
+  # ADR 0022/0044: per-call cost metering to /costs/costs.jsonl (host-mounted)
+  callbacks: custom_callbacks.proxy_handler_instance
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
