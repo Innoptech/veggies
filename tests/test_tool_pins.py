@@ -5,7 +5,9 @@ by version AND sha256 in three places - the harness image
 must agree, or a bump lands in one surface and breaks another three months
 later. Also pins the converted hooks' shape: gitleaks/actionlint are
 language: system under repo: local - hook time involves zero network
-fetches (tofu-fmt precedent)."""
+fetches (tofu-fmt precedent). Also guards Containerfile syntax itself: CI
+builds no image, so an unparsable line would otherwise surface only as a
+failed remote build at `up`/`sync` time."""
 
 import re
 from pathlib import Path
@@ -81,6 +83,40 @@ def test_maskfile_setup_matches_containerfile():
                 break
         else:
             raise AssertionError(f"{tool} asset {asset} missing from maskfile")
+
+
+# Instruction keywords a logical Containerfile line may start with (comments,
+# blank lines and \-continuations excluded).
+INSTRUCTIONS = {
+    "FROM", "RUN", "CMD", "ENTRYPOINT", "COPY", "ADD", "ARG", "ENV",
+    "EXPOSE", "LABEL", "USER", "WORKDIR", "VOLUME", "STOPSIGNAL",
+    "HEALTHCHECK", "SHELL", "ONBUILD",
+}
+
+
+def _containerfiles():
+    return sorted(p for p in ROOT.rglob("*.Containerfile")
+                  if not any(part.startswith(".")
+                             for part in p.relative_to(ROOT).parts))
+
+
+def test_containerfiles_start_with_valid_instructions():
+    # ea432ca pasted its own commit subject at EOF of the opencode
+    # Containerfile: the remote build ran every real instruction, then died
+    # on the unknown one - and CI caught nothing.
+    for path in _containerfiles():
+        continuing = False
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            if continuing:
+                continuing = line.endswith("\\")
+                continue
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            keyword = stripped.split(None, 1)[0].upper()
+            assert keyword in INSTRUCTIONS, \
+                f"{path}:{lineno}: unknown instruction {keyword!r}"
+            continuing = line.endswith("\\")
 
 
 def test_lint_hooks_are_local_system():

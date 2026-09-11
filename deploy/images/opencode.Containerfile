@@ -76,4 +76,3 @@ RUN set -eux; cd /tmp; \
     mv actionlint /usr/local/bin/actionlint; \
     chmod +x /usr/local/bin/gitleaks /usr/local/bin/actionlint; \
     rm -f /tmp/gitleaks.tar.gz /tmp/actionlint.tar.gz
- (feat(image): bake gitleaks 8.30.1 + actionlint 1.7.12, version+sha256 pinned (issue #48))
