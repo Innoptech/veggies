@@ -190,6 +190,79 @@ def test_main_skips_done_issues_with_exit_3(monkeypatch, calls, tmp_path, capsys
     assert "SKIP" in capsys.readouterr().out
 
 
+# --- In-flight guard (ADR 0040): a busy '#N:' session already holds the
+# issue - a stray trigger must skip, not double-book (issue #33, run
+# 34603739921: the agent's own plan comment re-kicked it) ---------------
+
+def _route_sessions(monkeypatch, sessions, status):
+    def fake_api(url, password, method, path, body=None):
+        if path == "/session":
+            return sessions
+        if path == "/session/status":
+            return status
+        raise AssertionError(f"unexpected api call {method} {path}")
+
+    monkeypatch.setattr(stack_kick, "api", fake_api)
+
+
+def test_inflight_reason_busy_titled_session_blocks(monkeypatch):
+    _route_sessions(monkeypatch,
+                    [{"id": "s1", "title": "#7: fix the thing"},
+                     {"id": "s2", "title": "#70: other issue"}],
+                    {"s1": {"type": "busy"}, "s2": {"type": "busy"}})
+    reason = stack_kick.inflight_reason("http://h:1", "pw", "7")
+    assert reason and "s1" in reason and "busy" in reason
+
+
+def test_inflight_reason_idle_absent_or_foreign_proceeds(monkeypatch):
+    # finished (idle) sessions never block a deliberate re-kick
+    _route_sessions(monkeypatch, [{"id": "s1", "title": "#7: t"}],
+                    {"s1": {"type": "idle"}})
+    assert stack_kick.inflight_reason("http://h:1", "pw", "7") is None
+    # prefix matches the exact issue only (#7 must not match #70)
+    _route_sessions(monkeypatch, [{"id": "s2", "title": "#70: t"}],
+                    {"s2": {"type": "busy"}})
+    assert stack_kick.inflight_reason("http://h:1", "pw", "7") is None
+    # odd payloads (degraded endpoints) proceed rather than block
+    _route_sessions(monkeypatch, {}, {})
+    assert stack_kick.inflight_reason("http://h:1", "pw", "7") is None
+
+
+def test_main_skips_inflight_issue_with_exit_3(monkeypatch, tmp_path, capsys):
+    out = tmp_path / "github_output"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off, guard still on
+    _route_sessions(monkeypatch, [{"id": "s9", "title": "#7: t"}],
+                    {"s9": {"type": "busy"}})
+    kicked = []
+    monkeypatch.setattr(stack_kick, "kick",
+                        lambda *a, **k: kicked.append(a) or "ses_x")
+    assert stack_kick.main() == stack_kick.SKIP_DONE
+    assert kicked == []
+    assert "skip_reason=session s9" in out.read_text()
+    assert "SKIP" in capsys.readouterr().out
+
+
+def test_main_inflight_check_failure_proceeds(monkeypatch, calls):
+    for k, v in {"STACK_URL": "http://h:1/", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r"}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+
+    def boom(url, password, method, path, body=None):
+        raise TimeoutError("stack down")
+
+    monkeypatch.setattr(stack_kick, "api", boom)
+    monkeypatch.setattr(stack_kick, "kick", lambda *a, **k: "ses_x")
+    assert stack_kick.main() == 0  # the guard degrades, it never blocks
+
+
 def test_main_missing_env_is_exit_2(monkeypatch, capsys):
     for k in ("STACK_URL", "STACK_PASSWORD", "ISSUE_NUMBER", "ISSUE_TITLE",
               "ISSUE_URL", "REPO", "GITHUB_TOKEN", "GH_TOKEN"):

@@ -338,19 +338,22 @@ run host-side there instead. Smoke-test a fresh image:
 kicks the repo's long-lived stack when:
 
 - an issue gets the `agent-task` label, or
-- an OWNER/MEMBER/COLLABORATOR comment contains `/opencode` - on an issue
-  (the agent works it, ADR 0033) or on a **discussion** (the agent reads
-  the whole thread and distills it into issues with Plan / Happy path /
-  Criteria of success sections, ADR 0038).
+- an OWNER/MEMBER/COLLABORATOR comment **starts with** `/opencode`
+  (command-style; prose mentions never fire) - on an issue (the agent
+  works it, ADR 0033) or on a **discussion** (the agent reads the whole
+  thread and distills it into issues with Plan / Happy path / Criteria of
+  success sections, ADR 0038). The bot account (`olgam4`) can never
+  trigger by comment - the agent must not re-kick itself (ADR 0040).
 
 `agent-task` is one-shot (ADR 0035): the label is cleared after a
 successful kick or a skip - re-add it to retrigger. Done-issues are never
 re-kicked: the kick skips (with a comment saying why) when the issue is
-closed or an `agent/issue-N` PR already exists. A failed kick keeps the
-label. Discussions have no done-guard: every `/opencode` comment is a
-deliberate kick, and re-kicking an evolving discussion is normal (the
-agent dedupes against issues it already created from that discussion;
-ADR 0038).
+closed or an `agent/issue-N` PR already exists, or when a session titled
+`#N: ...` is currently busy on the stack (the in-flight guard, ADR 0040).
+A failed kick keeps the label. Discussions have no done-guard: every
+`/opencode` comment is a deliberate kick, and re-kicking an evolving
+discussion is normal (the agent dedupes against issues it already created
+from that discussion; ADR 0038).
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in its
