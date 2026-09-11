@@ -56,6 +56,7 @@ from veggies_stack import (  # noqa: E402
     state_dir,
 )
 from capabilities import VAULT_GITHUB, VAULT_MODEL  # noqa: E402
+import costs  # noqa: E402
 
 VAULT_PASSWORD_FILE = "~/.config/infra/vault-password"
 
@@ -169,10 +170,10 @@ def resolve_secret_values(
 
 
 def run(cmd: list[str], *, input_text: str | None = None, check: bool = True,
-        capture: bool = False) -> subprocess.CompletedProcess:
+        capture: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd, input=input_text, text=True, check=check,
-        capture_output=capture,
+        capture_output=capture, cwd=cwd,
     )
 
 
@@ -1302,8 +1303,154 @@ def cmd_ls(args: argparse.Namespace) -> int:
         status = live.get(f"veggies-{name}", "down")
         spec = StackSpec(name=name, repo=s["repo"], host=s["host"])
         persist = "quadlet" if host_exists(spec.host, quadlet_path(spec)) else "-"
-        print(f"{name:<20} {status:<12} {persist:<8} {s['host'] or 'local':<7} "
-              f"{s['port']:<6} {s['repo']} ({s['mode']})")
+    print(f"{name:<20} {status:<12} {persist:<8} {s['host'] or 'local':<7} "
+          f"{s['port']:<6} {s['repo']} ({s['mode']})")
+    return 0
+
+
+# --- veggies costs (ADR 0022 decision 4; record contract ADR 0044) --------------
+# All parsing/aggregation/rendering is pure in costs.py; only the log read
+# (filesystem or one ssh round-trip) and the --pr gh lookup live here.
+
+# Lists then cats every spend.jsonl* segment; basenames ride the first line
+# ("segments:a b") so the summary header can name what it read. awk '1'
+# normalizes a missing trailing newline - a franken-line across the segment
+# seam would count as malformed and shrink the report noisily.
+_COSTS_REMOTE_READ = "\n".join([
+    'found=""',
+    'for f in "$1"*; do',
+    '  [ -f "$f" ] || continue',
+    '  found="$found ${f##*/}"',
+    'done',
+    '[ -n "$found" ] || exit 3',  # no spend.jsonl* -> missing log
+    "printf 'segments:%s\\n' \"${found# }\"",
+    'for f in "$1"*; do',
+    '  [ -f "$f" ] || continue',
+    "  awk '1' \"$f\"",
+    'done',
+])
+
+
+def _read_spend_log(host: str | None,
+                    log_base: str) -> tuple[str, list[str]] | None:
+    """(text, segment basenames) over all spend.jsonl* segments, or None
+    when none exist. Rotated segments are plain text (ADR 0044 decision 1)."""
+    if host is None:
+        d = Path(log_base).parent
+        paths = sorted(d.glob(costs.SPEND_LOG_NAME + "*")) if d.is_dir() else []
+        if not paths:
+            return None
+        # errors="replace": a forbidden compressed/rotten segment surfaces as
+        # counted malformed lines instead of silently shrinking the report.
+        text = "\n".join(p.read_text(errors="replace").rstrip("\n")
+                         for p in paths)
+        return text, [p.name for p in paths]
+    r = host_run(host, ["sh", "-c", _COSTS_REMOTE_READ, "sh", log_base],
+                 check=False, capture=True)
+    if r.returncode != 0:
+        noise = [ln for ln in r.stderr.strip().splitlines()
+                 if ln.strip() and "No such file" not in ln]
+        if not r.stdout.strip() or not noise:
+            return None  # rc!=0 + empty stdout (or mere noise) = missing log
+        raise ValueError(f"failed to read spend log on {host}: "
+                         + " | ".join(noise))
+    lines = r.stdout.splitlines()
+    if not lines or not lines[0].startswith("segments:"):
+        raise ValueError(f"unexpected output reading spend log on {host}")
+    return "\n".join(lines[1:]), lines[0][len("segments:"):].split()
+
+
+def _owner_repo(repo_url: str) -> str:
+    """owner/repo for `gh -R`: strip the scheme/host (or git@ host:) and any
+    .git suffix."""
+    path = re.sub(r"\.git$", "", repo_url.rstrip("/"))
+    if path.startswith("git@"):
+        path = path.split(":", 1)[1]
+    elif "://" in path:
+        path = path.split("://", 1)[1].split("/", 1)[1]
+    return "/".join(path.split("/")[-2:])
+
+
+def _resolve_pr_issue(record: dict, pr: int) -> int:
+    """PR N -> issue M via the agent/issue-M branch convention (ADR 0035),
+    using the operator's gh. The only place gh is ever called."""
+    if shutil.which("gh") is None:
+        raise ValueError("--pr needs the gh CLI, which was not found - "
+                         "pass --issue N directly")
+    repo = record["repo"]
+    argv = ["gh", "pr", "view", str(pr), "--json", "headRefName"]
+    if "://" in repo or repo.startswith("git@"):
+        r = run([*argv, "-R", _owner_repo(repo)], check=False, capture=True)
+    else:  # mount mode: the local checkout tells gh which repo
+        r = run(argv, check=False, capture=True, cwd=repo)
+    if r.returncode != 0:
+        raise ValueError(f"gh pr view {pr} failed: {r.stderr.strip()} - "
+                         "pass --issue N directly")
+    branch = json.loads(r.stdout).get("headRefName", "")
+    m = re.match(r"^agent/issue-(\d+)$", branch)
+    if not m:
+        raise ValueError(f"PR #{pr} is on branch {branch!r}, not "
+                         "agent/issue-N - pass --issue N directly")
+    return int(m.group(1))
+
+
+def cmd_costs(args: argparse.Namespace) -> int:
+    record = State().get(args.name)
+    if record is None:
+        raise ValueError(f"unknown stack {args.name!r} (veggies ls)")
+    if args.since is not None:
+        try:
+            since = datetime.strptime(args.since, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(f"--since must be a date like 2026-09-01 "
+                             f"(got {args.since!r})") from None
+    else:
+        since = None
+    spec = StackSpec(name=args.name, repo=record["repo"], host=record["host"])
+    log_base = f"{spec.state_root()}/{args.name}/{costs.SPEND_LOG_NAME}"
+    got = _read_spend_log(record["host"], log_base)
+    if got is None:
+        print(f"no spend log for stack {args.name!r} yet - metering lands "
+              f"with #46 (ADR 0022/0044); {log_base}")
+        return 0
+    text, segments = got
+    parsed = costs.parse_spend_log(text)
+    if not parsed.records and parsed.skipped == 0:
+        print(f"spend log exists but has no records yet ({log_base})")
+        return 0
+    records = sorted(parsed.records, key=lambda r: r.ts)  # ADR 0044: by ts
+    today = datetime.now(timezone.utc).date()
+    if since is None:
+        since = (datetime.fromtimestamp(records[0].ts, tz=timezone.utc).date()
+                 if records else today)
+    earliest = args.since is None
+    window = costs.filter_since(records, since)
+    weekly = costs.use_weekly((today - since).days, args.weekly)
+    if args.issue is not None or args.pr is not None or \
+            args.session is not None:
+        if args.pr is not None:
+            number = _resolve_pr_issue(record, args.pr)
+            target, subject = ("issue", number), f"Issue #{number}"
+        elif args.issue is not None:
+            target = ("issue", args.issue)
+            subject = f"Issue #{args.issue}"
+        else:
+            target = None
+            subject = f"Sessions matching {args.session!r}"
+        if target is not None:
+            sel = [r for r in window if costs.attribute(r.session) == target]
+        else:
+            needle = args.session.lower()
+            sel = [r for r in window if needle in r.session.lower()]
+        print(costs.render_detail(
+            sel, subject=subject,
+            unpriced=sum(1 for r in sel if r.spend is None)))
+        return 0
+    print(costs.render_summary(
+        costs.summarize(window), since=since, today=today, earliest=earliest,
+        segments=segments, skipped=parsed.skipped,
+        unpriced=sum(1 for r in window if r.spend is None),
+        bars=costs.rollup(window, weekly), weekly=weekly))
     return 0
 
 
@@ -1573,6 +1720,25 @@ def main(argv: list[str] | None = None) -> int:
                                  "supervisor"])
     p_logs.add_argument("-f", "--follow", action="store_true")
     p_logs.set_defaults(func=cmd_logs)
+
+    p_costs = sub.add_parser(
+        "costs", help="per-call spend rollup from the stack's spend.jsonl "
+        "(ADR 0022/0044)")
+    p_costs.add_argument("name")
+    p_costs.add_argument("--since", default=None, metavar="YYYY-MM-DD",
+                         help="window start (default: earliest retained record)")
+    p_costs.add_argument("--weekly", action="store_true",
+                         help="ISO-week buckets (auto beyond 62 days)")
+    p_costs_detail = p_costs.add_mutually_exclusive_group()
+    p_costs_detail.add_argument("--issue", type=int, default=None,
+                                help="detail for sessions titled '#N: ...'")
+    p_costs_detail.add_argument("--pr", type=int, default=None,
+                                help="detail for the issue behind PR N "
+                                "(resolves agent/issue-N via gh)")
+    p_costs_detail.add_argument("--session", default=None, metavar="SUBSTR",
+                                help="detail for titles containing SUBSTR "
+                                "(case-insensitive)")
+    p_costs.set_defaults(func=cmd_costs)
 
     p_prepare = sub.add_parser(
         "prepare", help="pre-build/pull a stack's images on a host, with "

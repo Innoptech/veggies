@@ -1,6 +1,10 @@
-"""Tests for cli/costs.py - the pure spend-log module (ADR 0044)."""
+"""Tests for cli/costs.py (pure spend-log module, ADR 0044) and the
+`veggies costs` wiring in cli/veggies.py (handler tests never touch real
+ssh/podman/gh - State, host_run, run and shutil.which are stubbed)."""
 
+import importlib.util
 import json
+import subprocess
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -10,6 +14,11 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "cli"))
 import costs  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location("veggies", ROOT / "cli/veggies.py")
+veggies = importlib.util.module_from_spec(_spec)
+sys.modules["veggies"] = veggies  # dataclass introspection needs this (py3.14)
+_spec.loader.exec_module(veggies)
 
 
 def _ts(y, m, d, hh=0, mm=0, ss=0) -> float:
@@ -413,3 +422,239 @@ def test_empty_inputs_render():
     out = costs.render_detail([], subject="Issue #9", unpriced=0)
     assert out.splitlines()[0] == "Issue #9: $0.0000 across 0 sessions (0 calls)"
     assert "daily (no spend):" in out
+
+
+# --- cmd_costs wiring (cli/veggies.py) -------------------------------------------
+
+
+@pytest.fixture()
+def local_stack(tmp_path, monkeypatch):
+    """A local stack on record; its stack dir is <state_dir>/demo."""
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(veggies.StackSpec(name="demo", repo="/tmp/demo",
+                                          port=4096))
+    return tmp_path / "demo"
+
+
+def _write_segments(stack_dir: Path, segments: dict[str, str]) -> None:
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    for fname, text in segments.items():
+        (stack_dir / fname).write_text(text)
+
+
+def test_main_costs_unknown_stack(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    rc = veggies.main(["costs", "nope"])
+    assert rc == 1
+    assert "unknown stack 'nope' (veggies ls)" in capsys.readouterr().err
+
+
+def test_main_costs_missing_log_is_a_message_not_an_error(local_stack, capsys):
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "no spend log for stack 'demo' yet" in out
+    assert "spend.jsonl" in out  # the expected path is named
+
+
+def test_main_costs_empty_log(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": ""})
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "no records yet" in out
+
+
+def test_main_costs_local_two_segments_concatenated(local_stack, capsys):
+    _write_segments(local_stack, {
+        "spend.jsonl": _line(session="#47: x", session_id="s1", spend=1.0),
+        "spend.jsonl.1": _line(session="#12: y", session_id="s2",
+                               spend=2.0) + "\n",
+    })
+    rc = veggies.main(["costs", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    header = out.splitlines()[0]
+    assert "2 segments (spend.jsonl, spend.jsonl.1)" in header
+    assert "$3.00 total, 2 calls" in header
+    assert "earliest retained record" in header
+    assert "skipped:" not in out  # the segment seam is not a blank line
+
+
+def test_main_costs_explicit_since_drops_suffix(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": _line(session_id="s1")})
+    rc = veggies.main(["costs", "demo", "--since", "2026-09-01"])
+    header = capsys.readouterr().out.splitlines()[0]
+    assert rc == 0
+    assert header.startswith("spend since 2026-09-01 ")
+    assert "earliest retained record" not in header
+
+
+def test_main_costs_since_bogus_is_a_clean_error(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": _line(session_id="s1")})
+    rc = veggies.main(["costs", "demo", "--since", "bogus"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "veggies: error:" in err and "--since" in err
+    assert "2026-09-01" in err  # an example to copy
+
+
+def _remote_stack(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(veggies.StackSpec(
+        name="rem", repo="https://github.com/org/rem.git", mode="clone",
+        host="vps", port=4097))
+
+
+def test_main_costs_remote_read_routes_through_host_run(tmp_path, monkeypatch,
+                                                        capsys):
+    _remote_stack(tmp_path, monkeypatch)
+    calls = []
+
+    def fake_host_run(host, args, **kw):
+        calls.append((host, args, kw))
+        payload = ("segments:spend.jsonl spend.jsonl.1\n"
+                   + _line(session="#3: z", session_id="s1", spend=0.25) + "\n")
+        return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+
+    monkeypatch.setattr(veggies, "host_run", fake_host_run)
+    rc = veggies.main(["costs", "rem"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    header = out.splitlines()[0]
+    assert "$0.2500 total, 1 calls" in header
+    assert "2 segments (spend.jsonl, spend.jsonl.1)" in header
+    host, args, kw = calls[0]
+    assert host == "vps"
+    assert args[:2] == ["sh", "-c"]
+    assert args[3:] == ["sh",
+                        "/home/stacks/.local/state/veggies/rem/spend.jsonl"]
+    assert kw == {"check": False, "capture": True}
+
+
+def test_main_costs_remote_missing_log(tmp_path, monkeypatch, capsys):
+    _remote_stack(tmp_path, monkeypatch)
+    monkeypatch.setattr(veggies, "host_run", lambda *a, **k:
+                        subprocess.CompletedProcess(a, 3, stdout="", stderr=""))
+    rc = veggies.main(["costs", "rem"])
+    assert rc == 0 and "no spend log" in capsys.readouterr().out
+
+
+def test_main_costs_remote_read_failure_is_clean_error(tmp_path, monkeypatch,
+                                                       capsys):
+    _remote_stack(tmp_path, monkeypatch)
+    monkeypatch.setattr(veggies, "host_run", lambda *a, **k:
+                        subprocess.CompletedProcess(
+                            a, 1, stdout="partial",
+                            stderr="cat: /x/spend.jsonl.2: Permission denied"))
+    rc = veggies.main(["costs", "rem"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "veggies: error:" in err and "Permission denied" in err
+    assert "Traceback" not in err
+
+
+def test_main_costs_issue_detail_filters(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": "\n".join([
+        _line(session="#47: add costs", session_id="s1", spend=1.0),
+        _line(session="#12: tidy", session_id="s2", spend=2.0)])})
+    rc = veggies.main(["costs", "demo", "--issue", "47"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.splitlines()[0].startswith("Issue #47: $1.00 across 1 sessions")
+    assert "#12" not in out
+
+
+def test_main_costs_session_substring_case_insensitive(local_stack, capsys):
+    _write_segments(local_stack, {"spend.jsonl": "\n".join([
+        _line(session="#47: Add Costs", session_id="s1", spend=1.0),
+        _line(session="#12: tidy", session_id="s2", spend=2.0)])})
+    rc = veggies.main(["costs", "demo", "--session", "costs"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.splitlines()[0].startswith("Sessions matching 'costs': $1.00")
+    assert "#12" not in out
+
+
+def test_main_costs_weekly_flag(local_stack, capsys):
+    _write_segments(local_stack,
+                    {"spend.jsonl": _line(session_id="s1", spend=1.0)})
+    rc = veggies.main(["costs", "demo", "--weekly"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "weekly (" in out
+
+
+# --pr: operator-side gh resolves agent/issue-N (ADR 0035) -----------------------
+
+
+def _pr_stack(tmp_path, monkeypatch, repo="/tmp/demo"):
+    monkeypatch.setenv("VEGGIES_STATE_DIR", str(tmp_path))
+    veggies.State().add(veggies.StackSpec(name="demo", repo=repo, port=4096))
+    _write_segments(tmp_path / "demo", {"spend.jsonl": "\n".join([
+        _line(session="#47: add costs", session_id="s1", spend=1.0),
+        _line(session="#12: tidy", session_id="s2", spend=2.0)])})
+
+
+def _stub_gh(monkeypatch, branch):
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"], seen["kw"] = cmd, kw
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps({"headRefName": branch}), stderr="")
+
+    monkeypatch.setattr(veggies, "run", fake_run)
+    monkeypatch.setattr(veggies.shutil, "which",
+                        lambda c: "/usr/bin/gh" if c == "gh" else None)
+    return seen
+
+
+def test_main_costs_pr_resolves_agent_branch_url_repo(tmp_path, monkeypatch,
+                                                      capsys):
+    _pr_stack(tmp_path, monkeypatch, repo="https://github.com/org/demo.git")
+    seen = _stub_gh(monkeypatch, "agent/issue-47")
+    rc = veggies.main(["costs", "demo", "--pr", "61"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.splitlines()[0].startswith("Issue #47: $1.00")
+    assert seen["cmd"] == ["gh", "pr", "view", "61", "--json", "headRefName",
+                           "-R", "org/demo"]
+
+
+def test_main_costs_pr_mount_mode_uses_repo_cwd(tmp_path, monkeypatch, capsys):
+    _pr_stack(tmp_path, monkeypatch, repo="/tmp/demo")
+    seen = _stub_gh(monkeypatch, "agent/issue-47")
+    rc = veggies.main(["costs", "demo", "--pr", "61"])
+    assert rc == 0
+    assert seen["cmd"] == ["gh", "pr", "view", "61", "--json", "headRefName"]
+    assert seen["kw"].get("cwd") == "/tmp/demo"
+
+
+def test_main_costs_pr_non_agent_branch_names_it(tmp_path, monkeypatch, capsys):
+    _pr_stack(tmp_path, monkeypatch)
+    _stub_gh(monkeypatch, "feature/foo")
+    rc = veggies.main(["costs", "demo", "--pr", "61"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "feature/foo" in err and "--issue" in err
+
+
+def test_main_costs_pr_gh_failure_is_named(tmp_path, monkeypatch, capsys):
+    _pr_stack(tmp_path, monkeypatch)
+
+    def fake_run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 4, stdout="",
+                                           stderr="no pull requests found")
+
+    monkeypatch.setattr(veggies, "run", fake_run)
+    monkeypatch.setattr(veggies.shutil, "which", lambda c: "/usr/bin/gh")
+    rc = veggies.main(["costs", "demo", "--pr", "99"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "no pull requests found" in err and "--issue" in err
+
+
+def test_main_costs_pr_without_gh_cli(tmp_path, monkeypatch, capsys):
+    _pr_stack(tmp_path, monkeypatch)
+    monkeypatch.setattr(veggies.shutil, "which", lambda c: None)
+    rc = veggies.main(["costs", "demo", "--pr", "61"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "gh" in err and "--issue" in err
