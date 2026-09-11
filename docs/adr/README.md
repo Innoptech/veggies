@@ -56,6 +56,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
 | [0046](0046-draft-first-pr-lifecycle.md) | Draft-first PR lifecycle and the redefined done-guard | accepted |
 | [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted |
+| [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted |
 
 ## Deviation ledger (vs the original brief)
 
