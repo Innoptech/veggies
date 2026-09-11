@@ -64,11 +64,17 @@ tofu fmt -recursive terraform/
 
 ## tofu-validate
 
-> Init without backend and validate the root module (offline-safe, no state).
+> Init without backend and validate the root module (no state; init still fetches the registry, see export).
 
 ```bash
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
+# Verified in-pod (issue #50): tofu init fetches the registry discovery doc
+# on EVERY run, even with all providers cached, and the default registry
+# client timeout is 10s - cold in-pod egress through the chained squid
+# measured 20-35s, so init flaked. 120s = ~3x the worst observed cold fetch,
+# headroom for parallel sessions contending for the same proxy.
+export TF_REGISTRY_CLIENT_TIMEOUT=120
 cd terraform
 tofu init -backend=false -input=false
 tofu validate
