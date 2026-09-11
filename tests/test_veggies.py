@@ -731,6 +731,31 @@ def test_overlay_image_name():
     assert re.fullmatch(r"localhost/veggies-harness-overlay:[0-9a-f]{16}", name)
 
 
+def test_resolve_harness_overlay_absent_key_returns_none(tmp_path):
+    assert veggies.resolve_harness_overlay(None, str(tmp_path), {}) is None
+
+
+def test_resolve_harness_overlay_reads_validates_and_names(tmp_path):
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nRUN true\n"
+    (tmp_path / "harness.Containerfile").write_text(text)
+    pair = veggies.resolve_harness_overlay(
+        None, str(tmp_path), {"harness_containerfile": "harness.Containerfile"})
+    assert pair == (veggies_stack.overlay_image_name(text), text)
+
+
+def test_resolve_harness_overlay_missing_file_raises(tmp_path):
+    with pytest.raises(ValueError, match="harness_containerfile"):
+        veggies.resolve_harness_overlay(
+            None, str(tmp_path), {"harness_containerfile": "nope.Containerfile"})
+
+
+def test_resolve_harness_overlay_invalid_containerfile_raises(tmp_path):
+    (tmp_path / "bad.Containerfile").write_text("FROM alpine:3\n")
+    with pytest.raises(ValueError):
+        veggies.resolve_harness_overlay(
+            None, str(tmp_path), {"harness_containerfile": "bad.Containerfile"})
+
+
 def test_stack_components_includes_mcps():
     spec = veggies_stack.StackSpec(name="t", repo="/tmp/x", mcps=("toolbox",))
     names = [c.name for c in veggies_stack.stack_components(spec)]
@@ -1351,15 +1376,16 @@ def test_prepare_uses_local_repo_config_and_streams(monkeypatch, tmp_path,
     (tmp_path / "veggies.yml").write_text("mcps: [toolbox]\n")
     calls = []
 
-    def fake_ensure(host, repo, spec, verbose=False):
-        calls.append((host, verbose,
+    def fake_ensure(host, repo, spec, verbose=False, overlay=None):
+        calls.append((host, verbose, overlay,
                           [c.name for c in veggies.stack_components(spec)]))
 
     monkeypatch.setattr(veggies, "ensure_images", fake_ensure)
     args = argparse.Namespace(repo=str(tmp_path), host="veggies", name=None)
     assert veggies.cmd_prepare(args) == 0
-    host, verbose, comps = calls[0]
+    host, verbose, overlay, comps = calls[0]
     assert host == "veggies" and verbose is True
+    assert overlay is None  # no harness_containerfile in this veggies.yml
     assert "toolbox" in comps  # mcps from the local veggies.yml honored
     assert comps[:3] == ["opencode", "litellm", "squid"]
     out = capsys.readouterr().out
