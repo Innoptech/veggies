@@ -910,7 +910,11 @@ def test_remote_spec_paths(spec):
 def test_remote_render_has_no_local_paths(spec):
     spec.host = "veggies"
     text = veggies.render_yaml(spec, INFRA_REPO)
-    assert str(INFRA_REPO) not in text
+    # Prefix form: the harness's in-pod workspace constant is the literal
+    # "/workspace", which IS the infra checkout path in the stack's own
+    # clone - a bare `str(INFRA_REPO) not in text` false-positives there
+    # (verified 2026-09-11 in the issue-26 session).
+    assert str(INFRA_REPO) + "/" not in text
     assert "/home/stacks/" in text
 
 
@@ -1062,5 +1066,8 @@ def test_render_matches_golden(monkeypatch):
         name="demo", repo="/tmp/veggies-test-state/demo-repo", mode="mount", port=4096
     )
     golden = (ROOT / "tests/golden/pod.yaml").read_text()
-    rendered = veggies.render_yaml(fixed, INFRA_REPO).replace(str(ROOT), "@ROOT@")
+    # Prefix replace: a blanket replace of ROOT breaks when the checkout IS
+    # "/workspace" (the stack's own clone) - it would also rewrite the
+    # harness's constant in-pod `mountPath: /workspace`.
+    rendered = veggies.render_yaml(fixed, INFRA_REPO).replace(str(ROOT) + "/", "@ROOT@/")
     assert rendered == golden
