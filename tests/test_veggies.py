@@ -751,6 +751,7 @@ def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
     assert veggies.cmd_ui(args) == 0
     out = capsys.readouterr().out
     assert "http://127.0.0.1:4098/L3dvcmtzcGFjZQ" in out and "password: p" in out
+    assert "home:   http://127.0.0.1:4098/" in out  # the all-sessions view
     assert "tunnel" not in out
 
 
@@ -780,6 +781,7 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
     assert "5098:127.0.0.1:4098" in argv
     out = capsys.readouterr().out
     assert "http://127.0.0.1:5098/L3dvcmtzcGFjZQ" in out and "--stop" in out
+    assert "home:   http://127.0.0.1:5098/" in out
     # pidfile lets a second run reuse the live tunnel
     info = json.loads((tmp_path / "tunnels" / "v.json").read_text())
     assert info == {"pid": 4242, "port": 5098}
