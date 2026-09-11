@@ -317,7 +317,10 @@ jobs:
         run: |
           echo "changes_result=$CHANGES_RESULT molecule_result=$MOLECULE_RESULT ansible_changed=$ANSIBLE_CHANGED is_pr=$IS_PR"
           [ "$CHANGES_RESULT" = "success" ] || { echo "change detection did not succeed - failing closed"; exit 1; }
-          [ "$IMAGE_RESULT" != "failure" ] && [ "$IMAGE_RESULT" != "cancelled" ] || { echo "molecule-image $IMAGE_RESULT - the shared test image never built; see the molecule-image job log"; exit 1; }
+          if [ "$IMAGE_RESULT" = "failure" ] || [ "$IMAGE_RESULT" = "cancelled" ]; then
+            echo "molecule-image $IMAGE_RESULT - the shared test image never built; see the molecule-image job log"
+            exit 1
+          fi
           if [ "$MOLECULE_RESULT" = "skipped" ]; then
             if [ "$IS_PR" = "true" ] && [ "$ANSIBLE_CHANGED" = "false" ]; then
               MSG="no ansible/** changes on this PR - molecule scenarios not applicable to this diff"
