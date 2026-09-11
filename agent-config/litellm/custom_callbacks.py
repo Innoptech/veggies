@@ -80,7 +80,9 @@ def build_record(kwargs, response_obj, end_time, status, stack, error=None):
     tags = metadata.get("tags") or []
     if status == "success":
         usage = _usage_dict(response_obj)
-        spend = kwargs.get("response_cost")  # 0 stays 0 (unpriced models)
+        # Verbatim passthrough: unpriced models report None, priced-at-zero
+        # report 0 - both must survive so readers can distinguish them.
+        spend = kwargs.get("response_cost")
     else:
         usage, spend = None, None
     record = {
@@ -121,6 +123,9 @@ class VeggiesCostLogger(CustomLogger):
     """Appends one JSON line per model call to the cost log. Fail-open."""
 
     def __init__(self, path=None):
+        # Tolerated by the real CustomLogger and the ImportError stand-in;
+        # future litellm bumps may make the base stateful.
+        super().__init__()
         self._path = path or os.environ.get("VEGGIES_COST_LOG",
                                             "/costs/costs.jsonl")
         self._stack = os.environ.get("VEGGIES_STACK", "")
@@ -157,9 +162,14 @@ class VeggiesCostLogger(CustomLogger):
     async def async_log_failure_event(self, kwargs, response_obj,
                                       start_time, end_time):
         try:
+            # The proxy's failure path always calls this with
+            # response_obj=None; the exception lives at kwargs["exception"]
+            # (litellm_logging.py _async_failure_handler_body). response_obj
+            # stays as a fallback for any other caller.
+            error = kwargs.get("exception") or response_obj
             self._emit(build_record(kwargs, response_obj, end_time,
                                     "failure", self._stack,
-                                    error=response_obj))
+                                    error=error))
         except Exception as exc:
             print(f"cost metering: failure-event failed: {exc}",
                   file=sys.stderr)

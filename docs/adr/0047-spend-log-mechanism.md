@@ -47,8 +47,9 @@ listed under Consequences, not assumed.
      `success` or `failure`. `model` is the provider model id,
      `model_group` the litellm alias.
    - `spend` is USD as litellm's price map computes it - an estimate.
-     `0` means "unpriced model", never "free"; raw token counts are on
-     every success line, so spend can be repriced at read time.
+     Unpriced/unknown models record `spend: null` on a success line; `0`
+     means priced-at-zero; raw token counts are on every success line, so
+     spend can be repriced at read time.
    - `session_title` precedence: request-body `metadata.session_title`,
      then the URI-decoded `session-title:` tag, then null. `caller` and
      `session_id` follow the same body-metadata > tag > null shape
@@ -61,7 +62,11 @@ listed under Consequences, not assumed.
      key. `tags` carries the raw metadata tags list.
    - One record per litellm logging event = settled, billable outcomes.
      In-flight streams at `veggies down` are lost; router-internal retry
-     granularity (`num_retries: 2`) is `TODO(verify)` on a live stack.
+     granularity (`num_retries: 2`) is `TODO(verify)` on a live stack. A
+     mid-stream disconnect is logged as a failure with null usage even
+     though litellm recovers partial usage internally
+     (`combined_usage_object`) - accepted undercount; repricing or
+     revisiting belongs to #47.
 3. **Attribution stamps at the two producer sides.**
    - opencode: `agent-config/plugins/metering.js` hooks `chat.headers`
      and comma-appends to the `x-litellm-tags` header:
