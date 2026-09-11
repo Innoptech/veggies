@@ -15,16 +15,6 @@ repos:
       - id: yamllint
         args: [--config-file, .yamllint]
 
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
-    hooks:
-      - id: gitleaks
-
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
-    hooks:
-      - id: actionlint-docker
-
   - repo: https://github.com/ansible/ansible-lint
     rev: v26.8.0
     hooks:
@@ -32,6 +22,24 @@ repos:
         files: ^ansible/
         # see .ansible-lint exclude_paths: playbooks carry vault vars_files
         exclude: ^ansible/playbooks/
+
+  # gitleaks + actionlint run image-baked (pod/CI) or ~/.local/bin (host,
+  # `mask setup`) binaries: language: system -> zero network at hook time
+  # (issue #48, ADR 0044; tofu-fmt precedent). Entries byte-identical to
+  # the upstream v8.30.1 / v1.7.12 hooks - behavior unchanged.
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets
+        entry: gitleaks git --pre-commit --redact --staged --verbose
+        language: system
+        pass_filenames: false
+      - id: actionlint
+        name: Lint GitHub Actions workflow files
+        entry: actionlint
+        language: system
+        types: [yaml]
+        files: ^\.github/workflows/
 
   # tofu fmt uses the local binary (language: system -> no network fetch).
   # CI runs the identical command via the tofu job.
