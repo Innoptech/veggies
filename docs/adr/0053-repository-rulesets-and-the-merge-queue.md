@@ -44,9 +44,11 @@ production box from it).
   repository rulesets and merge queue are available on all public repos
   regardless of plan. No rulesets existed.
 - A real `tofu plan` against the lock-pinned provider (integrations/github
-  6.13.0) planned the full ruleset with `merge_queue` clean (`1 to add`). The
-  probe caught that 6.13.0 requires `merge_method` uppercase; the probe's
-  validity is tied to the locked version (the constraint is `>= 6.0`).
+  6.13.0) planned the full ruleset with `merge_queue` clean (`1 to add`) - a
+  scratch config targeting Innoptech/veggies directly; the entitlement
+  question is whether the API accepts the resource, not this repo's module
+  wiring. The probe caught that 6.13.0 requires `merge_method` uppercase; the
+  probe's validity is tied to the locked version (the constraint is `>= 6.0`).
 - Final proof is the operator's apply. If the API rejects it anyway, the
   fallback from #71 stands: cheap scoped CI (#76/#77) plus native auto-merge,
   and the queue docs revert with the mechanism.
@@ -73,7 +75,8 @@ Queue shape: `merge_method = REBASE` (house practice: main has no merge
 commits and the repo allows squash+rebase only - API-verified; if apply
 rejects it the fallback is SQUASH, which would collapse multi-commit agent
 PRs), `grouping_strategy = ALLGREEN`, groups of up to 5, minimum 1 (a solo PR
-never waits for a group), `check_response_timeout_minutes = 60` (GitHub
+never waits for a group; the 5-minute minimum-group wait binds only above
+that), `check_response_timeout_minutes = 60` (GitHub
 default; TODO(verify): size it from the first real queued run - the full
 suite includes the 7-role molecule matrix and pytest on the self-hosted
 runner pool that kicked sessions also occupy. If timeout evictions appear,
