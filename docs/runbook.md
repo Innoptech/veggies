@@ -348,10 +348,16 @@ veggies ui veggie --stop           # close the tunnel
 ```
 
 Every kick also comments on the issue (ADR 0034): session id, deep link
-(`http://127.0.0.1:<port+1000>/session/<id>` once tunneled), and the
-password one-liner - and a failure comment when the stack rejects the
-kick. Kicked sessions are titled `#N: <issue title>`, so the web UI
-session list reads like an issue list.
+(`http://127.0.0.1:<port+1000>/L3dvcmtzcGFjZQ/session/<id>` once
+tunneled), and the password one-liner - and a failure comment when the
+stack rejects the kick. Kicked sessions are titled `#N: <issue title>`.
+
+Web UI map (1.18.27, verified 2026-09-11): `/` is a browser-local projects
+dashboard (empty until you Add project); `/<dir>` (dir = base64url of the
+workspace path, no padding) opens a new-session composer, NOT a session
+list; the session view `/<dir>/session/<id>` is the watch target, with
+project-wide session search in its header. `veggies ui` therefore prints
+deep links to the 5 newest sessions alongside the base URL.
 
 Tunnel gotcha (verified 2026-09-10): if a LOCAL stack already publishes the
 same port, `ssh -L <port>:...` cannot bind it - and anything pointed at

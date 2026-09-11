@@ -745,6 +745,7 @@ def test_cmd_ui_local_prints_directly(monkeypatch, capsys):
     monkeypatch.setattr(veggies.State, "get", lambda self, n: {
         "repo": "/r", "mode": "mount", "port": 4098, "host": None,
         "password": "p"})
+    monkeypatch.setattr(veggies, "api_call", lambda *a, **k: [])
     args = argparse.Namespace(name="v", port=None, stop=False,
                               open_browser=False)
     assert veggies.cmd_ui(args) == 0
@@ -760,6 +761,7 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
         "password": "p"})
     monkeypatch.setattr(veggies, "port_free", lambda p: True)
     monkeypatch.setattr(veggies, "probe_api", lambda *a, **k: {"ok": 1})
+    monkeypatch.setattr(veggies, "api_call", lambda *a, **k: [])
 
     class FakeProc:
         pid = 4242
@@ -781,6 +783,22 @@ def test_cmd_ui_remote_spawns_background_tunnel(monkeypatch, tmp_path, capsys):
     # pidfile lets a second run reuse the live tunnel
     info = json.loads((tmp_path / "tunnels" / "v.json").read_text())
     assert info == {"pid": 4242, "port": 5098}
+
+
+def test_session_links_newest_first_with_urls():
+    sessions = [
+        {"id": "ses_old", "title": "old",
+         "time": {"updated": 1000}},
+        {"id": "ses_new", "title": "#15: the fix",
+         "time": {"updated": 2000}},
+        {"id": "ses_nokeys"},
+    ]
+    lines = veggies.session_links(sessions, {"ses_new": {"type": "busy"}},
+                                  "http://127.0.0.1:5098")
+    assert lines[0].startswith("  busy") and "ses_new" in lines[0]
+    assert "http://127.0.0.1:5098/L3dvcmtzcGFjZQ/session/ses_new" in lines[0]
+    assert "(untitled)" in lines[-1]
+    assert len(veggies.session_links(sessions * 3, {}, "u", limit=5)) == 5
 
 
 def test_cmd_ui_reuses_live_tunnel_and_stop_kills(monkeypatch, tmp_path):
