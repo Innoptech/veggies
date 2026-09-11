@@ -75,6 +75,13 @@ variable "manage_label_workflow" {
   default     = false
 }
 
+variable "veggies_stack_password" {
+  type        = string
+  sensitive   = true
+  description = "Serve password shared by github:true stacks (vault key veggies_stack_password, exported as TF_VAR_veggies_stack_password by scripts/tfvars_from_vault.py)."
+  default     = ""
+}
+
 # --- OVH Public Cloud scaffold (ADR 0002, unwired) --------------------------
 # Everything below is the scaffold's interface; it stays commented while the
 # module call in main.tf and the provider in providers.tf are commented out

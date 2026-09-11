@@ -12,3 +12,8 @@ output "label_workflow_branches" {
   description = "Side branches carrying the labeller workflow (merge via PR)."
   value       = module.github.label_workflow_branches
 }
+
+output "agent_kick_delivery_branches" {
+  description = "Per agent-kick block: the delivery branch whose PR installs the workflow files (merge by hand)."
+  value       = module.github.agent_kick_delivery_branches
+}

@@ -82,3 +82,10 @@ variable "manage_label_workflow" {
   description = "When true, commit the labeller workflow to a branch per repo (open the PR by hand; direct pushes to the protected branch would violate this very policy)."
   default     = false
 }
+
+variable "veggies_stack_password" {
+  type        = string
+  sensitive   = true
+  description = "Serve password shared by github:true stacks (vault key veggies_stack_password, exported as TF_VAR_veggies_stack_password by scripts/tfvars_from_vault.py). Feeds each agent-kick block's VEGGIES_STACK_PASSWORD secret (ADR 0044)."
+  default     = ""
+}

@@ -15,6 +15,7 @@ module "github" {
   runner_group_name         = var.runner_group_name
   label_paths               = var.label_paths
   manage_label_workflow     = var.manage_label_workflow
+  veggies_stack_password    = var.veggies_stack_password
 }
 
 # Scaffold only (ADRs 0002, 0008): the ovh module is intentionally unwired
