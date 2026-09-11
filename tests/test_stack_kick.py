@@ -126,6 +126,18 @@ def test_build_prompt_mandates_draft_first_lifecycle():
     # the post-watch freshness check: main may move while the CI watch
     # runs, and mergeable only means conflict-free, never up-to-date
     assert "merge-base --is-ancestor" in p
+def test_build_prompt_reads_the_repos_own_instruction_file():
+    """Issue #54: a CLAUDE.md-only repo's conventions must enter kicked
+    sessions - the prompt must not name AGENTS.md exclusively (the harness
+    auto-loads either file; the prompt text lagged)."""
+    p = stack_kick.build_prompt("o/r", "12", "Fix the thing", "body", "u")
+    assert "Read AGENTS.md first" not in p
+    assert "AGENTS.md" in p and "CLAUDE.md" in p
+    d = stack_kick.build_discussion_prompt("o/r", "3", "T", "b", "u", [])
+    e = stack_kick.build_elaborate_prompt("o/r", "3", "T", "b", "u", [])
+    for prompt in (d, e):
+        assert "Read AGENTS.md first" not in prompt
+        assert "CLAUDE.md" in prompt
 
 
 def test_build_prompt_truncates_and_defaults():
