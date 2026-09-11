@@ -70,7 +70,7 @@ def _judge_finish(ocall, judge_call, sid: str, title: str, st: dict, *,
         st["judged"].add(last_id)
         return
     try:
-        verdict = judge_call(transcript)
+        verdict = judge_call(transcript, title, sid)
     except ValueError as e:
         # Deterministic garbage (unparseable reply): fail loud and mark
         # judged - never a silent pass, never a token-burning retry of the
@@ -106,8 +106,9 @@ def tick(ocall, judge_call, state: dict, *, start_ms: float,
          threshold: float, max_iters: int, log=print,
          announced: set | None = None) -> None:
     """One supervision pass over the stack's sessions. ocall(method, path,
-    body=None) is the opencode API; judge_call(transcript) returns a
-    verdict - both injected so the loop is unit-testable. One bad session
+    body=None) is the opencode API; judge_call(transcript, session_title,
+    session_id) returns a verdict - both injected so the loop is
+    unit-testable. One bad session
     never stalls the pass. `announced` (a caller-owned set) makes skipped
     pre-start sessions visible exactly once - the gate being off must be
     distinguishable from the gate passing."""
@@ -160,14 +161,22 @@ def api(base: str, password: str, method: str, path: str,
     return json.loads(raw) if raw.strip() else {}
 
 
-def judge(router_url: str, master_key: str, model: str,
-          transcript: str) -> dict:
+def judge(router_url: str, master_key: str, model: str, transcript: str,
+          session_title: str = "", session_id: str = "") -> dict:
     """Judge a transcript via the in-pod router. The master key arrives via
     env (podman secret) and never leaves the pod - the ADR 0028 invariant
-    the podman-exec path was built for, kept by staying in-pod."""
+    the podman-exec path was built for, kept by staying in-pod. The
+    metadata stamps the judge call's cost record with the session it
+    judges (ADR 0047); title/id keys are omitted when empty."""
+    metadata = {"caller": "supervisor-daemon"}
+    if session_title:
+        metadata["session_title"] = session_title
+    if session_id:
+        metadata["session_id"] = session_id
     body = json.dumps({
         "model": model,
         "messages": supervisor.build_judge_messages(transcript),
+        "metadata": metadata,
         "temperature": 0,
         # reasoning judges (deepseek-v4) burn tokens on <think> first
         "max_tokens": 2400,
@@ -202,7 +211,8 @@ def main() -> int:
         HEARTBEAT.write_text(f"{time.time():.0f}\n")
         try:
             tick(lambda m, p, b=None: api(base, password, m, p, b),
-                 lambda t: judge(router, master_key, judge_model, t),
+                 lambda t, title, sid: judge(router, master_key,
+                                             judge_model, t, title, sid),
                  state, start_ms=start_ms, threshold=threshold,
                  max_iters=max_iters, announced=announced)
         except Exception as e:

@@ -13,6 +13,12 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cli"))
+# Bind the worktree's supervisor.py BEFORE daemon.py runs its own
+# `import supervisor`: daemon.py prepends /stack-config to sys.path, and
+# on a host with a deployed stack that directory holds an older copy
+# which would otherwise shadow the one under test here.
+import supervisor  # noqa: E402,F401
+
 _spec = importlib.util.spec_from_file_location(
     "supervise_daemon",
     Path(__file__).parent.parent / "deploy" / "supervisor" / "daemon.py")
@@ -57,17 +63,20 @@ def kicked(sid, title="#7: do the thing", created=NOW + 1000,
 
 
 def judge_script(*verdicts):
-    """A judge callable yielding verdicts in order."""
+    """A judge callable yielding verdicts in order. calls = transcripts;
+    stamped = the (session_title, session_id) each call arrived with."""
     calls = []
 
-    def judge(transcript):
+    def judge(transcript, session_title="", session_id=""):
         calls.append(transcript)
+        judge.stamped.append((session_title, session_id))
         v = verdicts[len(calls) - 1]
         if isinstance(v, Exception):
             raise v
         return v
 
     judge.calls = calls
+    judge.stamped = []
     return judge
 
 
@@ -91,6 +100,16 @@ def test_only_kicked_titles_are_judged():
     tick(api, judge)
     assert len(judge.calls) == 1
     assert "[user] work the issue" in judge.calls[0]
+
+
+def test_judge_call_is_stamped_with_session_title_and_id():
+    """ADR 0047: the judge call carries the judged session's title/id so
+    the cost log attributes judge spend to the kicked session."""
+    s, st, m = kicked("s1", title="#7: do the thing")
+    api = FakeApi([s], st, m)
+    judge = judge_script({"score": 0.9, "issues": []})
+    tick(api, judge)
+    assert judge.stamped == [("#7: do the thing", "s1")]
 
 
 def test_sessions_older_than_daemon_start_are_never_judged():

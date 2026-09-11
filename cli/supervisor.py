@@ -113,16 +113,19 @@ def refinement_prompt(judgment: dict) -> str:
 
 
 # Run inside the litellm container (`podman exec -i <pod>-litellm python3
-# -`): the request {"model", "messages"} arrives base64-embedded (stdin
-# carries this script itself). Posts to the in-pod router, prints the
-# judge's reply content. The master key is read from the container's own
-# env - it never crosses a command line.
+# -`): the request {"model", "messages", "metadata"} arrives
+# base64-embedded (stdin carries this script itself). Posts to the in-pod
+# router, prints the judge's reply content. The master key is read from the
+# container's own env - it never crosses a command line.
 JUDGE_EXEC_SCRIPT = """
 import base64, json, os, urllib.request
 req_body = json.loads(base64.b64decode("__PAYLOAD_B64__"))
 body = json.dumps({
     "model": req_body["model"],
     "messages": req_body["messages"],
+    # cost metering (ADR 0047): the router copies request-body metadata
+    # into call metadata, where the callback reads caller/session_*.
+    "metadata": req_body["metadata"],
     "temperature": 0,
     # reasoning judges (deepseek-v4) burn tokens on <think> first; 400
     # truncated them before the JSON (verified 2026-09-09).
@@ -137,10 +140,19 @@ with urllib.request.urlopen(req, timeout=180) as r:
 """
 
 
-def judge_exec_script(model: str, transcript: str) -> str:
-    """The script for `podman exec -i <pod>-litellm python3 -`."""
+def judge_exec_script(model: str, transcript: str, session_title: str = "",
+                      session_id: str = "") -> str:
+    """The script for `podman exec -i <pod>-litellm python3 -`. The
+    metadata stamps the judge call's cost record with the session it
+    judges (ADR 0047); title/id keys are omitted when empty."""
+    metadata = {"caller": "veggies-supervise"}
+    if session_title:
+        metadata["session_title"] = session_title
+    if session_id:
+        metadata["session_id"] = session_id
     payload = json.dumps({"model": model,
-                          "messages": build_judge_messages(transcript)})
+                          "messages": build_judge_messages(transcript),
+                          "metadata": metadata})
     import base64
     return JUDGE_EXEC_SCRIPT.replace(
         "__PAYLOAD_B64__", base64.b64encode(payload.encode()).decode())

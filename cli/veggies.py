@@ -971,10 +971,15 @@ def cmd_supervise(args: argparse.Namespace) -> int:
             judged.add(last_id)
             continue
         # Judge inside the litellm container: the master key stays in-pod.
+        # The title is fetched fresh per finish so the judge call's cost
+        # record attributes to this session (ADR 0047).
+        info = api_call(host, port, password, "GET", f"/session/{sid}{q}")
+        title = info.get("title", "") if isinstance(info, dict) else ""
         r = host_podman(host, "exec", "-i", f"{pod}-litellm",
                         "python3", "-",
                         input_text=supervisor.judge_exec_script(
-                            args.judge_model, transcript),
+                            args.judge_model, transcript,
+                            session_title=title, session_id=sid),
                         capture=True, check=False)
         if r.returncode != 0:
             raise ValueError(f"judge exec failed: "

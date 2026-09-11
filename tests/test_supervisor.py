@@ -78,3 +78,25 @@ def test_judge_exec_script_embeds_payload_and_survives_roundtrip():
     assert "[user] hi" in payload["messages"][1]["content"]
     # the transcript never touches argv; the master key is env-read
     assert "LITELLM_MASTER_KEY" in script and "os.environ" in script
+
+
+def _embedded_payload(script):
+    b64 = [l for l in script.splitlines() if "b64decode" in l][0]
+    return json.loads(base64.b64decode(b64.split('"')[1]))
+
+
+def test_judge_exec_script_stamps_session_metadata():
+    """ADR 0047: the judge call's cost record attributes to the judged
+    session via request-body metadata."""
+    script = supervisor.judge_exec_script(
+        "deepseek-v4", "[user] hi", session_title="#7: do the thing",
+        session_id="ses_1")
+    payload = _embedded_payload(script)
+    assert payload["metadata"] == {"caller": "veggies-supervise",
+                                   "session_title": "#7: do the thing",
+                                   "session_id": "ses_1"}
+    # the exec'd script forwards it into the POST body
+    assert 'req_body["metadata"]' in script
+    # empty title/id are omitted; the caller is always stamped
+    payload = _embedded_payload(supervisor.judge_exec_script("m", "t"))
+    assert payload["metadata"] == {"caller": "veggies-supervise"}
