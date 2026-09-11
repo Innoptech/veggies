@@ -441,8 +441,8 @@ Watch a kicked run (the demo path):
 
 ```bash
 veggies ui veggie                  # background tunnel + prints URL/password
-veggies sessions veggie            # all sessions, busiest info first
-veggies sessions veggie --issue 15 # the sessions working one issue
+veggies sessions veggie            # live first; idle capped at 10 (--all shows everything)
+veggies sessions veggie --issue 15 # the sessions working one issue (never capped)
 veggies supervise veggie --session <id>      # critic loop
 veggies logs veggie -f                       # raw pod logs
 veggies ui veggie --stop           # close the tunnel
@@ -457,6 +457,10 @@ created issues, which themselves link the discussion in `## Context`
 A failed kick always comments, on either subject. Kicked sessions are
 titled `#N: <issue title>` (`D#N: <discussion title>` for discussions).
 
+`busy` = working now; `idle` = between prompts or done - the API cannot
+tell, and neither can we, so an attached-but-thinking interactive session
+shows idle (`--all` never hides anything).
+
 Web UI map (1.18.27, verified 2026-09-11): `/` is Home - the all-sessions
 view (Today/Yesterday/Older + search), but its project list is
 browser-local state: this build has no server-side project-registration
@@ -468,8 +472,9 @@ verified: `/api/fs/list?path=/workspace` lists the worktree). `/<dir>`
 (dir = base64url of the workspace path, no padding) opens a new-session
 composer, NOT a session list; the session view `/<dir>/session/<id>` is
 the watch target, with project-wide session search in its header and a
-Recent sessions sidebar. `veggies ui` prints the Home URL and deep links
-to the 5 newest sessions - links need no registration at all.
+Recent sessions sidebar. `veggies ui` prints the Home URL and deep links -
+live sessions first, then newest finished, 5 shown, overflow pointed at
+`veggies sessions` - links need no registration at all.
 
 Tunnel gotcha (verified 2026-09-10): if a LOCAL stack already publishes the
 same port, `ssh -L <port>:...` cannot bind it - and anything pointed at
@@ -501,8 +506,11 @@ sudo -u stacks git -C /home/stacks/.local/state/veggies/clones/<name> worktree l
 Clean up a stale worktree (a crashed run leaves one behind):
 
 ```bash
-# 1. check no live session owns it
-veggies sessions <name>
+# 1. check no live session owns it - the default view never hides LIVE
+#    sessions, so this check stands regardless; --all also shows the
+#    FINISHED titled session, the ownership record to have in view before
+#    rescuing unpushed work
+veggies sessions <name> --all
 # 2. rescue unpushed work FIRST if it matters - removing the worktree does
 #    NOT delete the branch, and the next kick's `-B` resets the surviving
 #    branch to origin/main, discarding unpushed commits
