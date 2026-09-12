@@ -127,6 +127,15 @@ def test_render_containers_and_pins(spec):
     assert by_name["opencode"]["image"] == veggies_stack.IMAGE_OPENCODE
 
 
+def test_default_render_carries_no_ansible_vault_dummy(spec):
+    # ADR 0053: the vault dummy is this-repo overlay glue, baked into the
+    # image (ANSIBLE_VAULT_PASSWORD_FILE) - the shared renderer no longer
+    # ships it to stacks whose repo has no ansible.
+    args = _pod(spec)["spec"]["containers"][0]["args"][0]
+    assert "vault-password" not in args
+    assert ".config/infra" not in args
+
+
 def test_only_opencode_publishes_a_port(spec):
     pod = _pod(spec)
     for container in pod["spec"]["containers"]:
@@ -511,9 +520,33 @@ def test_state_records_password(tmp_path):
     assert state.get("a")["password"] == "s3cret"
 
 
-def test_opencode_containerfile_pin_format():
+def _image_tag(image: str) -> str:
+    return image.rsplit(":", 1)[-1]
+
+
+def test_opencode_base_containerfile_pin_format():
+    # ADR 0053 pin chain: the base pins the UPSTREAM by tag+digest (the
+    # digest pins the outside world). Its own tag must match
+    # IMAGE_OPENCODE_BASE and both image constants stay in lockstep - a
+    # partial bump would otherwise tag an overlay 1.x while silently
+    # shipping an older opencode from the stale base.
+    text = (ROOT / "deploy/images/opencode-base.Containerfile").read_text()
+    from_lines = [l for l in text.splitlines() if l.startswith("FROM ")]
+    assert len(from_lines) == 1  # multi-stage would tag the wrong stage
+    upstream = (f"ghcr.io/anomalyco/opencode:"
+                f"{_image_tag(veggies_stack.IMAGE_OPENCODE_BASE)}@sha256:")
+    assert upstream in text
+    assert _image_tag(veggies_stack.IMAGE_OPENCODE_BASE) == \
+        _image_tag(veggies_stack.IMAGE_OPENCODE)
+
+
+def test_opencode_overlay_is_from_pinned_base():
+    # The overlay's FROM must be exactly the base image the component
+    # builds (BuildSpec.base) - Containerfile/BuildSpec drift would only
+    # surface as a failed remote build (the ea432ca class).
     text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
-    assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
+    from_lines = [l for l in text.splitlines() if l.startswith("FROM ")]
+    assert from_lines == [f"FROM {veggies_stack.IMAGE_OPENCODE_BASE}"]
 
 
 # --- session worktrees (ADR 0037) ---------------------------------------------
@@ -809,11 +842,24 @@ def test_component_build_descriptors(spec):
     # Images are component-owned: a stack builds/pulls exactly what it runs.
     builds = {c.name: c.build for c in veggies_stack.CORE}
     assert builds["opencode"].containerfile == "deploy/images/opencode.Containerfile"
+    base = builds["opencode"].base
+    assert base is not None
+    assert base.image == veggies_stack.IMAGE_OPENCODE_BASE
+    assert base.containerfile == "deploy/images/opencode-base.Containerfile"
+    assert base.base is None  # single level only (BuildSpec docstring)
+    assert builds["litellm"].base is None  # pull-only: no chain
     assert builds["squid"].containerfile.endswith("squid.Containerfile")
     assert builds["litellm"].containerfile is None  # pull-only
     subset = veggies_stack.resolve_components(names=["litellm", "squid"])
     assert [c.build.image for c in subset] == [
         veggies_stack.IMAGE_LITELLM, veggies_stack.IMAGE_SQUID]
+
+
+def test_buildspec_base_is_single_level():
+    base = capabilities.BuildSpec("localhost/g:1", "g.Containerfile")
+    mid = capabilities.BuildSpec("localhost/m:1", "m.Containerfile", base=base)
+    with pytest.raises(ValueError, match="single-level"):
+        capabilities.BuildSpec("localhost/t:1", "t.Containerfile", base=mid)
 
 
 def test_registry_capability_keys(spec):
@@ -1286,12 +1332,31 @@ def test_ensure_images_verbose_streams_and_quiet_default(monkeypatch, spec):
     veggies.ensure_images(None, INFRA_REPO, spec, verbose=True)
     builds = [c for c in calls if c[:2] == ["podman", "build"]]
     pulls = [c for c in calls if c[:2] == ["podman", "pull"]]
-    assert builds and pulls, "default spec builds opencode+squid, pulls litellm"
+    assert builds and pulls, "default spec builds base+opencode+squid, pulls litellm"
     assert all("-q" not in b for b in builds + pulls)
     calls.clear()
     veggies.ensure_images(None, INFRA_REPO, spec)
     builds = [c for c in calls if c[:2] == ["podman", "build"]]
     assert builds and all("-q" in b for b in builds)
+
+
+def test_ensure_images_builds_base_before_overlay(monkeypatch, spec):
+    # ADR 0053: the overlay is FROM the locally-built base - the base must
+    # build first or the overlay's FROM has nothing to resolve to.
+    calls = []
+
+    class R:
+        returncode = 1  # "image exists" says no -> pull paths exercised too
+        stdout = ""
+
+    monkeypatch.setattr(veggies, "run",
+                        lambda cmd, **kw: (calls.append(cmd), R())[1])
+    monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
+    veggies.ensure_images(None, INFRA_REPO, spec)
+    builds = [c for c in calls if c[:2] == ["podman", "build"]]
+    tags = [b[b.index("-t") + 1] for b in builds]
+    assert tags[:2] == [veggies_stack.IMAGE_OPENCODE_BASE,
+                        veggies_stack.IMAGE_OPENCODE]
 
 
 def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):

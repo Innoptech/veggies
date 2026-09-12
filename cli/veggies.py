@@ -310,48 +310,56 @@ def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
 def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
                   verbose: bool = False) -> None:
     """Images are component-owned: build/pull exactly the selected
-    components' images. Built images use layer-cache (no-op when unchanged);
-    pull-only images are pulled once. Remote: Containerfiles are shipped into
-    the remote state dir and built there. verbose streams the full build
-    output (`veggies prepare`); `up` stays quiet (-q)."""
+    components' images. A component may declare its image's local base
+    (`BuildSpec.base`, ADR 0053); the base builds first. Built images use
+    layer-cache (no-op when unchanged); pull-only images are pulled once.
+    Remote: Containerfiles are shipped into the remote state dir and built
+    there. verbose streams the full build output (`veggies prepare`); `up`
+    stays quiet (-q)."""
     quiet = [] if verbose else ["-q"]
+
+    def hp(*a, **k):  # remote podman needs the substrate proxy (stacks is egress-denied)
+        if host is None:
+            return host_podman(None, *a, **k)
+        return host_run(host, ["env", f"HTTPS_PROXY={REMOTE_PROXY}",
+                               f"HTTP_PROXY={REMOTE_PROXY}",
+                               "podman", *a], **k)
+
     for c in stack_components(spec):
-        b = c.build
-        if b is None:
+        if c.build is None:
             continue
-        def hp(*a, **k):  # remote podman needs the substrate proxy (stacks is egress-denied)
-            if host is None:
-                return host_podman(None, *a, **k)
-            return host_run(host, ["env", f"HTTPS_PROXY={REMOTE_PROXY}",
-                                   f"HTTP_PROXY={REMOTE_PROXY}",
-                                   "podman", *a], **k)
-        if b.containerfile is None:
-            if hp("image", "exists", b.image,
-                  check=False, capture=True).returncode != 0:
-                if verbose:
-                    print(f"==> pull {b.image}")
-                hp("pull", *quiet, b.image)
-            elif verbose:
-                print(f"==> {b.image} present")
-            continue
-        cf = (infra_repo / b.containerfile).read_text()
-        base = b.image.split("/")[-1].split(":")[0]
-        images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
-        cf_path = f"{images_dir}/{base}.Containerfile"
-        host_write(host, cf_path, cf)
-        build_args = []
-        if host is not None:
-            # RUN steps get their own netns: 127.0.0.1 would be the build
-            # container itself. --network=host makes the proxy's loopback
-            # reachable; packets still carry the (denied) stacks uid, so the
-            # proxy remains the only path.
-            build_args += ["--network=host"]
-            for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
-                build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
-            build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
-        if verbose:
-            print(f"==> build {b.image} ({b.containerfile})")
-        hp("build", *quiet, "-t", b.image, "-f", cf_path, *build_args, images_dir)
+        # An image may be FROM another locally-built image (base/overlay
+        # split, ADR 0053): build the declared base first so the overlay's
+        # FROM resolves to the local store.
+        chain = [c.build.base, c.build] if c.build.base else [c.build]
+        for b in chain:
+            if b.containerfile is None:
+                if hp("image", "exists", b.image,
+                      check=False, capture=True).returncode != 0:
+                    if verbose:
+                        print(f"==> pull {b.image}")
+                    hp("pull", *quiet, b.image)
+                elif verbose:
+                    print(f"==> {b.image} present")
+                continue
+            cf = (infra_repo / b.containerfile).read_text()
+            base = b.image.split("/")[-1].split(":")[0]
+            images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
+            cf_path = f"{images_dir}/{base}.Containerfile"
+            host_write(host, cf_path, cf)
+            build_args = []
+            if host is not None:
+                # RUN steps get their own netns: 127.0.0.1 would be the build
+                # container itself. --network=host makes the proxy's loopback
+                # reachable; packets still carry the (denied) stacks uid, so the
+                # proxy remains the only path.
+                build_args += ["--network=host"]
+                for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+                    build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
+                build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
+            if verbose:
+                print(f"==> build {b.image} ({b.containerfile})")
+            hp("build", *quiet, "-t", b.image, "-f", cf_path, *build_args, images_dir)
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:

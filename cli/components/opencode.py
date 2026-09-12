@@ -24,11 +24,16 @@ from capabilities import (
     secret_env,
 )
 
-# Derived image (official + git, deploy/images/opencode.Containerfile); the
-# official one has no git (verified 2026-09-04). Base pinned by tag+digest.
-# Instruction-file discovery (AGENTS.md/CLAUDE.md auto-loaded from the mounted
-# repo, first match walking up) verified in 1.18.27 session/instruction.ts -
-# re-verify that list when bumping this image (ADR 0049).
+# Harness images (ADR 0053): the slim BASE (official image + git/gh -
+# deploy/images/opencode-base.Containerfile) is every stack's harness;
+# THIS REPO's image overlays it with the ADR 0032 dogfood toolchain
+# (deploy/images/opencode.Containerfile). The base pins the upstream image
+# by tag+digest; the overlay pins the base by tag (a locally-built image
+# has no stable digest to pin). Instruction-file discovery (AGENTS.md/
+# CLAUDE.md auto-loaded from the mounted repo, first match walking up)
+# verified in 1.18.27 session/instruction.ts - re-verify that list when
+# bumping these images (ADR 0049).
+IMAGE_OPENCODE_BASE = "localhost/veggies-opencode-base:1.18.27"
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096
 
@@ -96,14 +101,8 @@ def _render(ctx: PodContext) -> dict:
             "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/plugins /root/.config/opencode/ 2>/dev/null; "
-            # ansible-core >=2.21 hard-fails at startup when the configured
-            # vault password file is missing (ansible.cfg points at
-            # ~/.config/infra/vault-password); a dummy satisfies the check -
-            # same trick as infra-ci. Real decryption stays impossible
-            # in-pod: the vault password is never shipped here.
-            "mkdir -p /root/.config/infra; "
-            "[ -f /root/.config/infra/vault-password ] || "
-            "printf 'ci-dummy-not-a-real-secret\\n' > /root/.config/infra/vault-password; "
+            # No ansible vault dummy here (ADR 0053): that is this-repo
+            # glue, baked into the overlay image itself.
             + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"
         ],
@@ -219,5 +218,7 @@ COMPONENT = Component(
     config_files=_config_files,
     probes=_probes,
     attach=_attach,
-    build=BuildSpec(IMAGE_OPENCODE, "deploy/images/opencode.Containerfile"),
+    build=BuildSpec(IMAGE_OPENCODE, "deploy/images/opencode.Containerfile",
+                    base=BuildSpec(IMAGE_OPENCODE_BASE,
+                                   "deploy/images/opencode-base.Containerfile")),
 )
