@@ -9,6 +9,7 @@ module "github" {
   required_checks           = var.required_checks
   required_checks_overrides = var.required_checks_overrides
   review_overrides          = var.review_overrides
+  merge_queue_repos         = var.merge_queue_repos
   actions_secrets           = var.actions_secrets
   actions_variables         = var.actions_variables
   environment_name          = var.environment_name

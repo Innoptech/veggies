@@ -11,7 +11,7 @@ variable "repos" {
 
 variable "default_branch" {
   type        = string
-  description = "Branch that gets the protection rule."
+  description = "Branch the ruleset protects."
   default     = "main"
 }
 
@@ -88,4 +88,15 @@ variable "veggies_stack_password" {
   sensitive   = true
   description = "Serve password shared by github:true stacks (vault key veggies_stack_password, exported as TF_VAR_veggies_stack_password by scripts/tfvars_from_vault.py). Feeds each agent-kick block's VEGGIES_STACK_PASSWORD secret (ADR 0048)."
   default     = ""
+}
+
+variable "merge_queue_repos" {
+  type        = list(string)
+  description = "Repos whose default-branch ruleset also requires the merge queue. Opt-in per repo: enabling the queue on a repo whose required-check workflows do not trigger on merge_group wedges every queued merge (the check timeout evicts the group; every retry re-wedges) - gate opt-in on the runbook checklist (ADR 0053)."
+  default     = []
+
+  validation {
+    condition     = alltrue([for r in var.merge_queue_repos : contains(var.repos, r)])
+    error_message = "merge_queue_repos entries must also be in repos."
+  }
 }

@@ -90,7 +90,8 @@ def test_changes_job_uses_paths_filter():
 def test_changes_outputs_wiring_is_closed():
     # Renaming a filter or outputs key resolves to "" with no error and
     # permanently pins RUN_JOB=false on PRs - silent green. Close the loop:
-    # references, outputs keys and dorny filter keys must be the same set.
+    # references, outputs keys, dorny filter keys and the merge-group `all`
+    # step's emitted keys must be the same set.
     raw = (ROOT / ".github/workflows/infra-ci.yml").read_text()
     referenced = set(
         re.findall(r"needs\.changes\.outputs\.([A-Za-z_][A-Za-z0-9_]*)", raw)
@@ -104,19 +105,59 @@ def test_changes_outputs_wiring_is_closed():
             f"changes job has no output {key!r} but other jobs reference it"
         )
     for key, value in outputs.items():
-        # The output value must pass through the SAME-named filter output -
-        # `${{ steps.filter.outputs.tf }}` under a `terraform:` key is silent.
-        expected = "${{ steps.filter.outputs." + key + " }}"
+        # Two producers, exactly one active per event: dorny on
+        # pull_request/push, the `all` step on merge_group. The output must
+        # pass through BOTH same-named step outputs in this order - dorny's
+        # 'false' is a non-empty (truthy) string that short-circuits ||, a
+        # skipped step emits empty (falsy) and falls through.
+        expected = (
+            "${{ steps.filter.outputs." + key + " || steps.all.outputs." + key + " }}"
+        )
         assert value == expected, (
             f"changes.outputs.{key} must be exactly {expected!r}, got {value!r}"
         )
+        # A == 'false' consumer breaks the merge-group side: `all` never emits
+        # 'false', and an empty left side would silently skip required work.
+        assert not re.search(
+            r"needs\.changes\.outputs\." + key + r"\s*==\s*'false'", raw
+        ), f"needs.changes.outputs.{key} must never be compared == 'false'"
     filter_step = next(
         s for s in JOBS["changes"]["steps"] if s.get("id") == "filter"
     )
     filters = yaml.safe_load(filter_step["with"]["filters"])
-    assert referenced == set(filters) == set(outputs), (
-        "dorny filter keys, changes.outputs keys and "
+    all_step = next(
+        s for s in JOBS["changes"]["steps"] if s.get("id") == "all"
+    )
+    all_keys = set(re.findall(r'echo "([A-Za-z_][A-Za-z0-9_]*)=true"', all_step["run"]))
+    assert '} >> "$GITHUB_OUTPUT"' in all_step["run"], (
+        "the all step emits its outputs through one grouped redirect to "
+        "$GITHUB_OUTPUT (SC2129) - without it the outputs never land"
+    )
+    assert referenced == set(filters) == set(outputs) == all_keys, (
+        "dorny filter keys, changes.outputs keys, all-step emitted keys and "
         "needs.changes.outputs.* references drifted: "
         f"references={sorted(referenced)} filters={sorted(filters)} "
-        f"outputs={sorted(outputs)}"
+        f"outputs={sorted(outputs)} all={sorted(all_keys)}"
     )
+
+
+def test_workflow_triggers_merge_group():
+    # ADR 0053: the merge queue drives required checks via the merge_group
+    # event. Dropping this trigger stalls every queued merge as Pending
+    # forever - the required contexts would never report on the group.
+    triggers = WORKFLOW.get("on", WORKFLOW.get(True))  # bare `on:` parses as True
+    assert "merge_group" in triggers
+
+
+def test_merge_group_runs_everything():
+    # ADR 0053: a merge group is the exact tree entering main - path-gating is
+    # a pull_request-only optimization. On merge groups dorny is skipped (it
+    # has no diff anchors there) and the `all` step reports every area changed.
+    steps = JOBS["changes"]["steps"]
+    filter_step = next(s for s in steps if s.get("id") == "filter")
+    assert filter_step.get("if", "").strip() == "github.event_name != 'merge_group'"
+    all_step = next(s for s in steps if s.get("id") == "all")
+    assert all_step.get("if", "").strip() == "github.event_name == 'merge_group'"
+    # The molecule matrix gate admits merge groups via its non-pull_request arm.
+    roles_if = JOBS["molecule-roles"].get("if", "")
+    assert "github.event_name != 'pull_request'" in roles_if
