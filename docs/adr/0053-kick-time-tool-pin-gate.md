@@ -34,7 +34,7 @@ day it merges.
   is one-shot ([0035](0035-one-shot-labels-and-done-guard.md)), so the
   check has to run before the session exists and cost no tokens.
 
-Verified constraints (checked 2026-09-12 against the pinned opencode
+Verified constraints (checked 2026-09-11 against the pinned opencode
 1.18.27 image): the serve API's only exec channel, `POST /pty`, is
 broken on the musl image (node-pty's bundled glibc .so fails dlopen -
 HTTP 500); `GET /config` does not round-trip project-tier custom keys,
