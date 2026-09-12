@@ -9,6 +9,7 @@ admin_login     = "YOUR_LOGIN"       # TODO(you): the human reviewer
 required_checks = ["pre-commit", "tofu", "tflint", "ansible-lint", "molecule", "pytest"] # must match the repos' CI check names; "molecule" is the aggregate matrix gate
 # required_checks_overrides = { "veggie" = ["pre-commit", "pytest"] } # per-repo when they differ
 # merge_queue_repos = ["veggie"]  # opt a repo into the merge queue - only after its CI triggers on merge_group (ADR 0053)
+# pr_review_gate_repos = ["veggies"] # ADR 0055: opt in only once pr-review-gate.yml exists there and the #102 reviewer is live
 # The bot's identity lives in secrets/github.yml; the policy excludes it from
 # review counting via require_code_owner_review, not via a login variable.
 
