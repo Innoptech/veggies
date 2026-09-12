@@ -42,6 +42,11 @@ on:
 
 # The PR review itself is posted by the kicked session (pod bot PAT, ADR
 # 0030), never by this workflow - the job token needs no write on PRs.
+# addComment accepting a PR subject: verified live 2026-09-12 (comment on
+# PR #105). TODO(verify): that the workflow's GITHUB_TOKEN with
+# issues:write (no pull-requests:write) can addComment a PR subject -
+# REST parity says yes; if not, the session-link step fails the job on PR
+# kicks (the kick itself already succeeded; the PR just gets no link).
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
   pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0046)
@@ -283,7 +288,11 @@ jobs:
             jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
               '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
           elif [ -n "$PR_NUMBER" ]; then
-            body="$body"$' Comment /review again if it truly needs another review.'
+            if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+              body="$body"$' (auto-kicked on the ready transition - no action needed; a /review comment re-requests.)'
+            else
+              body="$body"$' Comment /review again if it truly needs another review.'
+            fi
             jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
               '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
           else
