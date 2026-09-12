@@ -55,12 +55,13 @@ changes, and keep this index's titles and statuses in sync.
 | [0044](0044-live-first-watch-path-no-close-time-deletion.md) | Watch path lists live sessions first; no close-time session deletion | accepted |
 | [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
 | [0046](0046-draft-first-pr-lifecycle.md) | Draft-first PR lifecycle and the redefined done-guard | accepted |
-| [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted |
+| [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted (amended by 0053) |
 | [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted |
 | [0049](0049-no-ask-merged-roster-and-instruction-discovery.md) | No-ask over the merged roster; repo instruction files stay configuration-free | accepted |
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 | [0052](0052-spend-log-writer.md) | Spend-log writer: litellm custom callback and title stamping | accepted |
+| [0053](0053-kick-time-tool-pin-gate.md) | Kick-time tool-pin gate: the image attests its toolchain pins, stale images are refused | accepted |
 
 ## Deviation ledger (vs the original brief)
 
