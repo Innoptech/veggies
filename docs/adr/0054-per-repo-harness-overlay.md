@@ -41,7 +41,13 @@ runtime installs; "Alternatives rejected" below records why.
    names, `--platform` flags and any second FROM (multi-stage) all fail
    the equality check. COPY and ADD are rejected with an error that
    teaches the pinned-fetch pattern: fetch a version+sha256-pinned URL
-   in a RUN step instead.
+   in a RUN step instead. The validator's line handling mirrors
+   imagebuilder's parsing - a leading BOM is stripped, comment lines
+   are stripped before continuation joining, continuations join by
+   direct concatenation - and it REJECTS `# escape=` parser directives
+   outright rather than porting directive semantics: strict by
+   construction, relaxable later (the same backward-compat argument as
+   the FROM strictness).
 3. **Content-addressed tag, unconditional rebuild.** The overlay image
    is `localhost/veggies-harness-overlay:<sha256(containerfile
    text)[:16]>` - the tag names overlay content only. `ensure_images`

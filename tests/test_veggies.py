@@ -1464,6 +1464,54 @@ def test_ensure_images_verbose_streams_and_quiet_default(monkeypatch, spec):
     assert builds and all("-q" in b for b in builds)
 
 
+def test_ensure_images_builds_overlay_after_components_and_unconditionally(
+        monkeypatch, spec):
+    # ADR 0054 rule 3: the overlay tag names CONTENT only, so the overlay
+    # build runs AFTER the component builds (its FROM base must exist) and
+    # UNCONDITIONALLY - an existence guard would let a base flip leave a
+    # stale image under the same tag forever.
+    calls = []
+    writes = []
+
+    class R:
+        returncode = 0  # "image exists" says YES - the overlay builds anyway
+        stdout = ""
+
+    monkeypatch.setattr(veggies, "run",
+                        lambda cmd, **kw: (calls.append(cmd), R())[1])
+    monkeypatch.setattr(veggies, "host_write",
+                        lambda host, path, content, mode=0o600:
+                        writes.append(path))
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nRUN true\n"
+    image = veggies_stack.overlay_image_name(text)
+    veggies.ensure_images(None, INFRA_REPO, spec, verbose=True,
+                          overlay=(image, text))
+    builds = [c for c in calls if c[:2] == ["podman", "build"]]
+    overlay_builds = [c for c in builds if image in c]
+    assert overlay_builds, "overlay build missing"
+    component_builds = [c for c in builds if c not in overlay_builds]
+    assert component_builds, "default spec builds opencode+squid"
+    assert calls.index(overlay_builds[0]) > max(
+        calls.index(c) for c in component_builds), "overlay must build last"
+    # the overlay path never queries existence (guard-free rebuild)
+    assert ["podman", "image", "exists", image] not in calls
+    # the shipped Containerfile name carries the content tag, so two stacks
+    # with different overlays never clobber each other's build file
+    tag = image.rsplit(":", 1)[-1]
+    assert any(w.endswith(f"veggies-harness-overlay.{tag}.Containerfile")
+               for w in writes)
+
+    # remote: the overlay build rides the substrate proxy build-args too
+    calls.clear()
+    veggies.ensure_images("overlay-test-host", INFRA_REPO, spec,
+                          overlay=(image, text))
+    remote_overlay = [c for c in calls if len(c) > 2 and f"-t {image}" in c[2]]
+    assert remote_overlay, "remote overlay build missing"
+    remote_cmd = remote_overlay[0][2]
+    assert "--network=host" in remote_cmd
+    assert f"--build-arg HTTPS_PROXY={veggies.REMOTE_PROXY}" in remote_cmd
+
+
 def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):
     # The state primary key is the name: without this guard, re-upping a
     # name on a different host reuses its port and overwrites its record,

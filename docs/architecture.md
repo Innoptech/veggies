@@ -50,8 +50,9 @@ excluded (no podman socket, ADR 0028). That image is the pinned harness
 base: a repo may layer its own check toolchain on top via
 `harness_containerfile:` in veggies.yml - a repo-local overlay
 Containerfile FROM the pinned base, content-hash tagged and rebuilt at
-every up over the substrate proxy (ADR 0054). Absent the key, the
-harness image is exactly the base.
+every up (remote builds ride the substrate proxy, local builds go
+direct; ADR 0054). Absent the key, the harness image is exactly the
+base.
 
 Cost metering (ADR 0022; contract 0051; writer 0052): the litellm router
 writes one JSON line per model call to `<state_root>/<stack>/spend.jsonl`

@@ -494,6 +494,9 @@ re-takes the same tag. `up` prints an `overlay:` line naming the
 resolved ref; `veggies prepare` streams the build log and prints the
 tag; `veggies render` resolves silently. The ref is never written to
 stack state - every up/sync/render re-resolves it from the checkout.
+Each content hash is one image tag in the host's image store; stacks do
+not garbage-collect old overlay images - prune them with
+`podman image prune` or remove them by hand.
 
 Fetch envelope (v1): on the VPS, RUN steps reach the internet through
 the substrate squid allowlist (`ansible/roles/egress/defaults/main.yml`):

@@ -329,10 +329,10 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
                                f"HTTP_PROXY={REMOTE_PROXY}",
                                "podman", *a], **k)
 
-    def build(image: str, cf_text: str) -> None:
+    def build(image: str, cf_text: str, cf_name: str | None = None) -> None:
         base = image.split("/")[-1].split(":")[0]
         images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
-        cf_path = f"{images_dir}/{base}.Containerfile"
+        cf_path = f"{images_dir}/{cf_name or f'{base}.Containerfile'}"
         host_write(host, cf_path, cf_text)
         build_args = []
         if host is not None:
@@ -371,7 +371,10 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
         # existence check or a --layers fast path here: a HARNESS_BASE_IMAGE
         # flip busts the build via buildah's parent-image-ID layer-cache
         # keying, and the rebuilt image re-takes the same tag.
-        build(image, cf_text)
+        # The shipped build file is per-content (tag-suffixed): two stacks
+        # with different overlays never clobber each other's Containerfile.
+        build(image, cf_text,
+              cf_name=f"veggies-harness-overlay.{image.rsplit(':', 1)[-1]}.Containerfile")
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
@@ -698,8 +701,12 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     overlay = None
     if local.is_dir():
         overlay = resolve_harness_overlay(None, str(local), cfg)
-    if overlay:
-        spec.harness_image = overlay[0]
+    if overlay and not any(c.provides == "harness"
+                           for c in stack_components(spec)):
+        print("warning: harness_containerfile set but the stack deselected "
+              "the harness component - skipping the overlay build",
+              file=sys.stderr)
+        overlay = None
     t0 = time.monotonic()
     ensure_images(host, infra_repo, spec, verbose=True, overlay=overlay)
     print(f"\nimages ready on {host or 'this machine'} "
@@ -766,6 +773,12 @@ def cmd_up(args: argparse.Namespace) -> int:
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
     overlay = resolve_harness_overlay(host, repo_path, cfg)
+    if overlay and not any(c.provides == "harness"
+                           for c in stack_components(spec)):
+        print("warning: harness_containerfile set but the stack deselected "
+              "the harness component - skipping the overlay build",
+              file=sys.stderr)
+        overlay = None
     if overlay:
         spec.harness_image = overlay[0]
         print(f"overlay: {overlay[0]} ({cfg['harness_containerfile']})")
