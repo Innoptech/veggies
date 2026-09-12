@@ -334,19 +334,24 @@ def _squid_log_host(url_field: str) -> str:
     host = host.rsplit("@", 1)[-1]  # drop any userinfo
     if host.startswith("[") and "]" in host:
         return host[1:host.index("]")]
+    # Unbracketed IPv6 collapses to its first segment ("" for "::1",
+    # i.e. skipped) - harmless: this is a diagnostic, garbage in,
+    # garbage out is tolerated.
     return host.split(":", 1)[0].strip("[]")
 
 
-def squid_denied_domains(log_text: str) -> tuple[list[str], list[str]]:
+def squid_denied_domains(log_text: str) -> list[str]:
     """Pure: hosts the substrate squid DENIED, from its native access-log
-    lines (whitespace fields: 3=client, 4=result, 7=URL). Build-time
-    traffic arrives via loopback (--network=host + REMOTE_PROXY); pod
-    runtime chains through the pasta gateway and logs other source
-    addresses - hence the (loopback, other) partition. Deduped,
-    order-preserved; malformed lines are skipped (this is a diagnostic,
-    it never raises)."""
-    loopback: list[str] = []
-    other: list[str] = []
+    lines (whitespace fields: 3=client, 4=result, 7=URL). Client IP is
+    NOT an attribution signal: pasta source-NATs host->published-port
+    traffic to the host's PUBLIC IP (verified in
+    ansible/roles/egress/tasks/main.yml, 2026-09-08), so build denials
+    never arrive from 127.0.0.1 and pod/runtime traffic shares the same
+    class. The caller's time window is the only scoping - every listed
+    domain is a review prompt. Deduped (globally), order-preserved;
+    malformed lines are skipped (this is a diagnostic, it never
+    raises)."""
+    denied: list[str] = []
     for line in log_text.splitlines():
         fields = line.split()
         if len(fields) < 7 or not fields[3].startswith("TCP_DENIED"):
@@ -354,17 +359,18 @@ def squid_denied_domains(log_text: str) -> tuple[list[str], list[str]]:
         host = _squid_log_host(fields[6])
         if not host or host == "-":
             continue
-        bucket = loopback if fields[2] == "127.0.0.1" else other
-        if host not in bucket:
-            bucket.append(host)
-    return loopback, other
+        if host not in denied:
+            denied.append(host)
+    return denied
 
 
-def egress_blocked_message(image: str, loopback: list[str], other: list[str],
+def egress_blocked_message(image: str, domains: list[str],
                            original: str) -> str:
     """Pure: the error for a remote image build/pull the substrate egress
-    proxy denied - names the blocked domains and the group_vars fix."""
-    lines = [
+    proxy denied - names the blocked domains and the group_vars fix. The
+    proxy log is host-wide, so the in-window list can include unrelated
+    denials: the review-each-domain caveat is a standing line."""
+    return "\n".join([
         f"remote image build/pull failed: {image}",
         "the substrate egress proxy DENIED these domains during this",
         "build's window:",
@@ -372,32 +378,33 @@ def egress_blocked_message(image: str, loopback: list[str], other: list[str],
         "allow them in ansible/inventory/group_vars/all.yml:",
         "",
         "egress_allowlist_extra:",
-        *(f"  - {d}" for d in loopback),
+        *(f"  - {d}" for d in domains),
         "",
         "then run `mask converge` (restarts the proxy via handler) and",
         "re-run the veggies command.",
         "alternative: build the image elsewhere (e.g. GitHub Actions) and",
         "pull it - ghcr.io is already allowlisted.",
-    ]
-    if other:
-        lines += [
-            "",
-            "also denied in the same window, from pod/runtime sources",
-            "(likely unrelated to this build): " + ", ".join(other),
-        ]
-    lines += ["", _RUNBOOK_EGRESS_POINTER, f"original error: {original}"]
-    return "\n".join(lines)
+        "",
+        "the proxy log is host-wide: this build's window may include",
+        "denials from parallel stack or runner traffic - review each",
+        "domain before allowlisting it.",
+        "",
+        _RUNBOOK_EGRESS_POINTER,
+        f"original error: {original}",
+    ])
 
 
 def egress_unrelated_message(image: str, host: str, original: str) -> str:
     """Pure: the error when a remote image build/pull failed but the
     substrate proxy logged no denials in the build's window (or its log
-    could not be read) - the suspect is then a tool ignoring the proxy
-    env vars and hitting the per-UID nftables drop."""
+    could not be read) - the streamed build error is then the cause to
+    read; the per-UID nftables drop is only a conditional suspect."""
     return "\n".join([
         f"remote image build/pull failed: {image}",
         "the substrate egress proxy logged no denials in this build's",
-        "window (or its log could not be read). A tool ignoring the",
+        "window (or its log could not be read) - the streamed build",
+        "error above is the cause to read.",
+        "if the failing step was a network fetch, a tool ignoring the",
         "proxy env vars hits the per-UID nftables drop instead - check:",
         f"  ssh {host} 'sudo journalctl -k -g infra-egress-deny'",
         _RUNBOOK_EGRESS_POINTER,
@@ -406,7 +413,7 @@ def egress_unrelated_message(image: str, host: str, original: str) -> str:
 
 
 def _substrate_squid_denials(
-        host: str, since_seconds: int) -> tuple[list[str], list[str]] | None:
+        host: str, since_seconds: float) -> list[str] | None:
     """Best-effort read of the substrate squid's recent access log (its
     quadlet runs as EGRESS_PROXY_USER, not stacks). None on ANY failure -
     a diagnostic must never mask the real build error."""
@@ -426,15 +433,16 @@ def _substrate_squid_denials(
 def _diagnose_egress_failure(host: str | None, t0: float, image: str,
                              exc: subprocess.CalledProcessError) -> None:
     """A remote image pull/build failed: name the proxy-denied domains when
-    the substrate squid's log shows them, else point at the per-UID
-    nftables drop. Local (host=None) failures re-raise untouched. Always
+    the substrate squid's log shows them in-window, else the streamed
+    error is the cause (the per-UID nftables drop is only a conditional
+    hint). Local (host=None) failures re-raise untouched. Always
     raises."""
     if host is None:
         raise exc
     denials = _substrate_squid_denials(host, time.monotonic() - t0 + 30)
-    if denials and denials[0]:
+    if denials:
         raise ValueError(
-            egress_blocked_message(image, denials[0], denials[1], str(exc))
+            egress_blocked_message(image, denials, str(exc))
         ) from exc
     raise ValueError(egress_unrelated_message(image, host, str(exc))) from exc
 
