@@ -95,12 +95,14 @@ jobs:
       - id: molecule-matrix
         # git diff output is piped, never interpolated - PR filenames are
         # attacker-influenced. Unusual (git-quoted) paths fail open to the
-        # full matrix inside the script.
+        # full matrix inside the script. Renames must enumerate both paths
+        # (diff.renames defaults on), hence --no-renames: a rename becomes
+        # delete+create and the delete side keeps the source role scoped in.
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
-            roles=$(git diff --name-only "${base}...HEAD" | python3 scripts/molecule_matrix.py --event-name "$GITHUB_EVENT_NAME" --files-file -)
+            roles=$(git diff --no-renames --name-only "${base}...HEAD" | python3 scripts/molecule_matrix.py --event-name "$GITHUB_EVENT_NAME" --files-file -)
           else
             roles=$(python3 scripts/molecule_matrix.py --event-name "$GITHUB_EVENT_NAME")
           fi

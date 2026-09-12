@@ -144,3 +144,15 @@ def test_paths_filter_gated_to_supported_events():
     assert filter_step.get("if") == (
         "github.event_name == 'pull_request' || github.event_name == 'push'"
     )
+
+
+def test_molecule_matrix_diff_enumerates_rename_paths():
+    # git's diff.renames defaults to true: a bare --name-only collapses a
+    # role->role rename to the destination path (under-scoped matrix) and a
+    # role->outside rename to [] (green aggregate, zero scenarios run).
+    step = next(
+        s for s in JOBS["changes"]["steps"] if s.get("id") == "molecule-matrix"
+    )
+    assert "git diff --no-renames --name-only" in step["run"], (
+        "the molecule-matrix diff must enumerate both sides of a rename"
+    )
