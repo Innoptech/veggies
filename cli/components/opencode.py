@@ -28,7 +28,11 @@ from capabilities import (
 # official one has no git (verified 2026-09-04). Base pinned by tag+digest.
 # Instruction-file discovery (AGENTS.md/CLAUDE.md auto-loaded from the mounted
 # repo, first match walking up) verified in 1.18.27 session/instruction.ts -
-# re-verify that list when bumping this image (ADR 0049).
+# re-verify that list when bumping this image (ADR 0049). The kick gate (ADR
+# 0053) reads the published tool-pin manifest via GET /file/content (missing
+# file -> 200 with empty content; literal-slash `path` param - both verified
+# 2026-09-11) and compares OPENCODE_VERSION, so bumping this image re-verifies
+# that endpoint contract too.
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096
 
@@ -104,6 +108,16 @@ def _render(ctx: PodContext) -> dict:
             "mkdir -p /root/.config/infra; "
             "[ -f /root/.config/infra/vault-password ] || "
             "printf 'ci-dummy-not-a-real-secret\\n' > /root/.config/infra/vault-password; "
+            # Publish the image's tool-pin manifest (issue #87, ADR 0053)
+            # where the serve API can read it - the kick gate's only
+            # channel to the live stack. rm -f first: a rollback to a
+            # pre-manifest image must go loud (manifest absent), never
+            # false-pass a stale one. Tolerant: pre-manifest images carry
+            # no /etc file and must still start.
+            "mkdir -p /workspace/.veggies; "
+            "rm -f /workspace/.veggies/image-tool-pins; "
+            "[ ! -f /etc/veggies-tool-pins ] || "
+            "cp /etc/veggies-tool-pins /workspace/.veggies/image-tool-pins; "
             + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"
         ],

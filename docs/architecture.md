@@ -40,7 +40,9 @@ are discovered from the mounted repo with project-over-global precedence
 envelope spans the merged project+global config (ADR 0049): pytest
 enforces it over the vendored tiers and this repo's own, and
 `scripts/stack_kick.py` refuses to kick a repo whose checked-out project
-tier carries `ask`. Stacks may opt
+tier carries `ask`. Issue kicks are refused the same way (exit-3 skip)
+when the live stack image's attested gate-tool pins disagree with the
+checkout's Containerfile pins (ADR 0053). Stacks may opt
 into GitHub write access (`github: true` in veggies.yml): the pod carries
 the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
 from the vault (ADR 0033). The opencode image also carries the dev

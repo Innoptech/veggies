@@ -7,8 +7,11 @@
 # lives in the image - the runtime rootfs is read-only, so nothing can be
 # installed later. The agent runs the repo's own checks in-container
 # (`mask ci`, minus molecule: the podman socket stays banned, ADR 0028).
-# Base pinned by tag AND digest; bump both together.
-FROM ghcr.io/anomalyco/opencode:1.18.27@sha256:1eedcb5d4439130e35f5cf76d87c786c4eeb12dc7afebd79663f6c8341fa8505
+# Base pinned by tag AND digest; bump both together. The tag is an ARG
+# because the tool-pin manifest (below) attests it.
+ARG OPENCODE_VERSION=1.18.27
+FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}@sha256:1eedcb5d4439130e35f5cf76d87c786c4eeb12dc7afebd79663f6c8341fa8505
+ARG OPENCODE_VERSION
 
 # Build-time proxy args: on the VPS the stacks user is direct-egress-denied,
 # so image builds must ride the filtering proxy. buildah exposes ARGs to RUN
@@ -76,3 +79,14 @@ RUN set -eux; cd /tmp; \
     mv actionlint /usr/local/bin/actionlint; \
     chmod +x /usr/local/bin/gitleaks /usr/local/bin/actionlint; \
     rm -f /tmp/gitleaks.tar.gz /tmp/actionlint.tar.gz
+
+# Tool-pin manifest (issue #87, ADR 0053): the running container's
+# self-attestation of the pinned gate toolchain. The container start
+# command (cli/components/opencode.py) publishes it into the workspace
+# so scripts/stack_kick.py can compare it against the checkout's pins
+# over the serve API - the pod's only inbound channel (the pty exec
+# route is broken on musl: node-pty's glibc .so fails dlopen, verified
+# 2026-09-11).
+RUN printf 'GITLEAK_VERSION=%s\nACTIONLINT_VERSION=%s\nTOFU_VERSION=%s\nTFLINT_VERSION=%s\nMASK_VERSION=%s\nOPENCODE_VERSION=%s\n' \
+    "${GITLEAK_VERSION}" "${ACTIONLINT_VERSION}" "${TOFU_VERSION}" "${TFLINT_VERSION}" "${MASK_VERSION}" "${OPENCODE_VERSION}" \
+    > /etc/veggies-tool-pins

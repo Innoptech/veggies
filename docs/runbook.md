@@ -427,13 +427,21 @@ cache - expected; pypi is allowlisted, and ADR 0047 names their
 conversion as the follow-up. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
-run host-side there instead. On merging hook/binary changes, rebuild the
-image (`veggies prepare`/`up`, or `mask demo-stack`'s prepare step)
-before the next `agent-task` label: kicks branch off `origin/main`, so
-the hooks take effect at merge while the binaries arrive with the
-rebuild. Hosts re-run `mask setup` after pulling - it installs the same
+run host-side there instead. The rebuild-before-label ordering is now
+enforced, not manual: the kick-time tool-pin gate (ADR 0053) compares
+the live image's self-attested pins against the checkout's
+Containerfile pins, and on a pin-affecting merge they disagree - issue
+kicks skip (exit 3) with a comment naming every skewed pin (expected
+vs found). The operator remedy is to rebuild the image on the stack
+host from a PULLED infra checkout (`veggies sync <stack>`, or
+`prepare` + `up`) and re-add the `agent-task` label. The gate covers
+only checkouts carrying `deploy/images/opencode.Containerfile` (this
+repo); adopted repos' kicks proceed with a note in the workflow log.
+Hosts re-run `mask setup` after pulling - it installs the same
 pinned binaries into `~/.local/bin`. Smoke-test a rebuilt image:
-`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`.
+`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version && cat /etc/veggies-tool-pins'`
+- the last command shows the image's attested tool pins, the manifest
+the kick gate compares (ADR 0053).
 
 ### Issue-triggered agent kicks (ADR 0033)
 
