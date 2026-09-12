@@ -156,3 +156,20 @@ def test_molecule_matrix_diff_enumerates_rename_paths():
     assert "git diff --no-renames --name-only" in step["run"], (
         "the molecule-matrix diff must enumerate both sides of a rename"
     )
+
+
+def test_molecule_aggregate_fail_closed_core_is_pinned():
+    # The required "molecule" context's legitimacy rule is string-pinned: a
+    # skip is green exactly when the scoped matrix is empty; a skipped matrix
+    # with a non-empty role list, or failed change detection, fails closed.
+    run = next(
+        s
+        for s in JOBS["molecule"]["steps"]
+        if s.get("name") == "All molecule scenarios must have passed"
+    )["run"]
+    assert '[ "$CHANGES_RESULT" = "success" ]' in run
+    assert '[ "$MOLECULE_ROLES" = "[]" ]' in run
+    assert (
+        'echo "gating bug: molecule-roles skipped with a non-empty matrix'
+        ' - failing closed"' in run
+    )

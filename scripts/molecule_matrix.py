@@ -15,6 +15,10 @@ is the designated backstop for everything the map cannot see.
 
 Fail-open rule: anything unrecognized maps to the FULL matrix, never to
 fewer scenarios.
+
+Self-hosting note: the workflow runs the PR's own copy of this script to
+scope its own gating, so a buggy classifier refactor mis-scopes the very PR
+that introduces it - the pytest job and human review are the control.
 """
 
 from __future__ import annotations

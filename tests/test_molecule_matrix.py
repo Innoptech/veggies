@@ -133,10 +133,33 @@ def test_prepare_yml_never_applies_roles():
 
 
 def test_no_relative_escape_into_sibling_role():
-    for path in (ROOT / "ansible/roles").rglob("*.yml"):
-        text = path.read_text()
+    # ALL files, not just *.yml - a shell script, template or extensionless
+    # include reaching into a sibling role is the same invisible coupling.
+    for path in (ROOT / "ansible/roles").rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError:
+            continue  # binary artifacts (e.g. __pycache__) couple nothing
         for role in ALL_ROLES:
             assert f"../{role}" not in text, f"{path} reaches into role {role}"
+
+
+def test_molecule_dirs_never_import_playbooks():
+    # converge.yml roles: lists are the ONLY cross-role coupling channel the
+    # matrix generator can see; import_playbook would bypass it entirely.
+    # (Cross-role include_tasks/import_tasks resolve through ../<role> paths,
+    # which the scan above already bans.)
+    for molecule_dir in (ROOT / "ansible/roles").glob("*/molecule"):
+        for path in molecule_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text()
+            except UnicodeDecodeError:
+                continue
+            assert "import_playbook:" not in text, path
 
 
 def run_cli(*args, stdin=None):
