@@ -61,7 +61,9 @@ completeness is how audit tools become the boy who cried LGTM>
 ```
 
 The first line's sha is the head you actually audited (the session hands
-it to you) - a stale stamp is a lie about coverage. Risk rank guides the
+it to you; a short-sha prefix of the head you were handed - the session's
+double-post guard matches it as a prefix) - a stale stamp is a lie about
+coverage. Risk rank guides the
 operator's review ORDER, never the merge decision: HIGH means "read this
 first and slowly", not "this fails".
 
