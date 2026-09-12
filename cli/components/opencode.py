@@ -30,6 +30,11 @@ from capabilities import (
 # repo, first match walking up) verified in 1.18.27 session/instruction.ts -
 # re-verify that list when bumping this image (ADR 0049).
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
+# The pinned harness base every per-repo overlay must FROM (issue #69).
+# Infra-owned, never user-overridable; the base/derived split (#68) flips
+# this to the slim veggies-opencode-base, and overlays rebuild loudly at
+# the next `up` when it does.
+HARNESS_BASE_IMAGE = IMAGE_OPENCODE
 _OPENCODE_CONTAINER_PORT = 4096
 
 
@@ -81,7 +86,9 @@ def _render(ctx: PodContext) -> dict:
         gh_env = [secret_env("GH_TOKEN", spec.secret_github, "token")]
     return {
         "name": "opencode",
-        "image": IMAGE_OPENCODE,
+        # Per-repo overlay (issue #69): the IO layer resolves and validates
+        # it at up-time; absent, the pinned base renders as before.
+        "image": spec.harness_image or IMAGE_OPENCODE,
         # opencode writes instance state (.gitignore etc.) into
         # ~/.config/opencode at bootstrap (EROFS 500s on every API call if
         # read-only, verified 2026-09-04) - so stack-config mounts at

@@ -46,7 +46,13 @@ the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
 from the vault (ADR 0033). The opencode image also carries the dev
 toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
 0032/0047) so agents run the repo's own checks in-pod; molecule is
-excluded (no podman socket, ADR 0028).
+excluded (no podman socket, ADR 0028). That image is the pinned harness
+base: a repo may layer its own check toolchain on top via
+`harness_containerfile:` in veggies.yml - a repo-local overlay
+Containerfile FROM the pinned base, content-hash tagged and rebuilt at
+every up (remote builds ride the substrate proxy, local builds go
+direct; ADR 0054). Absent the key, the harness image is exactly the
+base.
 
 Cost metering (ADR 0022; contract 0051; writer 0052): the litellm router
 writes one JSON line per model call to `<state_root>/<stack>/spend.jsonl`

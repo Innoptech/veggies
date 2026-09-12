@@ -9,8 +9,10 @@ nothing here touches podman, ssh, the network, or the vault.
 from __future__ import annotations
 
 import base64
+import hashlib
+import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -47,6 +49,7 @@ from permission_envelope import (  # noqa: E402
 # Re-exported for tests and cli/veggies.py (single import surface).
 IMAGE_LITELLM = litellm.IMAGE_LITELLM
 IMAGE_OPENCODE = opencode.IMAGE_OPENCODE
+HARNESS_BASE_IMAGE = opencode.HARNESS_BASE_IMAGE
 IMAGE_SQUID = squid.IMAGE_SQUID
 SQUID_ALLOWLIST_BASE = squid.SQUID_ALLOWLIST_BASE
 SQUID_MODEL_ENDPOINTS = squid.SQUID_MODEL_ENDPOINTS
@@ -131,7 +134,8 @@ def resolve_components(
 # --- veggies.yml (schema v1) ---------------------------------------------------------
 
 REPO_CONFIG_FILE = "veggies.yml"
-REPO_CONFIG_KEYS = {"model", "components", "mcps", "github", *CAPABILITY_KEYS}
+REPO_CONFIG_KEYS = {"model", "components", "mcps", "github", "harness_containerfile",
+                    *CAPABILITY_KEYS}
 
 
 def parse_repo_config(text: str) -> tuple[dict, list[str]]:
@@ -165,6 +169,10 @@ def parse_repo_config(text: str) -> tuple[dict, list[str]]:
         if not isinstance(data["github"], bool):
             raise ValueError(f"{REPO_CONFIG_FILE}: 'github' must be a bool")
         cfg["github"] = data["github"]
+    if "harness_containerfile" in data:
+        if not isinstance(data["harness_containerfile"], str):
+            raise ValueError(f"{REPO_CONFIG_FILE}: 'harness_containerfile' must be a string")
+        cfg["harness_containerfile"] = validate_overlay_path(data["harness_containerfile"])
     selections = {CAPABILITY_KEYS[k]: data[k] for k in CAPABILITY_KEYS if k in data}
     if selections:
         for key in CAPABILITY_KEYS:
@@ -184,6 +192,89 @@ def load_repo_config(repo: Path) -> tuple[dict, list[str]]:
     if not f.is_file():
         return {}, []
     return parse_repo_config(f.read_text())
+
+
+def validate_overlay_path(raw: str) -> str:
+    """The `harness_containerfile` value: a repo-relative path, normalized.
+    Absolute paths and '..' escapes are rejected - the value only ever
+    resolves against the repo root."""
+    p = PurePosixPath(raw)
+    if p.is_absolute():
+        raise ValueError(f"{REPO_CONFIG_FILE}: 'harness_containerfile' must be "
+                         f"repo-relative, got absolute path {raw!r}")
+    if ".." in p.parts:
+        raise ValueError(f"{REPO_CONFIG_FILE}: 'harness_containerfile' must not "
+                         f"escape the repo ('..' in {raw!r})")
+    normalized = str(p)  # PurePosixPath collapses './' and duplicate slashes
+    if not raw.strip() or normalized in ("", "."):
+        raise ValueError(f"{REPO_CONFIG_FILE}: 'harness_containerfile' must be a "
+                         "non-empty repo-relative path")
+    return normalized
+
+
+def validate_overlay_containerfile(text: str, base: str = HARNESS_BASE_IMAGE) -> None:
+    """Single-stage overlay rules: exactly one FROM, exactly the pinned
+    harness base; no COPY/ADD - the build context is the state images dir,
+    so repo files are unreachable (teach the pinned-fetch pattern instead).
+    Raises ValueError with an actionable message."""
+    # The parsing mirrors imagebuilder (the parser buildah builds with):
+    # strip a leading UTF-8 BOM, drop comment lines BEFORE continuation
+    # joining, and join continuations by direct concatenation - never
+    # looser than the builder, or a keyword-split `FRO\`+`M evil` or a
+    # comment-ending backslash smuggles a real FROM/COPY past the checks
+    # below (divergence found by adversarial review on issue #69).
+    # Unsupported parser directives (`# escape=`) are rejected rather than
+    # ported: v1 overlays support the default `\` escape only.
+    text = text.removeprefix("\ufeff")
+    logical_lines: list[str] = []
+    pending = ""
+    for line in text.splitlines():
+        if re.match(r"^\s*#\s*escape\s*=", line, re.IGNORECASE):
+            raise ValueError(
+                "overlay Containerfile: the '# escape=' parser directive is "
+                "not supported - v1 overlays use the default '\\' escape only")
+        if line.lstrip().startswith("#"):
+            continue  # a comment line never joins with its successor
+        line = pending + line  # direct concatenation, no inserted space
+        if line.rstrip().endswith("\\"):
+            pending = line.rstrip()[:-1]
+        else:
+            logical_lines.append(line)
+            pending = ""
+    if pending:
+        logical_lines.append(pending)
+    instructions = []
+    for line in logical_lines:
+        line = line.strip()
+        if not line or line.startswith("#"):  # comments / parser directives
+            continue
+        parts = line.split(None, 1)
+        instructions.append((parts[0].upper(), parts[1].strip() if len(parts) > 1 else ""))
+    for instr, _ in instructions:
+        if instr in ("COPY", "ADD"):
+            raise ValueError(
+                f"overlay Containerfile: {instr} is not allowed - the build context "
+                "contains no repo files, so there is nothing to copy from; fetch what "
+                "you need in a RUN step with a version+sha256-pinned URL instead")
+    froms = [rest for instr, rest in instructions if instr == "FROM"]
+    if not froms:
+        raise ValueError("overlay Containerfile must be FROM the pinned harness base "
+                         f"{base!r} (found no FROM)")
+    if len(froms) > 1:
+        raise ValueError("overlay Containerfile: multi-stage overlays are not "
+                         "supported (single FROM only)")
+    if froms[0] != base:
+        raise ValueError("overlay Containerfile must be FROM the pinned harness base "
+                         f"{base!r}, got {froms[0]!r}")
+
+
+def overlay_image_name(text: str) -> str:
+    """Content-addressed overlay image ref. The tag names overlay CONTENT
+    only (the FROM line inside it pins the base); the build rebuilds
+    unconditionally every up/prepare, and a base flip busts it via
+    buildah's parent-image-ID layer-cache keying - the rebuilt image
+    re-takes this same tag."""
+    return f"localhost/veggies-harness-overlay:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
 
 
 # --- Pod assembly --------------------------------------------------------------------

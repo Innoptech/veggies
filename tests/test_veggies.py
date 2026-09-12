@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+import hashlib
 import importlib.util
 import json
 import shlex
@@ -125,6 +126,46 @@ def test_render_containers_and_pins(spec):
     assert by_name["litellm"]["image"] == veggies_stack.IMAGE_LITELLM
     assert by_name["squid"]["image"] == veggies_stack.IMAGE_SQUID
     assert by_name["opencode"]["image"] == veggies_stack.IMAGE_OPENCODE
+
+
+def test_harness_image_override_renders(spec):
+    # issue #69: a resolved per-repo overlay ref replaces the opencode
+    # container's image; None (no harness_containerfile in veggies.yml)
+    # renders the pinned base.
+    override = "localhost/veggies-harness-overlay:" + "0" * 16
+    spec.harness_image = override
+    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO)
+           if d["kind"] == "Pod"][0]
+    by_name = {c["name"]: c for c in pod["spec"]["containers"]}
+    assert by_name["opencode"]["image"] == override
+    spec.harness_image = None
+    pod = [d for d in veggies_stack.render_pod(spec, INFRA_REPO)
+           if d["kind"] == "Pod"][0]
+    by_name = {c["name"]: c for c in pod["spec"]["containers"]}
+    assert by_name["opencode"]["image"] == veggies_stack.HARNESS_BASE_IMAGE
+
+
+def test_harness_image_override_changes_only_the_image(spec):
+    # The issue's byte-identical-except-image criterion: with the override
+    # set, everything but the opencode container's image field renders
+    # exactly as the default (which the golden file pins separately).
+    spec.harness_image = None
+    default_docs = veggies_stack.render_pod(spec, INFRA_REPO)
+    spec.harness_image = "localhost/veggies-harness-overlay:" + "0" * 16
+    overlay_docs = veggies_stack.render_pod(spec, INFRA_REPO)
+    # the override has an effect at all
+    assert yaml.safe_dump_all(default_docs, sort_keys=True) != \
+        yaml.safe_dump_all(overlay_docs, sort_keys=True)
+
+    def dump_without_opencode_image(docs):
+        for d in docs:
+            for c in d.get("spec", {}).get("containers", []):
+                if c["name"] == "opencode":
+                    c["image"] = "@PINNED@"
+        return yaml.safe_dump_all(docs, sort_keys=True)
+
+    assert dump_without_opencode_image(default_docs) == \
+        dump_without_opencode_image(overlay_docs)
 
 
 def test_only_opencode_publishes_a_port(spec):
@@ -622,6 +663,134 @@ def test_parse_repo_config_github():
     # PASS validation; the rejection path needs a genuine non-bool
     with pytest.raises(ValueError, match="'github' must be a bool"):
         veggies_stack.parse_repo_config('github: "yes"\n')
+
+
+def test_parse_repo_config_harness_containerfile():
+    cfg, warnings = veggies_stack.parse_repo_config(
+        "harness_containerfile: .veggies/harness.Containerfile\n")
+    assert cfg["harness_containerfile"] == ".veggies/harness.Containerfile"
+    assert warnings == []  # a known key: no unknown-key warning
+
+
+def test_parse_repo_config_harness_containerfile_rejects_bad_values():
+    with pytest.raises(ValueError, match="'harness_containerfile' must be a string"):
+        veggies_stack.parse_repo_config("harness_containerfile: [x]\n")
+    for bad in ("/etc/x", "../x", "a/../../x", '""'):
+        with pytest.raises(ValueError, match="harness_containerfile"):
+            veggies_stack.parse_repo_config(f"harness_containerfile: {bad}\n")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "FROM {base}\n",
+        "from {base}\n",
+        "# harness overlay\n# syntax=dockerfile-inline\n\n  FROM   {base}  \n",
+        # a RUN continuation whose next physical line starts with the word
+        # COPY must not read as a COPY instruction (logical lines join first)
+        "FROM {base}\nRUN curl -fsSL -o /tmp/x https://example.com/x \\\n"
+        "    COPY is just an argument here\n",
+        # imagebuilder strips a leading UTF-8 BOM; a BOM'd overlay is valid
+        "\ufeffFROM {base}\nRUN true\n",
+        # parity (issue #69 adversarial review): buildah joins continuations
+        # by DIRECT concatenation, so `FRO\`+`M <base>` builds as exactly
+        # FROM <base> - accept precisely what buildah would build
+        "FRO\\\nM {base}\nRUN true\n",
+    ],
+)
+def test_validate_overlay_containerfile_ok(text):
+    veggies_stack.validate_overlay_containerfile(
+        text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "RUN echo the token FROM here is only an argument\n",  # no FROM
+        "FROM alpine:3\n",
+        "FROM {base}\nFROM {base}\n",
+        "FROM {base} AS build\n",
+        "FROM --platform=linux/amd64 {base}\n",
+        "FROM {base}\nCOPY tools/ /opt/\n",
+        "FROM {base}\nADD https://x /y\n",
+        # keyword-split smuggle (issue #69 adversarial review): buildah's
+        # direct concatenation makes `FRO\`+`M x` a real second FROM ...
+        "FROM {base}\nFRO\\\nM docker.io/library/alpine:latest\nRUN true\n",
+        # ... and `CO\`+`PY x /y` a real COPY - both must trip here too
+        "FROM {base}\nCO\\\nPY x /y\n",
+        # imagebuilder strips comment lines BEFORE continuation joining:
+        # the trailing backslash on a comment must not hide the COPY
+        "FROM {base}\n# note \\\nCOPY x /y\n",
+    ],
+)
+def test_validate_overlay_containerfile_rejects(text):
+    with pytest.raises(ValueError):
+        veggies_stack.validate_overlay_containerfile(
+            text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+def test_validate_overlay_containerfile_copy_error_teaches():
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nCOPY tools/ /opt/\n"
+    with pytest.raises(ValueError, match="no repo files"):
+        veggies_stack.validate_overlay_containerfile(text)
+    with pytest.raises(ValueError, match="pinned"):
+        veggies_stack.validate_overlay_containerfile(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# escape=`\nFROM {base}\nRUN true\n",
+        "FROM {base}\n# escape=`\nRUN true\n",
+        "FROM {base}\nRUN true\n\t#  ESCAPE = ` \n",
+    ],
+)
+def test_validate_overlay_containerfile_rejects_escape_directive(text):
+    # Parser directives change tokenization itself; v1 overlays support the
+    # default `\` escape only, so the directive is rejected outright rather
+    # than ported (issue #69 adversarial review).
+    with pytest.raises(ValueError, match="escape"):
+        veggies_stack.validate_overlay_containerfile(
+            text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+def test_overlay_image_name():
+    import re
+
+    text = "FROM x\nRUN a\n"
+    name = veggies_stack.overlay_image_name(text)
+    assert name == veggies_stack.overlay_image_name("FROM x\nRUN a\n")  # deterministic
+    assert name != veggies_stack.overlay_image_name("FROM x\nRUN b\n")  # content-addressed
+    assert re.fullmatch(r"localhost/veggies-harness-overlay:[0-9a-f]{16}", name)
+    # the tag IS sha256(content)[:16] - the unconditional-rebuild invariant
+    # (ADR 0054 rule 3) hangs on this exact derivation
+    assert name == ("localhost/veggies-harness-overlay:"
+                    + hashlib.sha256(text.encode()).hexdigest()[:16])
+
+
+def test_resolve_harness_overlay_absent_key_returns_none(tmp_path):
+    assert veggies.resolve_harness_overlay(None, str(tmp_path), {}) is None
+
+
+def test_resolve_harness_overlay_reads_validates_and_names(tmp_path):
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nRUN true\n"
+    (tmp_path / "harness.Containerfile").write_text(text)
+    pair = veggies.resolve_harness_overlay(
+        None, str(tmp_path), {"harness_containerfile": "harness.Containerfile"})
+    assert pair == (veggies_stack.overlay_image_name(text), text)
+
+
+def test_resolve_harness_overlay_missing_file_raises(tmp_path):
+    with pytest.raises(ValueError, match="harness_containerfile"):
+        veggies.resolve_harness_overlay(
+            None, str(tmp_path), {"harness_containerfile": "nope.Containerfile"})
+
+
+def test_resolve_harness_overlay_invalid_containerfile_raises(tmp_path):
+    (tmp_path / "bad.Containerfile").write_text("FROM alpine:3\n")
+    with pytest.raises(ValueError):
+        veggies.resolve_harness_overlay(
+            None, str(tmp_path), {"harness_containerfile": "bad.Containerfile"})
 
 
 def test_stack_components_includes_mcps():
@@ -1244,15 +1413,16 @@ def test_prepare_uses_local_repo_config_and_streams(monkeypatch, tmp_path,
     (tmp_path / "veggies.yml").write_text("mcps: [toolbox]\n")
     calls = []
 
-    def fake_ensure(host, repo, spec, verbose=False):
-        calls.append((host, verbose,
+    def fake_ensure(host, repo, spec, verbose=False, overlay=None):
+        calls.append((host, verbose, overlay,
                           [c.name for c in veggies.stack_components(spec)]))
 
     monkeypatch.setattr(veggies, "ensure_images", fake_ensure)
     args = argparse.Namespace(repo=str(tmp_path), host="veggies", name=None)
     assert veggies.cmd_prepare(args) == 0
-    host, verbose, comps = calls[0]
+    host, verbose, overlay, comps = calls[0]
     assert host == "veggies" and verbose is True
+    assert overlay is None  # no harness_containerfile in this veggies.yml
     assert "toolbox" in comps  # mcps from the local veggies.yml honored
     assert comps[:3] == ["opencode", "litellm", "squid"]
     out = capsys.readouterr().out
@@ -1292,6 +1462,54 @@ def test_ensure_images_verbose_streams_and_quiet_default(monkeypatch, spec):
     veggies.ensure_images(None, INFRA_REPO, spec)
     builds = [c for c in calls if c[:2] == ["podman", "build"]]
     assert builds and all("-q" in b for b in builds)
+
+
+def test_ensure_images_builds_overlay_after_components_and_unconditionally(
+        monkeypatch, spec):
+    # ADR 0054 rule 3: the overlay tag names CONTENT only, so the overlay
+    # build runs AFTER the component builds (its FROM base must exist) and
+    # UNCONDITIONALLY - an existence guard would let a base flip leave a
+    # stale image under the same tag forever.
+    calls = []
+    writes = []
+
+    class R:
+        returncode = 0  # "image exists" says YES - the overlay builds anyway
+        stdout = ""
+
+    monkeypatch.setattr(veggies, "run",
+                        lambda cmd, **kw: (calls.append(cmd), R())[1])
+    monkeypatch.setattr(veggies, "host_write",
+                        lambda host, path, content, mode=0o600:
+                        writes.append(path))
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nRUN true\n"
+    image = veggies_stack.overlay_image_name(text)
+    veggies.ensure_images(None, INFRA_REPO, spec, verbose=True,
+                          overlay=(image, text))
+    builds = [c for c in calls if c[:2] == ["podman", "build"]]
+    overlay_builds = [c for c in builds if image in c]
+    assert overlay_builds, "overlay build missing"
+    component_builds = [c for c in builds if c not in overlay_builds]
+    assert component_builds, "default spec builds opencode+squid"
+    assert calls.index(overlay_builds[0]) > max(
+        calls.index(c) for c in component_builds), "overlay must build last"
+    # the overlay path never queries existence (guard-free rebuild)
+    assert ["podman", "image", "exists", image] not in calls
+    # the shipped Containerfile name carries the content tag, so two stacks
+    # with different overlays never clobber each other's build file
+    tag = image.rsplit(":", 1)[-1]
+    assert any(w.endswith(f"veggies-harness-overlay.{tag}.Containerfile")
+               for w in writes)
+
+    # remote: the overlay build rides the substrate proxy build-args too
+    calls.clear()
+    veggies.ensure_images("overlay-test-host", INFRA_REPO, spec,
+                          overlay=(image, text))
+    remote_overlay = [c for c in calls if len(c) > 2 and f"-t {image}" in c[2]]
+    assert remote_overlay, "remote overlay build missing"
+    remote_cmd = remote_overlay[0][2]
+    assert "--network=host" in remote_cmd
+    assert f"--build-arg HTTPS_PROXY={veggies.REMOTE_PROXY}" in remote_cmd
 
 
 def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):

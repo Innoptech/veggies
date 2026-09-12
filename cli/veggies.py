@@ -46,6 +46,7 @@ from veggies_stack import (  # noqa: E402
     build_context,
     container_names,
     load_repo_config,
+    overlay_image_name,
     parse_repo_config,
     render_secret_docs,
     render_yaml,
@@ -54,6 +55,7 @@ from veggies_stack import (  # noqa: E402
     sanitize_name,
     secret_names,
     state_dir,
+    validate_overlay_containerfile,
 )
 from capabilities import VAULT_GITHUB, VAULT_MODEL  # noqa: E402
 import costs  # noqa: E402
@@ -308,37 +310,30 @@ def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
 
 
 def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
-                  verbose: bool = False) -> None:
+                  verbose: bool = False,
+                  overlay: tuple[str, str] | None = None) -> None:
     """Images are component-owned: build/pull exactly the selected
     components' images. Built images use layer-cache (no-op when unchanged);
     pull-only images are pulled once. Remote: Containerfiles are shipped into
     the remote state dir and built there. verbose streams the full build
-    output (`veggies prepare`); `up` stays quiet (-q)."""
+    output (`veggies prepare`); `up` stays quiet (-q). The optional overlay
+    (issue #69) is the validated harness_containerfile text plus its
+    content-addressed tag, built after the components so its FROM base
+    exists."""
     quiet = [] if verbose else ["-q"]
-    for c in stack_components(spec):
-        b = c.build
-        if b is None:
-            continue
-        def hp(*a, **k):  # remote podman needs the substrate proxy (stacks is egress-denied)
-            if host is None:
-                return host_podman(None, *a, **k)
-            return host_run(host, ["env", f"HTTPS_PROXY={REMOTE_PROXY}",
-                                   f"HTTP_PROXY={REMOTE_PROXY}",
-                                   "podman", *a], **k)
-        if b.containerfile is None:
-            if hp("image", "exists", b.image,
-                  check=False, capture=True).returncode != 0:
-                if verbose:
-                    print(f"==> pull {b.image}")
-                hp("pull", *quiet, b.image)
-            elif verbose:
-                print(f"==> {b.image} present")
-            continue
-        cf = (infra_repo / b.containerfile).read_text()
-        base = b.image.split("/")[-1].split(":")[0]
+
+    def hp(*a, **k):  # remote podman needs the substrate proxy (stacks is egress-denied)
+        if host is None:
+            return host_podman(None, *a, **k)
+        return host_run(host, ["env", f"HTTPS_PROXY={REMOTE_PROXY}",
+                               f"HTTP_PROXY={REMOTE_PROXY}",
+                               "podman", *a], **k)
+
+    def build(image: str, cf_text: str, cf_name: str | None = None) -> None:
+        base = image.split("/")[-1].split(":")[0]
         images_dir = str(state_dir() / "images") if host is None else f"{REMOTE_STATE_ROOT}/images"
-        cf_path = f"{images_dir}/{base}.Containerfile"
-        host_write(host, cf_path, cf)
+        cf_path = f"{images_dir}/{cf_name or f'{base}.Containerfile'}"
+        host_write(host, cf_path, cf_text)
         build_args = []
         if host is not None:
             # RUN steps get their own netns: 127.0.0.1 would be the build
@@ -349,9 +344,37 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
             for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
                 build_args += ["--build-arg", f"{v}={REMOTE_PROXY}"]
             build_args += ["--build-arg", "NO_PROXY=127.0.0.1,localhost"]
+        hp("build", *quiet, "-t", image, "-f", cf_path, *build_args, images_dir)
+
+    for c in stack_components(spec):
+        b = c.build
+        if b is None:
+            continue
+        if b.containerfile is None:
+            if hp("image", "exists", b.image,
+                  check=False, capture=True).returncode != 0:
+                if verbose:
+                    print(f"==> pull {b.image}")
+                hp("pull", *quiet, b.image)
+            elif verbose:
+                print(f"==> {b.image} present")
+            continue
         if verbose:
             print(f"==> build {b.image} ({b.containerfile})")
-        hp("build", *quiet, "-t", b.image, "-f", cf_path, *build_args, images_dir)
+        build(b.image, (infra_repo / b.containerfile).read_text())
+    if overlay is not None:
+        image, cf_text = overlay
+        if verbose:
+            print(f"==> build {image} (harness_containerfile overlay)")
+        # INVARIANT (ADR 0054): the overlay tag names CONTENT only - the
+        # build must run unconditionally on every up/prepare. Never add an
+        # existence check or a --layers fast path here: a HARNESS_BASE_IMAGE
+        # flip busts the build via buildah's parent-image-ID layer-cache
+        # keying, and the rebuilt image re-takes the same tag.
+        # The shipped build file is per-content (tag-suffixed): two stacks
+        # with different overlays never clobber each other's Containerfile.
+        build(image, cf_text,
+              cf_name=f"veggies-harness-overlay.{image.rsplit(':', 1)[-1]}.Containerfile")
 
 
 def wait_healthy(spec: StackSpec, timeout: int = 240) -> None:
@@ -568,6 +591,38 @@ def discover_repo_config(host: str | None, repo_path: str) -> tuple[dict, list[s
     return parse_repo_config(r.stdout)
 
 
+def read_repo_text(host: str | None, repo_path: str, rel: str) -> str:
+    """Read a file from the stack's repo: local path, or the remote clone
+    over ssh (the discover_repo_config pattern). Missing/unreadable raises
+    ValueError naming the veggies.yml key that asked for it."""
+    if host is None:
+        try:
+            return Path(repo_path, rel).read_text()
+        except OSError as e:
+            raise ValueError(f"harness_containerfile: cannot read {rel} in "
+                             f"{repo_path}: {e}") from e
+    r = host_run(host, ["cat", f"{repo_path}/{rel}"], check=False, capture=True)
+    if r.returncode != 0:
+        err = r.stderr.strip().splitlines()[0] if r.stderr.strip() else f"exit {r.returncode}"
+        raise ValueError(f"harness_containerfile: cannot read {rel} in "
+                         f"{repo_path}: {err}")
+    return r.stdout
+
+
+def resolve_harness_overlay(host: str | None, repo_path: str,
+                            cfg: dict) -> tuple[str, str] | None:
+    """veggies.yml harness_containerfile -> (content-addressed image ref,
+    Containerfile text), validated against the pinned harness base.
+    None when the key is absent - the default image path is then
+    byte-identical to before (issue #69)."""
+    rel = cfg.get("harness_containerfile")
+    if rel is None:
+        return None
+    text = read_repo_text(host, repo_path, rel)
+    validate_overlay_containerfile(text)
+    return overlay_image_name(text), text
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
     name = args.name or stack_name_from(args.repo)
@@ -592,6 +647,9 @@ def cmd_render(args: argparse.Namespace) -> int:
         mcps=tuple(cfg.get("mcps") or ()),
         github=cfg.get("github", False),
     )
+    overlay = resolve_harness_overlay(args.host, repo, cfg)
+    if overlay:
+        spec.harness_image = overlay[0]
     sys.stdout.write(render_yaml(spec, infra_repo))
     return 0
 
@@ -640,8 +698,17 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     spec = StackSpec(name=name, repo=str(local if local.is_dir() else args.repo),
                      mode="mount", port=0, host=host,
                      mcps=tuple(cfg.get("mcps") or ()))
+    overlay = None
+    if local.is_dir():
+        overlay = resolve_harness_overlay(None, str(local), cfg)
+    if overlay and not any(c.provides == "harness"
+                           for c in stack_components(spec)):
+        print("warning: harness_containerfile set but the stack deselected "
+              "the harness component - skipping the overlay build",
+              file=sys.stderr)
+        overlay = None
     t0 = time.monotonic()
-    ensure_images(host, infra_repo, spec, verbose=True)
+    ensure_images(host, infra_repo, spec, verbose=True, overlay=overlay)
     print(f"\nimages ready on {host or 'this machine'} "
           f"in {time.monotonic() - t0:.0f}s")
     nxt = f"veggies up --repo {args.repo} --name {name}"
@@ -705,6 +772,20 @@ def cmd_up(args: argparse.Namespace) -> int:
                      github=args.github or cfg.get("github", False),
                      created=existing["created"] if existing else
                      datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    overlay = resolve_harness_overlay(host, repo_path, cfg)
+    if overlay and not any(c.provides == "harness"
+                           for c in stack_components(spec)):
+        print("warning: harness_containerfile set but the stack deselected "
+              "the harness component - skipping the overlay build",
+              file=sys.stderr)
+        overlay = None
+    if overlay:
+        spec.harness_image = overlay[0]
+        print(f"overlay: {overlay[0]} ({cfg['harness_containerfile']})")
+        if host_exists(host, f"{repo_path}/.venv", kind="d"):
+            print("warning: the repo ships a .venv - repo-local environments "
+                  "shadow the overlay image's tools on PATH (ADR 0032 trap; "
+                  "runbook documents the boundary)", file=sys.stderr)
     if spec.model:
         print(f"model:   litellm/{spec.model} (veggies.yml)")
     if spec.github:
@@ -724,7 +805,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     values = resolve_secret_values(spec)
 
     print("==> images")
-    ensure_images(host, infra_repo, spec)
+    ensure_images(host, infra_repo, spec, overlay=overlay)
 
     print("==> stack config")
     # ADR 0051/0052: the stack dir is the spend log's hostPath source -
