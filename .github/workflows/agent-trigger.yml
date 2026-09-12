@@ -55,14 +55,12 @@ jobs:
          startsWith(github.event.comment.body, '/elaborate')) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, linux, x64, veggies]
-    env:
-      # addComment takes issue/PR subjects only; discussions need
-      # addDiscussionComment (verified 2026-09-11, run 34602194185: the
-      # session-link step got 200 + errors[] and failed the job - ADR 0039).
-      ADD_COMMENT: 'mutation($subjectId: ID!, $body: String!) { addComment(input: {subjectId: $subjectId, body: $body}) { clientMutationId } }'
-      ADD_DISCUSSION_COMMENT: >-
-        mutation($discussionId: ID!, $body: String!)
-        { addDiscussionComment(input: {discussionId: $discussionId, body: $body}) { clientMutationId } }
+    # Comment posting (session link, ack, skip, failure) lives in
+    # scripts/gh_comment.py: it owns the ADR 0039 mutation split
+    # (addComment for issues, addDiscussionComment for discussions -
+    # verified 2026-09-11, run 34602194185) and survives GitHub's
+    # execute-then-500 (verified 2026-09-12, run 34706580396: the ack
+    # landed AND the response was 200+errors[], failing the job - #101).
     concurrency:
       # one kick per subject at a time; a re-label/re-comment queues behind,
       # not parallel. Prefixed by event: issue and discussion numbers are
@@ -121,6 +119,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.issue.node_id }}
+          SUBJECT_KIND: issue
           # env-routed, never spliced into the shell string: the gate is
           # repo-controlled text and could carry $()/backticks
           VERIFY_GATE: ${{ steps.kick.outputs.verify_gate }}
@@ -145,13 +144,7 @@ jobs:
           body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
           body="$body"$'\n\n'"$tail"
           body="$body"$'\n'"Verify gate: \`$VERIFY_GATE\`"
-          jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
-            '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
-          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json https://api.github.com/graphql)
-          echo "$resp"
-          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
+          printf '%s' "$body" | python3 scripts/gh_comment.py
 
       # Discussion kicks get a minimal ack only (ADR 0039): no session link,
       # no watch instructions - the real feedback is the agent's closing
@@ -163,6 +156,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.discussion.node_id }}
+          SUBJECT_KIND: discussion
           # same verb detection as the kick step (ADR 0041)
           DISCUSSION_COMMAND: ${{ startsWith(github.event.comment.body, '/elaborate') && 'elaborate' || 'distill' }}
         run: |
@@ -179,13 +173,7 @@ jobs:
             body="$body"$' issues it then closes this discussion as resolved.'
             body="$body"$' [Workflow log]('"${run_url})."
           fi
-          jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" \
-            '{query: $q, variables: {discussionId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
-          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json https://api.github.com/graphql)
-          echo "$resp"
-          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
+          printf '%s' "$body" | python3 scripts/gh_comment.py
 
       # Label clearing is best-effort housekeeping and must never eat the
       # session comment (verified 2026-09-11: a failed DELETE swallowed the
@@ -220,30 +208,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SUBJECT_KIND: ${{ github.event_name == 'discussion_comment' && 'discussion' || 'issue' }}
           SKIP_REASON: ${{ steps.kick.outputs.skip_reason }}
         run: |
           set -euo pipefail
           body="**veggies kick skipped** - ${SKIP_REASON}."
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ "${{ github.event_name }}" = "discussion_comment" ]; then
             body="$body"$' Comment /distill (or /elaborate) again if it truly needs another pass.'
-            jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
-              '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
+            body="$body [Workflow log](${run_url})."
           else
             body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
-            jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
-              '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
+            body="$body [Workflow log](${run_url})."
           fi
-          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json https://api.github.com/graphql)
-          echo "$resp"
-          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
+          printf '%s' "$body" | python3 scripts/gh_comment.py
 
       - name: Comment when the kick fails
         if: always() && steps.kick.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SUBJECT_KIND: ${{ github.event_name == 'discussion_comment' && 'discussion' || 'issue' }}
         run: |
           set -euo pipefail
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -251,17 +236,7 @@ jobs:
           body="$body"$' Check \`veggies status veggie\` and that the Actions variable'
           body="$body"$' \`VEGGIES_STACK_PORT\` matches \`veggies ls\`.'
           body="$body"$' [Workflow log]('"${run_url})."
-          # failure feedback must land on the actual subject: discussions
-          # take addDiscussionComment, issues take addComment (ADR 0039).
-          if [ "${{ github.event_name }}" = "discussion_comment" ]; then
-            jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
-              '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
-          else
-            jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
-              '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
-          fi
-          resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            --data @/tmp/comment.json https://api.github.com/graphql)
-          echo "$resp"
-          echo "$resp" | jq -e 'has("errors") | not' > /dev/null
+          # failure feedback must land on the actual subject: gh_comment
+          # selects addDiscussionComment (discussions) vs addComment
+          # (issues) via SUBJECT_KIND (ADR 0039).
+          printf '%s' "$body" | python3 scripts/gh_comment.py
