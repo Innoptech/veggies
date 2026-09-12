@@ -4,6 +4,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import re
 import shlex
 import stat
 import subprocess
@@ -473,6 +474,32 @@ def test_squid_containerfile_reused():
     assert (ROOT / "ansible/roles/egress/files/squid.Containerfile").exists()
 
 
+def test_egress_proxy_constants_match_role():
+    # The remote build-failure diagnostic reads the substrate squid's log as
+    # EGRESS_PROXY_USER / EGRESS_PROXY_CONTAINER; a drifted default here
+    # silently degrades it to the fallback hint (accepted, ADR 0054).
+    defaults = yaml.safe_load(
+        (ROOT / "ansible/roles/egress/defaults/main.yml").read_text()
+    )
+    assert defaults["egress_proxy_user"] == capabilities.EGRESS_PROXY_USER
+    quadlet = (ROOT / "ansible/roles/egress/templates/squid.container.j2"
+               ).read_text()
+    assert f"ContainerName={capabilities.EGRESS_PROXY_CONTAINER}" in quadlet
+
+
+def test_substrate_squid_log_surface_stays_native_on_stdout():
+    # ADR 0054: the CLI parses the substrate squid's access log after a
+    # failed remote build. The parsed surface is native format (the
+    # default - any `logformat` directive would change field order) on
+    # container stdout (read via `podman logs`). Pinned alongside the
+    # PARSED SURFACE comment at the access_log line in the template.
+    conf = (ROOT / "ansible/roles/egress/templates/squid.conf.j2"
+            ).read_text()
+    assert "access_log stdio:/proc/self/fd/1" in conf
+    assert not any(ln.strip().startswith("logformat")
+                   for ln in conf.splitlines())  # comments mention it
+
+
 # --- runtime helpers (pure parts) -----------------------------------------------
 
 
@@ -514,6 +541,136 @@ def test_state_records_password(tmp_path):
 def test_opencode_containerfile_pin_format():
     text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
     assert "ghcr.io/anomalyco/opencode:1.18.27@sha256:" in text
+
+
+# --- substrate egress diagnostics (issue #70) -----------------------------------
+
+
+def test_squid_denied_domains_connect_strips_port():
+    log = ("1763000000.123    150 127.0.0.1 TCP_DENIED/403 4123 "
+           "CONNECT crates.io:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
+
+
+def test_squid_denied_domains_public_ip_client_yields_domain():
+    # pasta source-NATs host->published-port traffic to the host's PUBLIC
+    # IP (verified in ansible/roles/egress/tasks/main.yml, 2026-09-08:
+    # host curl appears as 51.161.10.231), so build-time denials arrive
+    # from the public IP, never 127.0.0.1 - client IP cannot attribute a
+    # denial to this build. Any in-window denial lists its domain.
+    log = ("1763000000.123    150 51.161.10.231 TCP_DENIED/403 4123 "
+           "CONNECT crates.io:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
+
+
+def test_squid_denied_domains_plain_url():
+    log = ("1763000001.456     90 192.168.1.5 TCP_DENIED/403 3998 "
+           "GET http://deb.example.com/dists/ - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["deb.example.com"]
+
+
+def test_squid_denied_domains_denied_407_yields_host():
+    # The TCP_DENIED prefix intentionally also catches proxy-auth denials.
+    log = ("1763000000.1 5 10.88.0.2 TCP_DENIED/407 1 CONNECT "
+           "pypi.org:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["pypi.org"]
+
+
+def test_squid_denied_domains_ipv6_loopback_client():
+    log = ("1763000000.1 5 ::1 TCP_DENIED/403 1 CONNECT "
+           "crates.io:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
+
+
+def test_squid_denied_domains_ignores_non_denials():
+    log = (
+        "1763000000.1 5 127.0.0.1 TCP_HIT/200 100 GET "
+        "http://a.example.com/ - HIER_NONE/- text/html\n"
+        "1763000000.2 5 127.0.0.1 NONE/200 100 GET "
+        "http://b.example.com/ - HIER_NONE/- text/html\n"
+        "1763000000.3 5 127.0.0.1 TCP_MISS/200 100 CONNECT "
+        "c.example.com:443 - HIER_NONE/- text/html\n"
+    )
+    assert veggies.squid_denied_domains(log) == []
+
+
+def test_squid_denied_domains_dedupes_order_preserved():
+    log = (
+        "1763000000.1 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
+        "b.io:443 - HIER_NONE/- text/html\n"
+        "1763000000.2 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
+        "a.io:443 - HIER_NONE/- text/html\n"
+        "1763000000.3 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
+        "b.io:443 - HIER_NONE/- text/html\n"
+    )
+    assert veggies.squid_denied_domains(log) == ["b.io", "a.io"]
+
+
+def test_squid_denied_domains_dedupes_across_clients():
+    # Global dedupe: one domain denied from different clients lists ONCE.
+    log = (
+        "1763000000.1 5 51.161.10.231 TCP_DENIED/403 1 CONNECT "
+        "crates.io:443 - HIER_NONE/- text/html\n"
+        "1763000000.2 5 10.88.0.2 TCP_DENIED/403 1 CONNECT "
+        "crates.io:443 - HIER_NONE/- text/html\n"
+    )
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
+
+
+def test_squid_denied_domains_strips_bracketed_hosts():
+    log = ("1763000000.1 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
+           "[2001:db8::1]:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["2001:db8::1"]
+
+
+def test_squid_denied_domains_skips_malformed_lines():
+    log = (
+        "\n"
+        "garbage line\n"
+        "1763000000.1 5 127.0.0.1\n"  # too short
+        "1763000000.1 5 127.0.0.1 TCP_DENIED/403 1 CONNECT\n"  # no URL field
+        "1763000000.1 5 127.0.0.1 TCP_DENIED/403 1 CONNECT - - HIER_NONE/-\n"
+        "1763000000.2 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
+        "ok.io:443 - HIER_NONE/- text/html\n"
+    )
+    assert veggies.squid_denied_domains(log) == ["ok.io"]
+
+
+def test_egress_blocked_message_content():
+    msg = veggies.egress_blocked_message(
+        "ghcr.io/example/opencode:1", ["crates.io", "npmjs.org"], "boom")
+    assert "ghcr.io/example/opencode:1" in msg
+    assert "egress_allowlist_extra:" in msg
+    assert "  - crates.io" in msg and "  - npmjs.org" in msg
+    assert "ansible/inventory/group_vars/all.yml" in msg
+    assert "mask converge" in msg
+    assert "ghcr.io is already allowlisted" in msg
+    assert 'docs/runbook.md section "Image build fails with a blocked ' \
+        'domain"' in msg
+    assert msg.splitlines()[-1] == "original error: boom"
+
+
+def test_egress_blocked_message_host_wide_caveat_always_present():
+    # Client IP cannot attribute a denial to this build (pasta NATs host
+    # traffic to the public IP - see the parser tests), so the host-wide
+    # caveat is a STANDING line of every blocked message, not conditioned
+    # on an "other" bucket that no longer exists.
+    msg = veggies.egress_blocked_message("img", ["crates.io"], "boom")
+    assert "the proxy log is host-wide" in msg
+    assert "review each" in msg and "before allowlisting" in msg
+
+
+def test_egress_unrelated_message_content():
+    msg = veggies.egress_unrelated_message("img", "veggies", "boom")
+    assert "img" in msg and "veggies" in msg
+    # No in-window denials => the streamed build error is the cause to
+    # read; the nftables drop is only a conditional follow-up.
+    assert "error above is the cause to read" in msg
+    assert "if the failing step was a network fetch" in msg
+    assert "infra-egress-deny" in msg
+    assert 'docs/runbook.md section "Image build fails with a blocked ' \
+        'domain"' in msg
+    assert msg.splitlines()[-1] == "original error: boom"
 
 
 # --- session worktrees (ADR 0037) ---------------------------------------------
@@ -969,7 +1126,7 @@ def test_logs_remote_uses_env_wrap_not_login_shell(monkeypatch):
     monkeypatch.setattr(veggies.State, "get", lambda self, n: {
         "repo": "/r", "mode": "clone", "port": 4098, "host": "veggies",
         "password": "p"})
-    monkeypatch.setattr(veggies, "_remote_uid", lambda h: "1003")
+    monkeypatch.setattr(veggies, "_remote_uid", lambda h, user=None: "1003")
     calls = []
     monkeypatch.setattr(veggies.os, "execvp",
                         lambda exe, argv: calls.append(argv))
@@ -1292,6 +1449,106 @@ def test_ensure_images_verbose_streams_and_quiet_default(monkeypatch, spec):
     veggies.ensure_images(None, INFRA_REPO, spec)
     builds = [c for c in calls if c[:2] == ["podman", "build"]]
     assert builds and all("-q" in b for b in builds)
+
+
+def test_ensure_images_quiet_still_prints_action_headers(
+        monkeypatch, spec, capsys):
+    # `up` runs quiet (-q); the headers still print so a late remote
+    # failure is not preceded by total silence (issue #70).
+    class R:
+        returncode = 1  # "image exists" says no -> pull paths exercised too
+        stdout = ""
+
+    monkeypatch.setattr(veggies, "run", lambda cmd, **kw: R())
+    monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
+    veggies.ensure_images(None, INFRA_REPO, spec, verbose=False)
+    out = capsys.readouterr().out
+    assert "==> build " in out and "==> pull " in out
+
+
+def test_ensure_images_remote_failure_names_proxy_denied_domain(
+        monkeypatch, spec):
+    monkeypatch.setattr(veggies, "_REMOTE_UID", {})
+    monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
+    # Real client shape: pasta NATs host build traffic to the host's PUBLIC
+    # IP (verified in ansible/roles/egress/tasks/main.yml, 2026-09-08), so
+    # the denial arrives from 51.161.10.231 - never 127.0.0.1.
+    denial = ("1763000000.123 150 51.161.10.231 TCP_DENIED/403 4123 "
+              "CONNECT crates.io:443 - HIER_NONE/- text/html\n")
+    log_reads = []
+
+    def fake_run(cmd, **kw):
+        assert cmd[:2] == ["ssh", "veggies"], cmd
+        if cmd[2] == "sudo":  # _remote_uid probe (argv form, not the sh string)
+            return subprocess.CompletedProcess(cmd, 0, stdout="1001\n",
+                                               stderr="")
+        if "podman logs" in cmd[2]:  # the substrate squid log read
+            log_reads.append(cmd[2])
+            return subprocess.CompletedProcess(cmd, 0, stdout=denial,
+                                               stderr="")
+        if kw.get("check") is False:  # run(check=False) never raises
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        raise subprocess.CalledProcessError(1, cmd)  # the build itself
+
+    monkeypatch.setattr(veggies, "run", fake_run)
+    with pytest.raises(ValueError) as excinfo:
+        veggies.ensure_images("veggies", INFRA_REPO, spec, verbose=True)
+    msg = str(excinfo.value)
+    assert "crates.io" in msg
+    assert "egress_allowlist_extra:" in msg
+    assert "mask converge" in msg
+    assert isinstance(excinfo.value.__cause__, subprocess.CalledProcessError)
+    # The log read is windowed to the build: podman logs --since <N>s with
+    # N >= 30 (the +30s pre-build slack in _diagnose_egress_failure).
+    assert log_reads, "the failure path must read the substrate squid log"
+    m = re.search(r"podman logs --since (\d+)s squid", log_reads[0])
+    assert m, log_reads[0]
+    assert int(m.group(1)) >= 30
+
+
+def test_ensure_images_remote_failure_falls_back_when_log_unreadable(
+        monkeypatch, spec):
+    monkeypatch.setattr(veggies, "_REMOTE_UID", {})
+    monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
+
+    def fake_run(cmd, **kw):
+        assert cmd[:2] == ["ssh", "veggies"], cmd
+        if cmd[2] == "sudo":
+            return subprocess.CompletedProcess(cmd, 0, stdout="1001\n",
+                                               stderr="")
+        if kw.get("check") is False:  # run(check=False) never raises
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        raise subprocess.CalledProcessError(1, cmd)  # build AND log read
+
+    monkeypatch.setattr(veggies, "run", fake_run)
+    with pytest.raises(ValueError) as excinfo:
+        veggies.ensure_images("veggies", INFRA_REPO, spec, verbose=True)
+    msg = str(excinfo.value)
+    assert "error above is the cause to read" in msg
+    assert "infra-egress-deny" in msg
+    assert "veggies" in msg
+    assert "TCP_DENIED" not in msg  # no domains fabricated from an unread log
+    assert isinstance(excinfo.value.__cause__, subprocess.CalledProcessError)
+
+
+def test_ensure_images_local_failure_reraises_untouched(monkeypatch, spec):
+    # host=None keeps the bare CalledProcessError and never attempts the
+    # substrate-squid log read (there is no substrate proxy locally).
+    ssh_calls = []
+    monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
+
+    def fake_run(cmd, **kw):
+        if cmd[0] == "ssh":
+            ssh_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if kw.get("check") is False:  # run(check=False) never raises
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        raise subprocess.CalledProcessError(1, cmd)  # local podman build
+
+    monkeypatch.setattr(veggies, "run", fake_run)
+    with pytest.raises(subprocess.CalledProcessError):
+        veggies.ensure_images(None, INFRA_REPO, spec, verbose=True)
+    assert ssh_calls == []
 
 
 def test_up_refuses_same_name_on_other_host(monkeypatch, tmp_path):

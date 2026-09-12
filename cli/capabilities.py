@@ -23,6 +23,14 @@ REMOTE_USER = "stacks"
 # operations (git clone, image pull/build) must go through it; pasta NATs
 # those connections to the host IP, which the role adds to the source ACL.
 REMOTE_PROXY = "http://127.0.0.1:3128"
+# The substrate squid's quadlet identity: the remote image-build failure
+# diagnostic (veggies reads the proxy's access log to name blocked domains)
+# shells in as this user. Tracks the egress role's egress_proxy_user
+# default and the quadlet's ContainerName= - a group_vars override of
+# egress_proxy_user silently degrades that diagnostic to its fallback hint
+# (accepted, ADR 0054); drift-guarded in tests/test_veggies.py.
+EGRESS_PROXY_USER = "egress-proxy"
+EGRESS_PROXY_CONTAINER = "squid"
 REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/veggies"
 
 # Shared securityContext for every component unless it opts out with cause.
