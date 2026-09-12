@@ -62,6 +62,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 | [0052](0052-spend-log-writer.md) | Spend-log writer: litellm custom callback and title stamping | accepted |
 | [0053](0053-repository-rulesets-and-the-merge-queue.md) | Repository rulesets and the merge queue | accepted |
+| [0054](0054-pr-review-agent-comment-only.md) | Comment-only PR-review agent on the ready transition | accepted |
 
 ## Deviation ledger (vs the original brief)
 
