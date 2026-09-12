@@ -97,14 +97,17 @@ on `veggies sync <name>` - pull plus re-up, the one-command
 
 Merge path (ADR 0055): on opted-in repos (`pr_review_gate_repos`) the
 ruleset additionally requires the `pr-review-agent` check, written solely
-by `.github/workflows/pr-review-gate.yml` running base-branch code:
-`scripts/pr_review_gate.py` recomputes the verdict on every trigger - the
-reviewer agent's `pr-review-verdict: pass|fail` marker (issue #102), a
-declared-scope sentinel that hard-fails trust-surface diffs regardless of
-the verdict, and human clearing lanes that must postdate the failing
-signal - and appends every decision fail-open to
-`pr-review-verdicts.jsonl` beside the spend log. The merge stays human:
-the gate orders attention, it never merges.
+by `.github/workflows/pr-review-gate.yml` running default-branch code on
+every event: `scripts/pr_review_gate.py` recomputes the verdict on every
+trigger - the reviewer agent's `pr-review-verdict: pass|fail` marker
+(issue #102), a declared-scope sentinel that hard-fails trust-surface
+diffs regardless of the verdict, and head-bound human clearing lanes (an
+APPROVED review on the head, or `/gate-override <full-head-sha>`;
+timestamp postdating survives only against a fail verdict). The workflow
+never persists state (the runner container is ephemeral);
+`scripts/pr_review_verdicts.py` harvests the GitHub review history -
+the system of record - into `pr-review-verdicts.jsonl` beside the spend
+log. The merge stays human: the gate orders attention, it never merges.
 
 Supervision has two shapes (ADR 0028/0036): operator-driven
 (`veggies supervise`, judges via `podman exec` into the litellm container)
