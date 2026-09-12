@@ -95,6 +95,17 @@ shared clone checkout (and the `veggies.yml` read at up time) only advances
 on `veggies sync <name>` - pull plus re-up, the one-command
 "merged-to-main -> live on the stack" path.
 
+Merge path (ADR 0055): on opted-in repos (`pr_review_gate_repos`) the
+ruleset additionally requires the `pr-review-agent` check, written solely
+by `.github/workflows/pr-review-gate.yml` running base-branch code:
+`scripts/pr_review_gate.py` recomputes the verdict on every trigger - the
+reviewer agent's `pr-review-verdict: pass|fail` marker (issue #102), a
+declared-scope sentinel that hard-fails trust-surface diffs regardless of
+the verdict, and human clearing lanes that must postdate the failing
+signal - and appends every decision fail-open to
+`pr-review-verdicts.jsonl` beside the spend log. The merge stays human:
+the gate orders attention, it never merges.
+
 Supervision has two shapes (ADR 0028/0036): operator-driven
 (`veggies supervise`, judges via `podman exec` into the litellm container)
 and the opt-in always-on `supervision: supervisor` component, an in-pod
