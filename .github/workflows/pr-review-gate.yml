@@ -1,0 +1,89 @@
+---
+name: pr-review-gate
+
+# ADR 0055 (issue #103): this workflow is the SINGLE WRITER of the
+# `pr-review-agent` check run. scripts/pr_review_gate.py recomputes the
+# verdict (declared-scope hard-fail + reviewer-verdict state machine) from
+# live API state on every trigger and posts exactly one check under that
+# context. No other workflow and no job may write it: a second writer
+# could paint a stale verdict over the current head.
+#
+# The single job is named `gate`, never `pr-review-agent`: Actions
+# auto-creates a check run per job, and a job check named like the
+# required context would be satisfied by job completion regardless of the
+# verdict the script computed (see the warning above the job).
+#
+# checkout pins the BASE sha: on pull_request_target/pull_request_review
+# events GITHUB_SHA resolves to the PR (merge) ref - PR-controlled code.
+# The gate script must NEVER execute PR-authored code, so PR events check
+# out the base sha and everything else the default branch.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+  issue_comment:
+    types: [created]
+  merge_group:
+
+permissions:
+  checks: write # the check run - the whole point
+  contents: read # checkout
+  pull-requests: read # changed files + reviews
+  issues: read # /gate-override comments
+
+jobs:
+  # WARNING: NEVER name this job (or give it a `name:` of) `pr-review-agent`.
+  # Actions auto-creates a check run per job; a run named like the required
+  # context would report success on mere job completion, silently bypassing
+  # the gate's verdict. The context belongs to scripts/pr_review_gate.py.
+  gate:
+    # Fast no-op for ordinary comments: only a PR comment that STARTS with
+    # /gate-override from an OWNER/MEMBER reaches the script (which
+    # re-verifies everything itself). `/gate-override` never collides with
+    # agent-trigger.yml - that workflow's comment gate is issues-only.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/gate-override') &&
+        contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))
+    # Same pool as agent-trigger: the self-hosted runner is what lets the
+    # decision log reach the stack state dir (the script fails open if it
+    # cannot).
+    runs-on: [self-hosted, linux, x64, veggies]
+    concurrency:
+      # cancel-in-progress: false - every run recomputes live head-scoped
+      # state; dropping a dismissed/edited review event would strand a
+      # stale check on the head.
+      group: pr-review-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # pull_request_review's GITHUB_SHA is the PR merge ref
+          # (PR-controlled); the gate script must NEVER run PR-authored
+          # code - pin the base sha on PR events, the default branch
+          # elsewhere. Do NOT use github.event.merge_group.head_sha here:
+          # the group ref is a PR-influenced tree, and the merge-group arm
+          # only creates a fixed check.
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Run the gate
+        env:
+          # all values routed through env:, never spliced into the shell
+          # string (event payloads are PR-influenced text)
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # empty on issue_comment; the script resolves it from the PR fetch
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_REVIEW_GATE: ${{ vars.PR_REVIEW_GATE }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "merge_group" ]; then python3 scripts/pr_review_gate.py merge-group; else python3 scripts/pr_review_gate.py gate; fi
