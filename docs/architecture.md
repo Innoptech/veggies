@@ -43,10 +43,14 @@ enforces it over the vendored tiers and this repo's own, and
 tier carries `ask`. Stacks may opt
 into GitHub write access (`github: true` in veggies.yml): the pod carries
 the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
-from the vault (ADR 0033). The opencode image also carries the dev
-toolchain (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR
-0032/0047) so agents run the repo's own checks in-pod; molecule is
-excluded (no podman socket, ADR 0028).
+from the vault (ADR 0033). Harness images split base/overlay (ADR 0053):
+the base (`veggies-opencode-base` - the official image plus git/gh,
+pinned tag+digest) is every stack's harness; this repo's overlay
+(`veggies-opencode`) carries the dev toolchain
+(python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR 0032/0047) so
+agents run the repo's own checks in-pod; molecule is excluded (no podman
+socket, ADR 0028). Per-repo overlays land with #69/#70 - this repo's
+overlay is the reference implementation.
 
 Cost metering (ADR 0022; contract 0051; writer 0052): the litellm router
 writes one JSON line per model call to `<state_root>/<stack>/spend.jsonl`
