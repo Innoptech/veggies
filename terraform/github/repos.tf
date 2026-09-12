@@ -1,5 +1,10 @@
 # Branch policy for every governed repo, as one ruleset per repo (merge queue is opt-in, ADR 0053).
 
+locals {
+  # The one literal; tests pin it to scripts/pr_review_gate.py's CONTEXT.
+  pr_review_gate_context = "pr-review-agent"
+}
+
 data "github_repository" "this" {
   for_each = toset(var.repos)
   name     = each.key
@@ -40,9 +45,17 @@ resource "github_repository_ruleset" "main" {
     required_status_checks {
       strict_required_status_checks_policy = true # == strict: branch must be up to date before merging
       dynamic "required_check" {
-        for_each = toset(lookup(var.required_checks_overrides, each.key, var.required_checks))
+        for_each = toset(concat(
+          lookup(var.required_checks_overrides, each.key, var.required_checks),
+        contains(var.pr_review_gate_repos, each.key) ? [local.pr_review_gate_context] : []))
         content {
           context = required_check.value
+          # The verdict check is pinned to the GitHub Actions app: only an App
+          # token (the gate workflow's GITHUB_TOKEN) can create check runs, so
+          # no classic PAT - e.g. the one every github:true stack holds (ADR
+          # 0030) - can satisfy the required context with a forged commit
+          # status. 15368 = github-actions (verified: gh api apps/github-actions).
+          integration_id = required_check.value == local.pr_review_gate_context ? 15368 : null
         }
       }
     }

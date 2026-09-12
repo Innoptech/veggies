@@ -960,3 +960,102 @@ to terraform/terraform.tfvars, then the zero-gap two-phase apply -
 (stacks the ruleset on top of the classic protection; union enforced), then
 `mask tofu-apply` (removes the classic resource). Applying without the tfvars
 line migrates the policy to the ruleset but leaves the queue off.
+
+## 11. The reviewer verdict gate: pr-review-agent (ADR 0055)
+
+On opted-in repos the ruleset additionally requires the `pr-review-agent`
+check on every PR head. One workflow -
+`.github/workflows/pr-review-gate.yml`, running default-branch code on
+every event - is its only writer; `scripts/pr_review_gate.py` recomputes
+the decision from live API state on every trigger and posts exactly one
+check under that context. The state machine:
+
+- draft PR -> success: the gate evaluates at the ready transition (ADR
+  0046's ready-gate never deadlocks on it);
+- a diff touching the declared-scope roots (`secrets/`,
+  `.github/workflows/`, `terraform/`, `agent-config/`, `scripts/`, any
+  `CODEOWNERS`, `AGENTS.md`/`CLAUDE.md`, `veggies.yml`,
+  `cli/permission_envelope.py`, `ansible/roles/egress/`) -> failure,
+  regardless of any verdict - renames count on BOTH names, so a rename
+  out of scope still hits;
+- the reviewer's latest head-pinned `pr-review-verdict: pass|fail` line
+  (issue #102; dismissed reviews stop counting; ties break on review id)
+  -> success on `pass`, failure on `fail`, pending while absent;
+- any evaluation error (API outage, a >3000-file diff) -> a NAMED red
+  check `pr-review-agent: gate error`, never an absent context;
+- `merge_group` runs -> success: queue entry already demanded the green
+  gate at each PR's own head, so the group run verifies CI only.
+
+Both red lanes are evaluated on every run: a scope diff cleared by a
+human still goes red if a reviewer fail lands afterwards, and one red
+summary names every red reason. A red check clears only on a human act
+bound to the failing signal: an APPROVED review on the current head
+(OWNER/MEMBER, non-self, and never a review carrying the verdict
+marker), or an OWNER/MEMBER PR comment naming the exact head -
+`/gate-override <full-head-sha>` (the red summary prints the paste-able
+command). Head-binding IS the postdating for scope; against a fail
+verdict the act must also postdate the verdict. The sha-bound override
+is also the only escape for an unscannable >3000-file diff.
+
+The decision log is NOT written by the workflow - the self-hosted runner
+container is ephemeral and mounts only its `_work` dir, so an in-workflow
+append would vanish with the job. The GitHub review history is the system
+of record; harvest it into the queryable rollup with
+`scripts/pr_review_verdicts.py` (one record per trusted verdict review,
+idempotent by `review_id`, so re-runs append only new verdicts and a fresh
+log simply backfills). On the stack host, from the stack's repo clone, as
+the stacks user (the state dir's owner), with any read token exported -
+the vault's `github_token` (section 3) works:
+
+```bash
+ssh veggies
+export GITHUB_TOKEN=<token with repo read>
+sudo -u stacks -E bash -c 'cd /home/stacks/.local/state/veggies/clones/veggie &&
+  python3 scripts/pr_review_verdicts.py'
+```
+
+The log lands at `/home/stacks/.local/state/veggies/veggie/pr-review-verdicts.jsonl`
+(next to `spend.jsonl`; `VEGGIES_REVIEW_LOG` overrides,
+`HARVEST_MAX_PRS` caps the scan at the N most-recently-updated PRs,
+default 50). Automating the harvest (a systemd timer) is deferred
+substrate work - until then, run it when you want the evidence.
+
+Activate on a repo (in order):
+
+- [ ] `.github/workflows/pr-review-gate.yml` exists on the repo's default
+      branch.
+- [ ] The #102 reviewer is live on that repo.
+- [ ] If the repo also uses the merge queue (section 10): the gate reports
+      on `merge_group` runs (it does - the workflow triggers on it).
+- [ ] Add the repo to `pr_review_gate_repos` in terraform/terraform.tfvars,
+      then `mask tofu-apply`.
+- [ ] Re-push existing open PRs - their heads carry no gate context until
+      they update.
+
+Revoke: remove the repo from `pr_review_gate_repos` and `mask tofu-apply`
+FIRST; only then (optionally) remove the workflow from the repo's default
+branch. A deleted workflow with the context still required pends forever
+and wedges every merge.
+
+Incident valve (no apply): set the repo Actions variable
+`PR_REVIEW_GATE=disabled` - the gate reports success immediately and skips
+all reads.
+
+Re-entry evidence (ADR 0055 decision 9): the disagreement rate the trigger
+reads is the share of harvested fail verdicts a human later overrode, from
+the stack state dir:
+
+```bash
+# share of verdict-fail records carrying resolution human-override
+jq -rs '{fail: ([.[] | select(.state=="verdict" and .verdict=="fail")] | length),
+        overridden: ([.[] | select(.state=="verdict" and .verdict=="fail"
+                                   and .resolution=="human-override")] | length)}
+  | . + {disagreement: (if .fail>0 then .overridden/.fail else 0 end)}' \
+  pr-review-verdicts.jsonl
+```
+
+`/gate-override` is the escape hatch, priced honestly: under ADR 0043's
+shared identity an agent can forge the comment itself, so on this
+checks-only repo the gate is advisory until #56 - the sha-binding stops a
+genuine override laundering LATER heads, not impersonation. See ADR 0055
+decision 5.

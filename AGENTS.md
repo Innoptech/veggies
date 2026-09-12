@@ -85,7 +85,12 @@ reviews PRs; agents implement. These rules are not negotiable:
    (ADR 0035): the workflow clears it on kick/skip, and the done-guard
    never re-kicks an issue that is closed or has a merged or ready
    `agent/issue-N` PR - an open draft no longer blocks re-kicks
-   (ADR 0046).
+   (ADR 0046). The pr-review-agent gate (ADR 0055) hard-fails
+   trust-surface diffs (`secrets/`, `.github/workflows/`, `terraform/`,
+   `agent-config/`, `scripts/`, `CODEOWNERS`, `AGENTS.md`/`CLAUDE.md`,
+   `veggies.yml`, `cli/permission_envelope.py`, `ansible/roles/egress/`)
+   regardless of the reviewer verdict, and clears only on a human act
+   postdating the failing signal.
    `veggies prepare` pre-stages images with build logs; `mask demo-stack`
    is the one-command clean-VPS-to-stack path (runbook §1).
    Session isolation (ADR 0037): every kicked session works in its own git
