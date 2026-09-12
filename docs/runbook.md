@@ -471,9 +471,16 @@ HTTPS. Sessions in the stack can push branches and open PRs as the bot.
   `VEGGIES_STACK_PASSWORD` Actions secret stays valid across re-ups
   (ADR 0033).
 
-### The in-container toolchain (ADR 0032)
+### The in-container toolchain (ADR 0032/0057)
 
-The opencode image carries python3/pip, `mask`, `ansible`/`ansible-vault`,
+Two images, base/overlay (ADR 0057): `localhost/veggies-opencode-base:<ver>`
+is the slim harness every stack shares - the official opencode image plus
+git/openssh-client/github-cli, upstream pinned by tag+digest, nothing
+repo-specific. `localhost/veggies-opencode:<ver>` is THIS repo's overlay
+FROM that base and carries the toolchain below; both tags track the
+opencode version in lockstep, and `ensure_images` builds the base first.
+
+The overlay carries python3/pip, `mask`, `ansible`/`ansible-vault`,
 `tofu`, `tflint`, `gitleaks`, `actionlint`, `pre-commit`, `pytest`,
 `yamllint` - the agent runs the repo's own checks inside the stack, and
 since ADR 0047 every hook in `mask ci` runs in-pod with zero skips.
@@ -481,15 +488,22 @@ The declared in-pod verify gate is `mask ci` (AGENTS.md rule 3's
 `veggies-verify-gate` marker, ADR 0045; see "Declaring a repo's verify
 gate" below). Molecule was never part of `mask ci` and stays
 host/CI-only (no podman socket in-pod, ADR 0028). All binaries are
-version+sha256 pinned in
+version+sha256 pinned in the overlay,
 `deploy/images/opencode.Containerfile`; `tests/test_tool_pins.py` keeps
 the image, `.github/workflows/infra-ci.yml`, and `mask setup` in
-agreement. A stale `SKIP=actionlint-docker` is now a harmless no-op -
+agreement (maskfile.md's pin-sync pointer still names that file - the
+pins never moved). A stale `SKIP=actionlint-docker` is now a harmless no-op -
 the hook id is `actionlint` today and pre-commit ignores unknown SKIP
 ids. The python hooks (yamllint, ansible-lint,
 pre-commit-hooks) still pip-install into pre-commit's cache on a cold
 cache - expected; pypi is allowlisted, and ADR 0047 names their
-conversion as the follow-up. In-container checks are a CLONE-stack story (the VPS
+conversion as the follow-up. The ansible vault dummy moved with the
+split (ADR 0057): it left the shared renderer and is baked into the
+overlay as `/etc/veggies/vault-password` plus `ENV
+ANSIBLE_VAULT_PASSWORD_FILE=/etc/veggies/vault-password` (the env var
+overrides ansible.cfg's `vault_password_file`; under /etc because the
+opencode-home volume shadows /root) - stacks on the slim base carry no
+ansible glue. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
 run host-side there instead. On merging hook/binary changes, rebuild the
@@ -497,8 +511,10 @@ image (`veggies prepare`/`up`, or `mask demo-stack`'s prepare step)
 before the next `agent-task` label: kicks branch off `origin/main`, so
 the hooks take effect at merge while the binaries arrive with the
 rebuild. Hosts re-run `mask setup` after pulling - it installs the same
-pinned binaries into `~/.local/bin`. Smoke-test a rebuilt image:
-`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`.
+pinned binaries into `~/.local/bin`. Smoke-test a rebuilt overlay image:
+`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`;
+and check the base stayed slim:
+`podman run --rm --entrypoint sh localhost/veggies-opencode-base:<ver> -c '! command -v tofu mask ansible'`.
 The in-pod counterpart is a fresh kicked session on the rebuilt image: `command -v` for the rebuilt tools (gitleaks/actionlint today) must resolve to `/usr/local/bin/...` under the gate's own PATH - `PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH" command -v gitleaks actionlint` - because `$HOME` is a writable in-pod volume and a shadow in `~/.local/bin` would pass a plain `command -v` while the hooks run the shadow.
 Run a full `mask ci` for this check, not the rule-3 scaled gate - a narrow diff (docs-only, say) never fires path-filtered hooks such as actionlint (`files: ^\.github/workflows/`), so only the `--all-files` run proves the `language: system` hooks execute from the baked binaries with no download step (the python hooks' cold-cache pip install above still applies).
 
@@ -674,7 +690,10 @@ at a mask/make target.
 
 The gate executes inside the harness image (ADR 0032): a foreign gate
 needs an image that can run it - the repo owner owns that toolchain
-story.
+story. The pattern (ADR 0057): a repo's overlay is
+`FROM localhost/veggies-opencode-base:<opencode-version>` built as e.g.
+`<repo>-opencode`; the per-repo wiring (veggies.yml key, build egress)
+lands with #69/#70.
 
 Scope: the marker is ONLY the verify gate. Broader respect for a repo's
 own agent files (instructions, skills, rosters) is issue #54's territory.
@@ -984,9 +1003,11 @@ Troubleshooting:
   (CONNECT lines should complete in <1s).
 - `tofu init` fails in-pod with "failed to request discovery document": the
   registry fetch lost to tofu's 10s default client timeout on cold chained
-  egress (issue #50). `mask tofu-validate` and the opencode image now export
-  TF_REGISTRY_CLIENT_TIMEOUT=120; existing stacks pick up the image ENV on
-  the next `veggies up` (the maskfile export covers `mask ci` immediately).
+  egress (issue #50). `mask tofu-validate` exports
+  TF_REGISTRY_CLIENT_TIMEOUT=120 and the overlay image
+  (`deploy/images/opencode.Containerfile`, ADR 0057) bakes it as an ENV;
+  existing stacks pick up the image ENV on the next `veggies up` (the
+  maskfile export covers `mask ci` immediately).
   If git ops also hang ~35s per connection the stack predates the DNS fix
   above - recreate it (`veggies up`).
 - Pre-fix remote clones may carry the clone-time token in `.git/config` -
