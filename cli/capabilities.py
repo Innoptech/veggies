@@ -188,6 +188,13 @@ class BuildSpec:
     containerfile: str | None = None  # relative to infra repo; None = pull only
     base: BuildSpec | None = None
 
+    def __post_init__(self) -> None:
+        # Single-level enforcement (the docstring's contract): a 3-level
+        # chain would silently drop the deepest base in ensure_images.
+        if self.base is not None and self.base.base is not None:
+            raise ValueError("BuildSpec.base is single-level: a base must "
+                             "not itself carry a base")
+
 
 @dataclass
 class PodContext:
