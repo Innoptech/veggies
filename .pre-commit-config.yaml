@@ -66,8 +66,8 @@ repos:
 
   # The ADR index is generated from docs/adr/*.md (issue #72, ADR 0053): the
   # hook rewrites the marked table region and fails on drift - stage the
-  # result. language: system + stdlib-only script -> zero network, any
-  # python3 (ADR 0047).
+  # result. language: system + stdlib-only script -> zero network,
+  # stdlib-only (ADR 0047). Requires python >= 3.10 (PEP 604 unions).
   - repo: local
     hooks:
       - id: adr-index
@@ -75,4 +75,4 @@ repos:
         entry: scripts/adr_index.py
         language: system
         pass_filenames: false
-        files: ^docs/adr/
+        files: ^docs/adr/|^scripts/adr_index\.py$

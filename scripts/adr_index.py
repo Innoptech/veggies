@@ -35,6 +35,9 @@ END = "<!-- adr-index:end -->"
 
 FILENAME_RE = re.compile(r"^(\d{4})-.+\.md$")
 H1_RE = re.compile(r"^# (\d{4})\. (.+)$")
+# fromisoformat is interpreter-lenient (3.14 accepts 20260911 and week
+# dates, <=3.10 rejects them); pin the shape so every python3 agrees.
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 STATUS_RE = re.compile(
     r"^(proposed|accepted|rejected|deprecated)( \(.*\))?$"
     r"|^superseded by ADR-\d{4}( \(.*\))?$")
@@ -66,7 +69,14 @@ def collect(adr_dir: Path) -> list[ADR]:
     errors: list[str] = []
     adrs: list[ADR] = []
     seen: dict[str, str] = {}
-    for path in sorted(adr_dir.glob("*.md")):
+    # Discovery is case/extension-tolerant on purpose: glob("*.md") misses
+    # 0054-x.MD and 0055-y.markdown on Linux but not macOS. Anything that
+    # looks like markdown must instead fail FILENAME_RE loudly, the same
+    # way on every platform.
+    candidates = sorted(
+        path for path in adr_dir.iterdir()
+        if path.name.lower().endswith((".md", ".markdown")))
+    for path in candidates:
         if path.name in ("README.md", TEMPLATE):
             continue
         match = FILENAME_RE.match(path.name)
@@ -87,10 +97,21 @@ def collect(adr_dir: Path) -> list[ADR]:
         except UnicodeDecodeError as exc:
             errors.append(f"{path.name}: not valid UTF-8 ({exc})")
             continue
+        except OSError as exc:
+            errors.append(f"{path.name}: unreadable: {exc}")
+            continue
         adr, problems = _parse_adr(path.name, number, text)
         if problems:
             errors.extend(f"{path.name}: {problem}" for problem in problems)
-        else:
+            continue
+        # A pipe would render a four-column row that both the hook and the
+        # byte-compare would then ratify (review of PR #97).
+        pipes = [field for field in ("title", "status")
+                 if "|" in getattr(adr, field)]
+        for field in pipes:
+            errors.append(f"{path.name}: {field} must not contain '|' "
+                          "(it breaks the index table)")
+        if not pipes:
             adrs.append(adr)
     if errors:
         raise AdrIndexError("\n".join(errors))
@@ -118,6 +139,8 @@ def _parse_adr(name: str, number: str,
             problems.append(f"missing '{key}:' in frontmatter")
     if "date" in values:
         try:
+            if DATE_RE.match(values["date"]) is None:
+                raise ValueError(values["date"])
             datetime.date.fromisoformat(values["date"])
         except ValueError:
             problems.append(
@@ -151,19 +174,31 @@ def render_table(adrs: list[ADR]) -> str:
 
 
 def _region_bounds(text: str) -> tuple[list[str], int, int]:
-    """Split text into lines and locate the two marker lines in it."""
+    """Split text into lines and locate the one START/END marker pair.
+
+    Each marker must appear exactly once as a whole line: zero of either is
+    the missing-marker error; more than one of either (e.g. a marker quoted
+    inside a fenced code block above the real pair) is a hard error, because
+    splicing from a quoted START to the real END would silently delete the
+    prose between them - and afterwards hook and pytest would agree on the
+    mutilated file (review of PR #97).
+    """
     lines = text.splitlines(keepends=True)
 
-    def find(marker: str) -> int | None:
-        for i, line in enumerate(lines):
-            if line.rstrip("\r\n") == marker:
-                return i
-        return None
+    def find_all(marker: str) -> list[int]:
+        return [i for i, line in enumerate(lines)
+                if line.rstrip("\r\n") == marker]
 
-    start = find(START)
-    end = find(END)
-    if start is None or end is None:
+    starts = find_all(START)
+    ends = find_all(END)
+    if not starts or not ends:
         raise AdrIndexError("docs/adr/README.md: missing adr-index markers")
+    if len(starts) > 1 or len(ends) > 1:
+        raise AdrIndexError(
+            "docs/adr/README.md: expected exactly one adr-index:start and "
+            f"one adr-index:end marker (found {len(starts)} start, "
+            f"{len(ends)} end)")
+    start, end = starts[0], ends[0]
     if end < start:
         raise AdrIndexError(
             "docs/adr/README.md: adr-index:end before adr-index:start")
@@ -181,14 +216,24 @@ def rewrite_readme(readme: Path, table: str) -> bool:
 
     The drift check goes through extract_region, so this guard and the
     pytest byte-compare can never disagree. Everything outside the
-    markers is byte-preserved; an in-sync region is not rewritten.
+    markers is byte-preserved; an in-sync region is not rewritten. IO
+    failures on the README join the curated contract (main() exit 2),
+    never a traceback.
     """
-    text = readme.read_text(encoding="utf-8", newline="")
+    try:
+        text = readme.read_text(encoding="utf-8", newline="")
+    except OSError as exc:
+        raise AdrIndexError(
+            f"docs/adr/README.md: unreadable: {exc}") from exc
     if extract_region(text) == table:
         return False
     lines, start, end = _region_bounds(text)
     spliced = "".join(lines[:start + 1]) + table + "".join(lines[end:])
-    readme.write_text(spliced, encoding="utf-8", newline="")
+    try:
+        readme.write_text(spliced, encoding="utf-8", newline="")
+    except OSError as exc:
+        raise AdrIndexError(
+            f"docs/adr/README.md: unreadable: {exc}") from exc
     return True
 
 

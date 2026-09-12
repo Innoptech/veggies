@@ -64,6 +64,18 @@ def test_collect_rejects_a_nonconforming_filename(tmp_path):
             in str(excinfo.value))
 
 
+@pytest.mark.parametrize("name", ["0054-x.MD", "0055-y.markdown"])
+def test_collect_rejects_markdown_lookalike_extensions(tmp_path, name):
+    """.MD/.markdown must fail loudly on every platform: glob('*.md') skips
+    them on Linux but not macOS, so discovery lowercases the extension and
+    lets FILENAME_RE reject them."""
+    write_adr(tmp_path, name)
+    with pytest.raises(adr_index.AdrIndexError) as excinfo:
+        adr_index.collect(tmp_path)
+    assert (f"{name}: filename does not match 'NNNN-<slug>.md'"
+            in str(excinfo.value))
+
+
 def test_collect_rejects_duplicate_numbers_naming_both_files(tmp_path):
     write_adr(tmp_path, "0043-first.md")
     write_adr(tmp_path, "0043-second.md")
@@ -103,6 +115,16 @@ def test_collect_rejects_a_non_iso_date(tmp_path):
     with pytest.raises(adr_index.AdrIndexError) as excinfo:
         adr_index.collect(tmp_path)
     assert "invalid date '2026-13-99'" in str(excinfo.value)
+
+
+def test_collect_rejects_a_compact_date(tmp_path):
+    """3.14's fromisoformat accepts 20260911; <=3.10 rejects it. The strict
+    shape gate makes every interpreter agree."""
+    write_adr(tmp_path, "0001-a.md", date="20260911")
+    with pytest.raises(adr_index.AdrIndexError) as excinfo:
+        adr_index.collect(tmp_path)
+    assert "invalid date '20260911' (not ISO YYYY-MM-DD)" in str(
+        excinfo.value)
 
 
 def test_collect_rejects_an_unknown_status(tmp_path):
@@ -169,6 +191,23 @@ def test_collect_turns_a_decode_failure_into_a_collected_error(tmp_path):
     with pytest.raises(adr_index.AdrIndexError) as excinfo:
         adr_index.collect(tmp_path)
     assert "0001-a.md: not valid UTF-8" in str(excinfo.value)
+
+
+def test_collect_rejects_a_pipe_in_the_title(tmp_path):
+    write_adr(tmp_path, "0001-a.md", h1="# 0001. A | B")
+    with pytest.raises(adr_index.AdrIndexError) as excinfo:
+        adr_index.collect(tmp_path)
+    assert ("0001-a.md: title must not contain '|' (it breaks the index "
+            "table)" in str(excinfo.value))
+
+
+def test_collect_rejects_a_pipe_in_the_status(tmp_path):
+    # the status regex's parenthetical allows pipes - this check closes it
+    write_adr(tmp_path, "0001-a.md", status="accepted (a | b)")
+    with pytest.raises(adr_index.AdrIndexError) as excinfo:
+        adr_index.collect(tmp_path)
+    assert ("0001-a.md: status must not contain '|' (it breaks the index "
+            "table)" in str(excinfo.value))
 
 
 def test_collect_reports_every_broken_file_in_one_error(tmp_path):
@@ -244,6 +283,31 @@ def test_extract_region_rejects_end_before_start():
         "docs/adr/README.md: adr-index:end before adr-index:start")
 
 
+@pytest.mark.parametrize("quoted,counts", [
+    (adr_index.START, "(found 2 start, 1 end)"),
+    (adr_index.END, "(found 1 start, 2 end)"),
+])
+def test_quoted_marker_line_above_the_real_pair_is_a_hard_error(
+        tmp_path, quoted, counts):
+    """The M1 repro from the PR #97 review: a marker quoted on its own line
+    (e.g. inside a fenced code block documenting the mechanism) above the
+    real pair must fail loudly - taking the first match would splice prose
+    away, and hook and pytest would then agree on the mutilated file."""
+    text = (f"# ADRs\n\n```\n{quoted}\n```\n\n{adr_index.START}\nstale\n"
+            f"{adr_index.END}\n")
+    with pytest.raises(adr_index.AdrIndexError) as excinfo:
+        adr_index.extract_region(text)
+    assert str(excinfo.value) == (
+        "docs/adr/README.md: expected exactly one adr-index:start and one "
+        f"adr-index:end marker {counts}")
+    readme = tmp_path / "README.md"
+    readme.write_text(text, encoding="utf-8")
+    with pytest.raises(adr_index.AdrIndexError):
+        adr_index.rewrite_readme(
+            readme, adr_index.render_table([]))
+    assert readme.read_text(encoding="utf-8") == text  # never written
+
+
 # rewrite_readme()
 
 
@@ -316,6 +380,26 @@ def test_main_returns_2_on_validation_errors(adr_repo, capsys):
         f"{adr_index.START}\n{adr_index.END}\n")  # README untouched
 
 
+def test_main_returns_2_when_an_adr_is_unreadable(adr_repo, capsys):
+    # root ignores chmod 000, so the unreadable ADR is a DIRECTORY: reading
+    # it raises IsADirectoryError, an OSError.
+    adr_dir, readme = adr_repo
+    (adr_dir / "0055-broken.md").mkdir()
+    readme.write_text(f"{adr_index.START}\n{adr_index.END}\n",
+                      encoding="utf-8")
+    assert adr_index.main() == 2
+    assert "0055-broken.md: unreadable:" in capsys.readouterr().err
+    assert readme.read_text(encoding="utf-8") == (
+        f"{adr_index.START}\n{adr_index.END}\n")  # README untouched
+
+
+def test_main_returns_2_when_the_readme_is_missing(adr_repo, capsys):
+    adr_dir, readme = adr_repo  # the README is never written
+    write_adr(adr_dir, "0001-a.md")
+    assert adr_index.main() == 2
+    assert "docs/adr/README.md: unreadable:" in capsys.readouterr().err
+
+
 # Duplicate registration is filename-derived, not coupled to parse success
 
 
@@ -340,7 +424,9 @@ def test_marker_constants_are_the_documented_bytes():
 
 
 def test_index_matches_files():
-    readme = adr_index.README.read_text()
+    # Read exactly like the hook does (newline=""), so the byte-compare
+    # can never disagree with rewrite_readme's drift check.
+    readme = adr_index.README.read_text(encoding="utf-8", newline="")
     assert adr_index.extract_region(readme) == adr_index.render_table(
         adr_index.collect(adr_index.ADR_DIR)
     )
