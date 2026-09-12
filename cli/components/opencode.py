@@ -28,7 +28,11 @@ from capabilities import (
 # official one has no git (verified 2026-09-04). Base pinned by tag+digest.
 # Instruction-file discovery (AGENTS.md/CLAUDE.md auto-loaded from the mounted
 # repo, first match walking up) verified in 1.18.27 session/instruction.ts -
-# re-verify that list when bumping this image (ADR 0049).
+# re-verify that list when bumping this image (ADR 0049). The kick gate (ADR
+# 0053) reads the published tool-pin manifest via GET /file/content (missing
+# file -> 200 with empty content; literal-slash `path` param - both verified
+# 2026-09-11) and compares OPENCODE_VERSION, so bumping this image re-verifies
+# that endpoint contract too.
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096
 

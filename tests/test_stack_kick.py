@@ -1,6 +1,7 @@
 """Tests for scripts/stack_kick.py - the issue/discussion->session kick
 (ADR 0033 issues, ADR 0038 discussions)."""
 
+import http.client
 import importlib.util
 import io
 import json
@@ -1109,6 +1110,20 @@ def test_live_tool_pins_api_drift_raises(monkeypatch):
         stack_kick.live_tool_pins("http://h:1", "pw")
 
 
+def test_api_keeps_file_path_slashes_literal(calls):
+    """PR #96 review (Critical): opencode 1.18.27's /file/content does NOT
+    percent-decode the `path` query param - `path=.veggies%2Fimage-pins`
+    reads as a NONEXISTENT file and answers 200 with empty content, while
+    the literal-slash form returns the file (verified live 2026-09-11/12).
+    Encoded slashes would make the tool-pin gate read the manifest as
+    absent on EVERY stack and skip every kick forever."""
+    stack_kick.api("http://h:1", "pw", "GET", "/file/content",
+                   query={"path": ".veggies/image-tool-pins"})
+    url = calls[0].full_url
+    assert "?directory=/workspace" in url
+    assert "&path=.veggies/image-tool-pins" in url
+
+
 def test_tool_pin_gate_match_proceeds(monkeypatch):
     pins = {"GITLEAK_VERSION": "8.30.1", "TOFU_VERSION": "1.12.6"}
     _stub_tool_pins(monkeypatch, expected=pins, live=dict(pins))
@@ -1131,6 +1146,16 @@ def test_tool_pin_gate_skew_refuses_and_names_every_skewed_pin(
     assert "TOFU_VERSION expected 1.12.6, live image reports (absent)" \
         in reason
     assert "MASK_VERSION" not in reason  # a matching pin is not skew
+
+
+def test_tool_pin_gate_skew_reason_bounds_live_values(monkeypatch, capsys):
+    """PR #96 review (m2): a corrupt manifest's giant value is interpolated
+    into the skip reason, which rides the workflow's GraphQL comment body -
+    cap the live side at 80 chars, mirroring the unparseable branch."""
+    _stub_tool_pins(monkeypatch, expected={"TOFU_VERSION": "1.12.6"},
+                    live={"TOFU_VERSION": "9" * 100_000})
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") == stack_kick.SKIP_DONE
+    assert len(capsys.readouterr().out) < 2000
 
 
 def test_tool_pin_gate_absent_manifest_refuses(monkeypatch, capsys):
@@ -1158,6 +1183,23 @@ def test_tool_pin_gate_probe_failures_degrade(failure, monkeypatch, capsys):
     # 401/403 ride the kick's own failure path; 404/5xx are a sick stack or
     # API drift; transport/shape failures likewise - a gate must never deny
     # all kicks on its own blind spot, but every degrade is loud
+    _stub_tool_pins(monkeypatch, expected={"TOFU_VERSION": "1.12.6"},
+                    live_raises=failure)
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") is None
+    assert capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failure", [
+    http.client.RemoteDisconnected("dropped"),
+    http.client.BadStatusLine("garbage"),
+    http.client.IncompleteRead(b"partial"),
+])
+def test_tool_pin_gate_http_client_failures_degrade(failure, monkeypatch,
+                                                    capsys):
+    """PR #96 review (M1): urlopen raises the http.client family UNWRAPPED
+    (not URLError/TimeoutError) - e.g. the pod mid-`pod rm -f` during
+    `veggies sync` (verified 2026-09-12). The gate degrades loud like any
+    other probe failure; it must never deny a kick on its own blind spot."""
     _stub_tool_pins(monkeypatch, expected={"TOFU_VERSION": "1.12.6"},
                     live_raises=failure)
     assert stack_kick.tool_pin_gate("http://h:1", "pw") is None

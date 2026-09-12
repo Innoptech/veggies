@@ -4,6 +4,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import re
 import shlex
 import stat
 import subprocess
@@ -516,6 +517,11 @@ def test_opencode_containerfile_pin_format():
     # tag as ARG (the tool-pin manifest attests it), digest literal in FROM
     assert "ARG OPENCODE_VERSION=1.18.27" in text
     assert "FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}@sha256:" in text
+    # the manifest attests the ARG while the CLI builds/tags by this literal -
+    # the two must never drift (drift guard, ADR 0053)
+    import components.opencode as opencode
+    version = re.search(r"^ARG OPENCODE_VERSION=(\S+)$", text, re.M).group(1)
+    assert opencode.IMAGE_OPENCODE == f"localhost/veggies-opencode:{version}"
 
 
 # --- session worktrees (ADR 0037) ---------------------------------------------

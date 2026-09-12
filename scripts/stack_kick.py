@@ -52,6 +52,7 @@ Env:
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import re
@@ -234,7 +235,9 @@ def tool_pin_gate(url: str, password: str) -> int | None:
     (401/403 ride the kick's own failure path; 404/5xx are a sick stack
     or API drift - a gate must never deny all kicks on its own blind
     spot), URLError/timeout (a truly down stack fails kick() with rc 1,
-    label preserved), ValueError (API shape drift)."""
+    label preserved), the http.client family (RemoteDisconnected/
+    BadStatusLine/IncompleteRead escape urlopen unwrapped), ValueError
+    (API shape drift)."""
     expected = expected_tool_pins()
     if expected is None:
         print("tool pins undiscoverable (no Containerfile at script root); "
@@ -242,8 +245,12 @@ def tool_pin_gate(url: str, password: str) -> int | None:
         return None
     try:
         live = live_tool_pins(url, password)
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
-        # HTTPError is a URLError subclass - one family covers both
+    except (urllib.error.URLError, http.client.HTTPException,
+            TimeoutError, ValueError) as e:
+        # HTTPError is a URLError subclass - one family covers both; but
+        # RemoteDisconnected/BadStatusLine/IncompleteRead come UNWRAPPED
+        # from http.client (verified 2026-09-12), e.g. the pod mid
+        # `pod rm -f` during `veggies sync`
         print(f"tool-pin probe failed ({e}); proceeding", file=sys.stderr)
         return None
     if not live:
@@ -257,7 +264,10 @@ def tool_pin_gate(url: str, password: str) -> int | None:
         return skip(f"the live stack's tool-pin manifest is unparseable "
                     f"({shown}): rebuild the opencode image on the stack "
                     f"host (veggies sync - runbook)")
-    skew = sorted(f"{k} expected {v}, live image reports {live.get(k, '(absent)')}"
+    # the live value is capped like the unparseable branch's: a corrupt
+    # manifest's giant value must not blow the workflow's GraphQL body
+    skew = sorted(f"{k} expected {v}, live image reports "
+                  f"{live.get(k, '(absent)')[:80]}"
                   for k, v in expected.items() if live.get(k) != v)
     if skew:
         return skip("stale stack image - the live image's baked tool pins "
@@ -623,7 +633,10 @@ def api(url: str, password: str, method: str, path: str,
     /file/content path filter)."""
     url_q = f"{url}{path}?directory=/workspace"
     if query:
-        url_q += "&" + urllib.parse.urlencode(query)
+        # safe="/": the file API's `path` param is NOT percent-decoded by
+        # opencode 1.18.27 (verified live 2026-09-11/12) - %2F reads as a
+        # nonexistent filename (200, empty), so slashes stay literal.
+        url_q += "&" + urllib.parse.urlencode(query, safe="/")
     req = urllib.request.Request(
         url_q, method=method,
         data=json.dumps(body).encode() if body is not None else None)
