@@ -13,6 +13,12 @@ name: agent-trigger
 # ADR 0041: a trusted /elaborate comment on a discussion kicks a session
 # that posts five persona POV comments (domain expert, infra/architecture,
 # marketer, seller, CTO) back on the discussion.
+# ADR 0054 (issue #102): a PR flipping ready_for_review, or a trusted
+# /review PR comment, kicks one comment-only review session - a different
+# model audits the final diff against the issue's acceptance criteria and
+# the posted plan, then posts a risk-ranked `gh pr review --comment`
+# brief. Comment-only, never an approval; the merge gate stays human
+# (ADR 0007).
 #
 # Outbound-only on our side: the self-hosted runner polls GitHub, then
 # calls the stack's opencode API on the VPS host gateway
@@ -26,7 +32,16 @@ on:
     types: [created]
   discussion_comment:
     types: [created]
+  pull_request_target:
+    # ready_for_review ONLY (ADR 0054): draft-first pushes early and often
+    # (ADR 0046), so `synchronize` would burn review sessions on
+    # known-unfinished work and flood the 0051 spend log. The _target form
+    # is the security boundary: the workflow definition and the checkout
+    # below come from the trusted default branch, never from the PR head.
+    types: [ready_for_review]
 
+# The PR review itself is posted by the kicked session (pod bot PAT, ADR
+# 0030), never by this workflow - the job token needs no write on PRs.
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
   pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0046)
@@ -34,26 +49,37 @@ permissions:
 
 jobs:
   kick:
-    # Trigger gates (ADR 0040, amended by 0043): /opencode (issues),
-    # /distill and /elaborate (discussions) are COMMANDS - they must
-    # start the comment; a prose mention ("the /opencode flow...") never
-    # fires. INTERIM (ADR 0043): while the agent
-    # shares the operator's olgam4 identity there is NO login exclusion -
-    # olgam4 may trigger. The self-kick loop is bounded instead by this
-    # command anchoring, the in-flight guard (both modes, stack_kick.py)
-    # and the issue done-guard; the hard bot exclusion returns with the
-    # GitHub App identity. PR comments never kick - `/opencode` recovery
-    # lives on the issue; the first-class PR path is deferred (ADR 0046).
+    # Trigger gates (ADR 0040, amended by 0043/0054): /opencode (issues),
+    # /distill and /elaborate (discussions), and /review (PRs) are
+    # COMMANDS - they must start the comment; a prose mention never fires.
+    # ready_for_review auto-kicks only for same-repo agent/issue-* heads:
+    # the fork check keeps secrets away from fork PRs, the prefix keeps
+    # human PRs on the manual /review path. INTERIM (ADR 0043): while the
+    # agent shares the operator's olgam4 identity there is NO login
+    # exclusion - olgam4 may trigger. The self-kick loop is bounded by
+    # command anchoring, the in-flight guard (all modes, stack_kick.py),
+    # the issue done-guard, and the four-verb hygiene line every kick
+    # prompt carries (`gh pr review` fires pull_request_review, which this
+    # workflow never subscribes to - the reviewer's own review cannot
+    # re-kick). The hard bot exclusion returns with the GitHub App
+    # identity.
     if: >-
       (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
       (github.event_name == 'issue_comment' &&
         !github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/opencode') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/review') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'discussion_comment' &&
         (startsWith(github.event.comment.body, '/distill') ||
          startsWith(github.event.comment.body, '/elaborate')) &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'agent/issue-'))
     runs-on: [self-hosted, linux, x64, veggies]
     env:
       # addComment takes issue/PR subjects only; discussions need
@@ -67,9 +93,15 @@ jobs:
       # one kick per subject at a time; a re-label/re-comment queues behind,
       # not parallel. Prefixed by event: issue and discussion numbers are
       # independent sequences and would otherwise collide.
-      group: agent-kick-${{ github.event_name }}-${{ github.event.issue.number || github.event.discussion.number }}
+      group: agent-kick-${{ github.event_name }}-${{ github.event.issue.number || github.event.discussion.number || github.event.pull_request.number }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          # pull_request_target already checks out the default branch; pin
+          # it for every event so scripts/stack_kick.py and the no-ask
+          # scan always run trusted default-branch code, never PR-head
+          # content (ADR 0054).
+          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.14"
@@ -82,6 +114,12 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
+          # PR-review mode (ADR 0054): the pull_request slot carries
+          # ready_for_review; the issue slot carries a /review comment's PR
+          PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) }}
+          PR_TITLE: ${{ github.event.pull_request.title || (github.event.issue.pull_request && github.event.issue.title) }}
+          PR_BODY: ${{ github.event.pull_request.body || (github.event.issue.pull_request && github.event.issue.body) }}
+          PR_URL: ${{ github.event.pull_request.html_url || (github.event.issue.pull_request && github.event.issue.html_url) }}
           # discussion mode when set (ADR 0038); empty on issue events
           DISCUSSION_NUMBER: ${{ github.event.discussion.number }}
           DISCUSSION_TITLE: ${{ github.event.discussion.title }}
@@ -114,13 +152,14 @@ jobs:
       # DELETE swallowed the success comment). Issues only: a discussion kick
       # gets the minimal ack below instead - the session link lives on the
       # issues the agent creates (ADR 0039).
-      - name: Comment the session link on the issue
+      - name: Comment the session link on the subject
         if: >-
           success() && steps.kick.outputs.rc == '0' &&
           github.event_name != 'discussion_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT_ID: ${{ github.event.issue.node_id }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id || github.event.pull_request.node_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) }}
           # env-routed, never spliced into the shell string: the gate is
           # repo-controlled text and could carry $()/backticks
           VERIFY_GATE: ${{ steps.kick.outputs.verify_gate }}
@@ -134,17 +173,30 @@ jobs:
           dirseg=$(printf '/workspace' | base64 | tr '+/' '-_' | tr -d '=')
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           issue_n="${{ github.event.issue.number }}"
-          body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
-          tail="The agent branches \`agent/issue-${issue_n}\` and opens (or continues) a DRAFT PR early -"
-          tail="$tail commits and CI land there as it works. It marks the PR ready only"
-          tail="$tail when checks are green and it merges cleanly against main (ADR 0046)."
-          tail="$tail [Workflow log](${run_url})."
-          body="$body"$'\n\n'"Watch it live:"
-          body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
-          body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
-          body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
-          body="$body"$'\n\n'"$tail"
-          body="$body"$'\n'"Verify gate: \`$VERIFY_GATE\`"
+          if [ -n "$PR_NUMBER" ]; then
+            body="**veggies PR reviewer kicked** - session \`${sid}\` is auditing this PR on stack \`veggie\` (ADR 0054):"
+            body="$body"$' a different model than the author\'s reviews the final diff against the linked'
+            body="$body"$' issue\'s acceptance criteria and the posted plan, then posts ONE comment-only'
+            body="$body"$' review brief - risk rank first, threat-model hunks flagged. The review never'
+            body="$body"$' approves; the merge decision stays with the human code owner (ADR 0007).'
+            body="$body"$' [Workflow log]('"${run_url})."
+            body="$body"$'\n\n'"Watch it live:"
+            body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
+            body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
+            body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
+          else
+            body="**veggies agent kicked** - session \`${sid}\` is working this issue on stack \`veggie\`."
+            tail="The agent branches \`agent/issue-${issue_n}\` and opens (or continues) a DRAFT PR early -"
+            tail="$tail commits and CI land there as it works. It marks the PR ready only"
+            tail="$tail when checks are green and it merges cleanly against main (ADR 0046)."
+            tail="$tail [Workflow log](${run_url})."
+            body="$body"$'\n\n'"Watch it live:"
+            body="$body"$'\n'"1. \`veggies ui veggie\` (or \`ssh -N -L ${ui_port}:127.0.0.1:${port} veggies\`)"
+            body="$body"$'\n'"2. open <http://127.0.0.1:${ui_port}/${dirseg}/session/${sid}>"
+            body="$body"$'\n'"3. password: \`jq -r '.stacks.veggie.password' ~/.local/state/veggies/state.json\`"
+            body="$body"$'\n\n'"$tail"
+            body="$body"$'\n'"Verify gate: \`$VERIFY_GATE\`"
+          fi
           jq -n --arg body "$body" --arg q "$ADD_COMMENT" \
             '{query: $q, variables: {subjectId: env.SUBJECT_ID, body: $body}}' > /tmp/comment.json
           resp=$(curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
@@ -219,7 +271,8 @@ jobs:
         if: success() && steps.kick.outputs.rc == '3'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id || github.event.pull_request.node_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) }}
           SKIP_REASON: ${{ steps.kick.outputs.skip_reason }}
         run: |
           set -euo pipefail
@@ -228,6 +281,10 @@ jobs:
             body="$body"$' Comment /distill (or /elaborate) again if it truly needs another pass.'
             jq -n --arg body "$body" --arg q "$ADD_DISCUSSION_COMMENT" --arg id "$SUBJECT_ID" \
               '{query: $q, variables: {discussionId: $id, body: $body}}' > /tmp/comment.json
+          elif [ -n "$PR_NUMBER" ]; then
+            body="$body"$' Comment /review again if it truly needs another review.'
+            jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
+              '{query: $q, variables: {subjectId: $id, body: $body}}' > /tmp/comment.json
           else
             body="$body"$' Re-add the agent-task label (or comment /opencode) if it truly needs another pass.'
             jq -n --arg body "$body" --arg q "$ADD_COMMENT" --arg id "$SUBJECT_ID" \
@@ -243,11 +300,13 @@ jobs:
         if: always() && steps.kick.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id }}
+          SUBJECT_ID: ${{ github.event.issue.node_id || github.event.discussion.node_id || github.event.pull_request.node_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) }}
         run: |
           set -euo pipefail
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body="**veggies kick failed** - the stack accepted no session for this ${{ github.event_name == 'discussion_comment' && 'discussion' || 'issue' }}."
+          kind="issue"; [ -n "$PR_NUMBER" ] && kind="PR"; [ "${{ github.event_name }}" = "discussion_comment" ] && kind="discussion"
+          body="**veggies kick failed** - the stack accepted no session for this ${kind}."
           body="$body"$' Check \`veggies status veggie\` and that the Actions variable'
           body="$body"$' \`VEGGIES_STACK_PORT\` matches \`veggies ls\`.'
           body="$body"$' [Workflow log]('"${run_url})."

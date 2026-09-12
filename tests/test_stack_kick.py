@@ -1241,3 +1241,39 @@ def test_pr_reviewer_persona_shape():
     assert "## Threat-model surface" in body
     # never an approval-shaped artifact (ADR 0007/0054)
     assert "never an approval" in body or "comment-only" in body
+
+
+# --- The workflow's PR gate (issue #102 / ADR 0054): the fork gate, the
+# ready_for_review-only trigger, and the trusted-code checkout pin are
+# security boundaries - a simplified-away check must fail loudly here,
+# not quietly in production -----------------------------------------------
+
+WORKFLOW_YML = (Path(__file__).parent.parent
+                / ".github/workflows/agent-trigger.yml")
+
+
+def test_agent_trigger_pr_gate_shape():
+    wf = yaml.safe_load(WORKFLOW_YML.read_text())
+    on = wf.get("on", wf.get(True))  # yaml 1.1 parses a bare `on:` as True
+    # ready_for_review, never synchronize (ADR 0054: draft-first pushes
+    # early and often; per-push reviews burn sessions on unfinished work)
+    prt = on["pull_request_target"]
+    assert prt["types"] == ["ready_for_review"]
+    assert "pull_request" not in on or "synchronize" not in str(
+        on.get("pull_request"))
+    gate = wf["jobs"]["kick"]["if"]
+    # auto-kick serves same-repo agent branches only: a fork PR never
+    # reaches the kick (secrets stay home), a human branch waits for the
+    # manual /review command
+    assert "pull_request.head.repo.full_name == github.repository" in gate
+    assert "startsWith(github.event.pull_request.head.ref, 'agent/issue-')" in gate
+    # /review is the only PR comment that kicks - trusted and
+    # command-anchored like /opencode (ADR 0040/0043)
+    assert "startsWith(github.event.comment.body, '/review')" in gate
+    assert "github.event.issue.pull_request" in gate
+    # the kick script and the no-ask scan always run trusted
+    # default-branch code, never PR-head content
+    checkout = wf["jobs"]["kick"]["steps"][0]
+    assert checkout["uses"].startswith("actions/checkout@")
+    assert checkout["with"]["ref"] == \
+        "${{ github.event.repository.default_branch }}"
