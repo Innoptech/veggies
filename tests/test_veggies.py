@@ -531,6 +531,8 @@ def test_opencode_base_containerfile_pin_format():
     # partial bump would otherwise tag an overlay 1.x while silently
     # shipping an older opencode from the stale base.
     text = (ROOT / "deploy/images/opencode-base.Containerfile").read_text()
+    from_lines = [l for l in text.splitlines() if l.startswith("FROM ")]
+    assert len(from_lines) == 1  # multi-stage would tag the wrong stage
     upstream = (f"ghcr.io/anomalyco/opencode:"
                 f"{_image_tag(veggies_stack.IMAGE_OPENCODE_BASE)}@sha256:")
     assert upstream in text
@@ -851,6 +853,13 @@ def test_component_build_descriptors(spec):
     subset = veggies_stack.resolve_components(names=["litellm", "squid"])
     assert [c.build.image for c in subset] == [
         veggies_stack.IMAGE_LITELLM, veggies_stack.IMAGE_SQUID]
+
+
+def test_buildspec_base_is_single_level():
+    base = capabilities.BuildSpec("localhost/g:1", "g.Containerfile")
+    mid = capabilities.BuildSpec("localhost/m:1", "m.Containerfile", base=base)
+    with pytest.raises(ValueError, match="single-level"):
+        capabilities.BuildSpec("localhost/t:1", "t.Containerfile", base=mid)
 
 
 def test_registry_capability_keys(spec):

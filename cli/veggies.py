@@ -310,10 +310,12 @@ def host_exists(host: str | None, path: str, kind: str = "f") -> bool:
 def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
                   verbose: bool = False) -> None:
     """Images are component-owned: build/pull exactly the selected
-    components' images. Built images use layer-cache (no-op when unchanged);
-    pull-only images are pulled once. Remote: Containerfiles are shipped into
-    the remote state dir and built there. verbose streams the full build
-    output (`veggies prepare`); `up` stays quiet (-q)."""
+    components' images. A component may declare its image's local base
+    (`BuildSpec.base`, ADR 0053); the base builds first. Built images use
+    layer-cache (no-op when unchanged); pull-only images are pulled once.
+    Remote: Containerfiles are shipped into the remote state dir and built
+    there. verbose streams the full build output (`veggies prepare`); `up`
+    stays quiet (-q)."""
     quiet = [] if verbose else ["-q"]
 
     def hp(*a, **k):  # remote podman needs the substrate proxy (stacks is egress-denied)

@@ -29,8 +29,9 @@ owner owns that toolchain story.
   [0016](0016-substrate-vs-stack-boundary.md)/[0023](0023-capability-model-dependency-reversal.md)
   boundary applied to images.
 - [0032](0032-dev-toolchain-in-harness-image.md)/[0047](0047-networkless-lint-hooks.md)
-  pin discipline extends to the split itself: nothing unpinned enters
-  either image.
+  pin discipline extends to the split itself: release fetches stay
+  version+sha256 pinned (in the overlay now), while apk packages float
+  within the Alpine release exactly as they did pre-split.
 - The per-repo mechanism must be a Containerfile FROM the base - a real
   build with real pins - never a runtime `packages:` list.
 
@@ -84,9 +85,10 @@ over /root at runtime and would shadow it.
 - Honesty bullet: until #69 lands, every stack still gets THIS repo's
   overlay - the component's `BuildSpec` is hardcoded, so the split
   changes nothing yet for foreign repos. The slim base alone cannot run
-  this repo's `mask ci` gate (no python/bash/pre-commit). That gap is
-  the explicit justification for #69's overlay key, which is a path to a
-  repo-local Containerfile FROM the base - never a `packages:` list.
+  this repo's `mask ci` gate (no mask, no pre-commit, no tofu). That
+  gap is the explicit justification for #69's overlay key, which is a
+  path to a repo-local Containerfile FROM the base - never a
+  `packages:` list.
 - #69 must namespace derived images per repo (e.g. `<repo>-opencode`):
   image names are host-local while stack names are global, so two repos'
   overlays sharing one tag would thrash each other on every `up`.
