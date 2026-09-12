@@ -144,14 +144,15 @@ jobs:
           [ "$rc" -eq 3 ] && exit 0
           exit "$rc"
 
-      # The issue is where people look - tell it which session is working it
-      # and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
+      # The subject is where people look - tell it which session is working
+      # it and how to watch (ADR 0034). GITHUB_TOKEN comments; the bot PAT is
       # not involved. The password is never posted, only how to read it. The
       # session comment is the user-facing value, so it runs BEFORE the
       # best-effort label housekeeping below (verified 2026-09-11: a failed
-      # DELETE swallowed the success comment). Issues only: a discussion kick
-      # gets the minimal ack below instead - the session link lives on the
-      # issues the agent creates (ADR 0039).
+      # DELETE swallowed the success comment). Issues and PRs (ADR 0054)
+      # get the session link; a discussion kick gets the minimal ack below
+      # instead - the session link lives on the issues the agent creates
+      # (ADR 0039).
       - name: Comment the session link on the subject
         if: >-
           success() && steps.kick.outputs.rc == '0' &&
