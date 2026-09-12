@@ -61,6 +61,7 @@ changes, and keep this index's titles and statuses in sync.
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 | [0052](0052-spend-log-writer.md) | Spend-log writer: litellm custom callback and title stamping | accepted |
+| [0054](0054-per-repo-harness-overlay.md) | Per-repo harness overlay: one veggies.yml key, built from the pinned base at up-time | accepted |
 
 ## Deviation ledger (vs the original brief)
 
