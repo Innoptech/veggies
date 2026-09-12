@@ -100,3 +100,14 @@ variable "merge_queue_repos" {
     error_message = "merge_queue_repos entries must also be in repos."
   }
 }
+
+variable "pr_review_gate_repos" {
+  type        = list(string)
+  description = "Repos whose default-branch ruleset also requires the pr-review-agent check (ADR 0055). Opt-in per repo, and only once .github/workflows/pr-review-gate.yml exists there AND the #102 reviewer is live: a required context that never reports wedges every merge - this ruleset has no bypass actors."
+  default     = []
+
+  validation {
+    condition     = alltrue([for r in var.pr_review_gate_repos : contains(var.repos, r)])
+    error_message = "pr_review_gate_repos entries must also be in repos."
+  }
+}

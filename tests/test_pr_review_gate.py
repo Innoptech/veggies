@@ -3,6 +3,7 @@ pr-review-agent required check (issue #103, ADR 0055): declared-scope
 hard-fail plus reviewer-verdict state machine, check-run writer, and the
 fail-open decision log."""
 
+import ast
 import importlib.util
 import json
 import re
@@ -754,3 +755,65 @@ def test_runs_on_the_self_hosted_veggies_pool():
 def test_context_literal_matches_branch_protection():
     # drift guard: the literal the workflow and branch protection rely on
     assert gate.CONTEXT == "pr-review-agent"
+
+
+# --- terraform contract: the pr_review_gate_repos opt-in (ADR 0055) --------
+#
+# The ruleset in terraform/github/repos.tf is what turns the pr-review-agent
+# context into a REQUIRED check per repo; these tests pin the contract between
+# the terraform, the script and the workflow above.
+
+REPOS_TF = (ROOT / "terraform/github/repos.tf").read_text()
+
+
+def _variable_block(text, name):
+    m = re.search(rf'^variable "{name}" {{\n(.*?)(?=^variable |\Z)',
+                  text, re.MULTILINE | re.DOTALL)
+    assert m, f'variable "{name}" not declared'
+    return m.group(1)
+
+
+def test_repos_tf_context_literal_is_the_local_and_matches_the_script():
+    # exactly one "pr-review-agent" string literal in repos.tf: the local.
+    assert len(re.findall(r'"pr-review-agent"', REPOS_TF)) == 1
+    assert 'pr_review_gate_context = "pr-review-agent"' in REPOS_TF
+    assert f'"{gate.CONTEXT}"' == '"pr-review-agent"'
+
+
+def test_repos_tf_pins_the_github_actions_app_for_the_gate_context():
+    # only a GitHub Actions App token (the gate workflow's GITHUB_TOKEN) may
+    # satisfy the required context - a forged commit status from a classic
+    # PAT must not. 15368 = github-actions (gh api apps/github-actions).
+    assert re.search(r"integration_id = required_check\.value == "
+                     r"local\.pr_review_gate_context \? 15368 : null",
+                     REPOS_TF)
+
+
+def test_pr_review_gate_repos_declared_at_both_tiers_with_empty_default():
+    for rel in ("terraform/variables.tf", "terraform/github/variables.tf"):
+        block = _variable_block((ROOT / rel).read_text(),
+                                "pr_review_gate_repos")
+        assert re.search(r"default\s*=\s*\[\]", block), rel
+
+
+def test_github_tier_validates_pr_review_gate_repos_subset_of_repos():
+    block = _variable_block(
+        (ROOT / "terraform/github/variables.tf").read_text(),
+        "pr_review_gate_repos")
+    assert "contains(var.repos, r)" in block
+
+
+def test_root_module_passes_pr_review_gate_repos_through():
+    main = (ROOT / "terraform/main.tf").read_text()
+    assert re.search(r"pr_review_gate_repos\s*=\s*var\.pr_review_gate_repos",
+                     main)
+
+
+def test_tfvars_example_default_required_checks_stay_gate_free():
+    # Parse the first required_checks = [ match exactly the way
+    # tests/test_infra_ci.py does; the commented pr_review_gate_repos hint
+    # must not alter it, and the default required set stays gate-free.
+    tfvars = (ROOT / "terraform/terraform.tfvars.example").read_text()
+    required = ast.literal_eval(
+        re.search(r"required_checks\s*=\s*(\[[^\]]*\])", tfvars).group(1))
+    assert gate.CONTEXT not in required

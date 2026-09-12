@@ -44,6 +44,12 @@ variable "merge_queue_repos" {
   default     = []
 }
 
+variable "pr_review_gate_repos" {
+  type        = list(string)
+  description = "Repos opted into the pr-review-agent verdict check, passed to the github module (see github/variables.tf; default empty)."
+  default     = []
+}
+
 variable "actions_secrets" {
   type        = map(map(string))
   description = "Actions secrets per repo: { repo = { NAME = value } }. Fed from the ansible vault, never from tfvars."

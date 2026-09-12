@@ -24,6 +24,8 @@ See `variables.tf` - every variable has a description and a type. The ones you
 must set: `repos`, `admin_login`, `required_checks` (must match the check
 names the project repos' CI actually reports). `merge_queue_repos` opts a repo
 into the merge queue (default empty - see the last "Be careful" bullet).
+`pr_review_gate_repos` opts a repo into the required `pr-review-agent` verdict
+check (ADR 0055; default empty - see "Be careful").
 
 ## Install agent kicks on a repo (ADR 0048)
 
@@ -63,6 +65,12 @@ note: [the runbook](../../docs/runbook.md#install-agent-kicks-on-a-repo-adr-0048
   path-filtered workflow that doesn't run leaves a required check pending
   forever and blocks every merge. This is why the labeller is not a required
   check.
+- The `pr-review-agent` gate check (`pr_review_gate_repos`, ADR 0055) only
+  ever reports on repos whose default branch carries
+  `.github/workflows/pr-review-gate.yml` - opt-in is conditioned on that file
+  existing there and on the #102 reviewer being live; when the repo also uses
+  the merge queue, the check must report on merge-group runs too (the gate
+  workflow triggers on `merge_group`).
 - Actions secret values are stored in the (local, gitignored, backed-up) tofu
   state. State is local; see ../backend.tf for the story.
 - Each project repo needs a `CODEOWNERS` file naming the human, or
