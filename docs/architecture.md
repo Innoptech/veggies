@@ -55,7 +55,7 @@ calling session's title/id by the harness plugin and the judge paths.
 That spend log is new durable stack state: it survives
 `down`/`up`/`sync` and sits inside the backup role's `backup_paths`.
 
-Event path (ADR 0033/0038/0041/0050): `.github/workflows/agent-trigger.yml`
+Event path (ADR 0033/0038/0041/0050/0054): `.github/workflows/agent-trigger.yml`
 on the self-hosted runners kicks this repo's stack via
 `scripts/stack_kick.py` on `agent-task` labels and command comments:
 `/opencode` on issues (the agent works the issue and opens a draft PR) and
@@ -66,7 +66,12 @@ comment instead kicks one session that fans out to the vendored persona
 roster (domain expert, infra/architecture, marketer, seller, CTO -
 `agent-config/agents/`) and posts one attributed POV comment per persona
 back on the discussion - the comments are the deliverable (no branch, no
- PR). Runners reach the stack
+PR). A PR flipping `ready_for_review` (or a trusted `/review` PR
+comment) kicks one comment-only review session (ADR 0054): a read-only
+`pr-reviewer` persona on a third model audits the final diff against the
+issue's acceptance criteria and the session's posted plan, and the
+session posts a single risk-ranked `gh pr review --comment` brief. Never
+an approval - the merge gate stays human (ADR 0007). Runners reach the stack
 API over the host gateway, allowed by the egress role's per-user dport
 exceptions. No inbound listener on the VPS. The issue kick prompt mandates
 the full pipeline (ADR 0036/0042): plan first - a draft refined by one
@@ -80,14 +85,16 @@ not a hardcoded command; then the ready-gate (ADR 0046): green checks
 and mergeable against current main - rebasing first - before
 `gh pr ready` as the final act. Observability (ADR
 0034): kicked sessions are titled `#N: <issue>` / `D#N: <discussion>`
-(`D#N elaborate: <title>` for persona-roster runs), the
-workflow comments the session link back on issues (discussions get a
+(`D#N elaborate: <title>` for persona-roster runs) / `PR#N: <pr>`
+(review sessions, ADR 0054), the
+workflow comments the session link back on issues and PRs (discussions get a
 minimal ack - discussions take GraphQL `addDiscussionComment`, issues
 `addComment`, ADR 0039), and operators watch via `veggies ui`
 (ssh tunnel helper) / `veggies sessions` / the web UI. Session listings
 are live-first with idle history capped behind `--all` (ADR 0044). Session
 isolation (ADR 0037): every kicked session works in its own git worktree at
-`/workspace/.veggies/wt/issue-N` inside the shared clone (the kick prompt
+`/workspace/.veggies/wt/issue-N` (review sessions: `wt/pr-N`, ADR 0054)
+inside the shared clone (the kick prompt
 mandates the bootstrap; `veggies up` excludes `.veggies/` via the clone's
 `.git/info/exclude`), so parallel sessions never share a checkout. Freshness:
 kicked sessions fetch and branch off `origin/main` per kick, while the

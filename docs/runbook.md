@@ -364,23 +364,25 @@ issue #46, the record contract is pinned in ADR 0051; until a stack has
 the writer, the command prints `no spend log for stack ...` and exits 0.
 
 ```bash
-veggies costs veggie                     # per-issue/discussion table + daily bars
+veggies costs veggie                     # per-issue/discussion/PR table + daily bars
 veggies costs veggie --issue 15          # one issue: session cascade + per-model
 veggies costs veggie --session refactor  # same detail, titles matching SUBSTR
 veggies costs veggie --pr 16             # PR -> agent/issue-M via gh, then --issue M
 ```
 
-- Default: one row per issue/discussion target plus daily spend bars;
+- Default: one row per issue/discussion/PR target plus daily spend bars;
   past 62 days (or with `--weekly`) the bars go ISO-weekly. The default
   window starts at the earliest retained record; `--since` sets it.
 - `--issue N`: the full cascade per (session_id, title) - kick,
   supervisor re-runs and re-kicks as separate session rows with
   per-title subtotals - plus a per-model breakdown.
 - `--pr N` resolves `agent/issue-M` via operator-side `gh pr view`
-  (needs gh auth), then behaves as `--issue M`.
-- Attribution rides the title conventions (`#N:`, `D#N` - ADR
-  0034/0038/0041); anything off-convention lands in the always-printed
-  `(unattributed)` bucket.
+  (needs gh auth), then behaves as `--issue M` - authoring spend only;
+  review spend rolls up under the separate `PR#N:` row (ADR 0054's
+  deliberate split).
+- Attribution rides the title conventions (`#N:`, `D#N`, `PR#N:` - ADR
+  0034/0038/0041/0054); anything off-convention lands in the
+  always-printed `(unattributed)` bucket.
 
 Honesty clause: spend history lives only in that file - `veggies down
 <name> --purge` deletes it with the state root, and local-workstation
@@ -467,9 +469,12 @@ the session's workbench, and the in-flight guard still covers a busy
 session. A stale or conflicted draft means the session died: comment
 `/opencode` on the issue (or re-add the label) - the next session
 reconciles the branch and continues the same draft. A ready PR that fell
-behind main is done-guarded (ready = handled) and PR comments never kick -
-convert it back with `gh pr ready --undo`, then re-kick the issue; the
-session rebases and re-runs the ready-gate.
+behind main is done-guarded (ready = handled) - convert it back with
+`gh pr ready --undo`, then re-kick the issue; the session rebases and
+re-runs the ready-gate. PR comments now kick in exactly one case: a
+trusted comment starting with `/review` (ADR 0054) - and a PR flipping
+`ready_for_review` auto-kicks the reviewer for same-repo `agent/issue-*`
+heads (human PRs take the manual `/review` path; both below).
 A failed kick keeps the label. Discussions have no done-guard: every
 `/distill` (or `/elaborate`) comment is a deliberate kick, and re-kicking
 an evolving discussion is normal (the agent dedupes against issues it
@@ -485,6 +490,34 @@ to the vendored persona roster and posts one `**<Role> POV**` comment
 per persona back on the discussion - no branch, no PR. No done-guard:
 re-comment `/elaborate` to re-run. Personas register at stack boot (ADR
 0019): run `veggies up veggie` after this merges before `/elaborate` works.
+
+**PR-review kicks (ADR 0054).** A same-repo `agent/issue-*` PR flipping
+`ready_for_review` - or a trusted comment starting with `/review` on any
+same-repo PR - kicks one comment-only review session titled `PR#N: <title>`: the
+read-only `pr-reviewer` persona (a third model) audits the final diff
+against the issue's acceptance criteria and the posted plan, and the
+session posts exactly one `gh pr review --comment` brief - risk rank on
+the first line, threat-model hunks flagged, a mandatory not-checked
+list; never an approval, the merge gate stays human (ADR 0007). The
+first line also stamps the audited head sha - compare it to the PR's
+current head before trusting the rank; a stale stamp means the PR moved
+since the audit. The review-guard skips closed/merged PRs (the audit
+would cover dead work) and drafts - mark ready first; `/review` on a
+draft skips the same way. Fork PRs are refused by the review-guard:
+their trees are untrusted, and they get human review only. Re-review on demand: comment `/review` again -
+it checks whether earlier flags were addressed, and a double-post guard
+(a prior bot review stamped with the current head sha) stops a redundant
+post. A HIGH-risk brief's rework path is the incantation above:
+`gh pr ready --undo`, then re-kick the issue (the done-guard treats
+ready as handled, so un-readying re-opens the issue path); the reworked
+PR's next ready transition kicks a fresh review. Reviewer sessions are
+judged by the 0036 supervisor like every kicked session, and their spend
+rolls up under the PR in `veggies costs` (separate from the authoring
+`#M:` issue row; `veggies costs veggie --session "PR#N:"` is the
+review-only number - the session filter is a substring match, and the
+trailing colon keeps PR#1 from matching PR#12). Personas register at stack boot (ADR 0019), same
+posture as `/elaborate`: run `veggies up veggie` after the merge before
+the reviewer dispatches.
 
 The job runs `scripts/stack_kick.py`: create session, fire the issue as an
 async prompt, exit in milliseconds. The agent then works the issue in its
