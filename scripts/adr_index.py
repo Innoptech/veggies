@@ -79,6 +79,9 @@ def collect(adr_dir: Path) -> list[ADR]:
             errors.append(f"{path.name}: duplicate ADR number {number} "
                           f"(also {seen[number]})")
             continue
+        # Registration is filename-derived, not coupled to parse success: a
+        # broken first file still names the duplicate that follows it.
+        seen[number] = path.name
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
@@ -88,7 +91,6 @@ def collect(adr_dir: Path) -> list[ADR]:
         if problems:
             errors.extend(f"{path.name}: {problem}" for problem in problems)
         else:
-            seen[number] = path.name
             adrs.append(adr)
     if errors:
         raise AdrIndexError("\n".join(errors))

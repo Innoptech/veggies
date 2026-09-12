@@ -63,3 +63,16 @@ repos:
         language: system
         files: ^secrets/.*\.(yml|yaml)$
         exclude: \.example$
+
+  # The ADR index is generated from docs/adr/*.md (issue #72, ADR 0053): the
+  # hook rewrites the marked table region and fails on drift - stage the
+  # result. language: system + stdlib-only script -> zero network, any
+  # python3 (ADR 0047).
+  - repo: local
+    hooks:
+      - id: adr-index
+        name: Regenerate the ADR index
+        entry: scripts/adr_index.py
+        language: system
+        pass_filenames: false
+        files: ^docs/adr/

@@ -63,6 +63,7 @@ jobs:
             pytest:
               - 'cli/**'
               - 'tests/**'
+              - 'docs/adr/**'
               - 'scripts/**'
               - 'agent-config/**'
               - 'ansible/**'

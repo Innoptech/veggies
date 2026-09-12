@@ -314,3 +314,33 @@ def test_main_returns_2_on_validation_errors(adr_repo, capsys):
     assert "0001-a.md: missing frontmatter fences" in capsys.readouterr().err
     assert readme.read_text(encoding="utf-8") == (
         f"{adr_index.START}\n{adr_index.END}\n")  # README untouched
+
+
+# Duplicate registration is filename-derived, not coupled to parse success
+
+
+def test_collect_names_a_duplicate_even_when_the_first_file_is_broken(
+        tmp_path):
+    (tmp_path / "0001-a.md").write_text("no fences here\n", encoding="utf-8")
+    write_adr(tmp_path, "0001-b.md")
+    with pytest.raises(adr_index.AdrIndexError) as excinfo:
+        adr_index.collect(tmp_path)
+    message = str(excinfo.value)
+    assert "0001-a.md: missing frontmatter fences" in message
+    assert ("0001-b.md: duplicate ADR number 0001 "
+            "(also 0001-a.md)") in message
+
+
+# The marker constants and the byte-compare guard on the real README
+
+
+def test_marker_constants_are_the_documented_bytes():
+    assert adr_index.START == "<!-- adr-index:start -->"
+    assert adr_index.END == "<!-- adr-index:end -->"
+
+
+def test_index_matches_files():
+    readme = adr_index.README.read_text()
+    assert adr_index.extract_region(readme) == adr_index.render_table(
+        adr_index.collect(adr_index.ADR_DIR)
+    )
