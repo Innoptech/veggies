@@ -147,6 +147,10 @@ def test_supervised_predicate():
     assert daemon.supervised("chat #12", NOW, NOW) is False
     assert daemon.supervised("#x", NOW, NOW) is False
     assert daemon.supervised("#12: x", None, NOW) is False
+    # ADR 0054: PR-review sessions are kicked sessions too - the critic
+    # judges them (they post public reviews off untrusted diff material)
+    assert daemon.supervised("PR#12: review the thing", NOW, NOW) is True
+    assert daemon.supervised("PR#12: x", NOW - 1, NOW) is False
 
 
 # --- the loop policy -----------------------------------------------------------
