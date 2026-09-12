@@ -14,7 +14,7 @@ approving review from a CODEOWNER (the human; the bot is never a code owner).
 | `github_repository_environment.production_infra` | `production-infra` environment gated on the human (`can_admins_bypass = false`) |
 | `github_issue_label.needs_team_review` | the label |
 | `github_repository_file.needs_team_review_workflow` | labeller workflow on branch `infra/needs-team-review` (opt-in via `manage_label_workflow`) |
-| `module.agent_kick_*` | per-repo agent-kick install: workflow + kick script on `infra/agent-trigger`, `agent-task` label, `VEGGIES_*` secret + variables (ADR 0048) |
+| `module.agent_kick_*` | per-repo agent-kick install: workflow + kick + comment scripts on `infra/agent-trigger`, `agent-task` label, `VEGGIES_*` secret + variables (ADR 0048) |
 | `github_actions_secret` / `github_actions_variable` | per-repo Actions secrets/variables from the vault |
 | `github_actions_runner_group` | optional org-level runner group (orgs only) |
 
@@ -39,8 +39,9 @@ module "agent_kick_data_pipelines" {
   stack_port     = 8123 # from `veggies ls`
   stack_password = var.veggies_stack_password
 
-  workflow_content    = file("${path.module}/../../.github/workflows/agent-trigger.yml")
-  kick_script_content = file("${path.module}/../../scripts/stack_kick.py")
+  workflow_content       = file("${path.module}/../../.github/workflows/agent-trigger.yml")
+  kick_script_content    = file("${path.module}/../../scripts/stack_kick.py")
+  comment_script_content = file("${path.module}/../../scripts/gh_comment.py")
 }
 ```
 

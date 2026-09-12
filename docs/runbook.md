@@ -234,7 +234,7 @@ differently:
 | What | Source of truth | How it goes live |
 |------|-----------------|------------------|
 | Stack definition (`agent-config/`, component code, images) | the operator's LOCAL infra checkout (the CLI is a shim into it) | every `veggies up` re-ships rendered config over ssh and rebuilds changed images - `git pull` locally, then up |
-| Event path - this (master) repo (`agent-trigger.yml`, `scripts/stack_kick.py`) | `origin/main` | automatic on merge: the self-hosted runner does `actions/checkout` every run |
+| Event path - this (master) repo (`agent-trigger.yml`, `scripts/stack_kick.py`, `scripts/gh_comment.py`) | `origin/main` | automatic on merge: the self-hosted runner does `actions/checkout` every run |
 | Event path - adopted repos | the repo's agent-kick block in `terraform/github/agent_kicks.tf` (ADR 0048) | the module delivers the master copies onto `infra/agent-trigger` at apply; live when the delivery PR merges |
 | The workspace clone (what `/workspace` is; where `veggies.yml` is read from at up time) | `origin/main` | **kicked sessions self-sync** - the kick prompt fetches and branches each worktree off `origin/main` (ADR 0037). The shared checkout itself is only refreshed by `veggies sync` |
 
@@ -651,14 +651,15 @@ block, one apply, one merge.
      stack_port     = 8123 # from `veggies ls`
      stack_password = var.veggies_stack_password
 
-     workflow_content    = file("${path.module}/../../.github/workflows/agent-trigger.yml")
-     kick_script_content = file("${path.module}/../../scripts/stack_kick.py")
+     workflow_content       = file("${path.module}/../../.github/workflows/agent-trigger.yml")
+     kick_script_content    = file("${path.module}/../../scripts/stack_kick.py")
+     comment_script_content = file("${path.module}/../../scripts/gh_comment.py")
    }
    ```
 
    Also add a line per block to the `agent_kick_delivery_branches` output
    map in `terraform/github/outputs.tf`. PR, review, merge.
-2. `mask tofu-plan` - read the plan (one `github_branch` plus two
+2. `mask tofu-plan` - read the plan (one `github_branch` plus three
    `github_repository_file` on `infra/agent-trigger`, one label, one
    secret, two variables) - then `mask tofu-apply`.
 3. In the adopted repo, open the delivered PR (`gh pr create --fill
