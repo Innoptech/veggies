@@ -44,7 +44,7 @@ class ParseResult:
 
 @dataclass
 class TargetRow:
-    kind: str          # "issue" | "discussion" | "unattributed"
+    kind: str          # "issue" | "discussion" | "pr" | "unattributed"
     number: int | None
     label: str         # "#47: <title>" | "D#38: <title>" | "(unattributed)"
     calls: int
@@ -135,17 +135,22 @@ def parse_spend_log(text: str) -> ParseResult:
 # The colon is load-bearing: `#1:` must not match a prefix of `#12: foo`.
 _ISSUE = re.compile(r"^#(\d+):")
 _DISCUSSION = re.compile(r"^D#(\d+)(?: elaborate)?:")
+_PR = re.compile(r"^PR#(\d+):")  # ADR 0054: PR-review sessions
 
 
 def attribute(session: str) -> tuple[str, int | None]:
     """Title -> attribution target (ADR 0022 decision 3; D#N elaborate from
-    ADR 0041 reports under the discussion)."""
+    ADR 0041 reports under the discussion; PR#N from ADR 0054 reports
+    under the PR)."""
     m = _ISSUE.match(session)
     if m:
         return "issue", int(m.group(1))
     m = _DISCUSSION.match(session)
     if m:
         return "discussion", int(m.group(1))
+    m = _PR.match(session)
+    if m:
+        return "pr", int(m.group(1))
     return "unattributed", None
 
 
@@ -282,10 +287,13 @@ def render_summary(rows: list[TargetRow], *, since: date, today: date,
     nouns = []
     issues = sum(1 for r in rows if r.kind == "issue")
     discussions = sum(1 for r in rows if r.kind == "discussion")
+    prs = sum(1 for r in rows if r.kind == "pr")
     if issues:
         nouns.append(f"{issues} issues")
     if discussions:
         nouns.append(f"{discussions} discussions")
+    if prs:
+        nouns.append(f"{prs} PRs")
     nouns.append(f"{calls} calls")
     lines.append(f"total ({', '.join(nouns)})  {money(total)}")
     lines += ["", render_bars(bars, weekly)]
