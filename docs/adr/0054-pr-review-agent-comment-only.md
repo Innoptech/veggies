@@ -165,6 +165,15 @@ Rejected / deferred:
 - Known cosmetic limitation: the reviewer posts under the same bot
   identity as the author until #56 lands - structurally harmless (the
   review is comment-only either way).
+- Accepted, named (from this PR's own adversarial review): the
+  double-post guard matches the brief's short-sha stamp as a prefix of
+  the current head - a PR author could grind a head sha with a colliding
+  prefix (~2^28 work) to suppress one comment-only, merge-authority-free
+  re-review, an asymmetric cost for a cosmetic gain; and a PR from a
+  *deleted* fork (`head.repo: null`) falls through the fork refusal to be
+  reviewed, the same degrade-to-proceed posture every guard here takes
+  (the untrusted-input rule still binds, and the tree is immutable once
+  the fork is gone).
 - Trajectory note: the workflow's if/env block is accreting a strophe
   per subject type (ISSUE_*, DISCUSSION_*, PR_*) in the most
   injection-sensitive YAML of the repo; when a fifth trigger kind
