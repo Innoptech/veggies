@@ -1,6 +1,6 @@
 # ADR 0048: one instance per repo is the whole GitHub-side install of agent
-# kicks - the trigger workflow + kick script (delivered on a side branch;
-# merge the PR), the agent-task label, and the stack coordinates the
+# kicks - the trigger workflow + kick + comment scripts (delivered on a side
+# branch; merge the PR), the agent-task label, and the stack coordinates the
 # workflow needs (host/port variables, password secret). No new long-lived
 # processes, no inbound ports: the event path stays outbound-poll (ADR 0033).
 
@@ -41,8 +41,21 @@ resource "github_repository_file" "stack_kick" {
   commit_message      = "ci: stack_kick.py for the agent-trigger workflow (managed by the infra repo, ADR 0048)"
   overwrite_on_create = true
 
-  # The branch first, then the two files in order.
+  # The branch first, then the three files in order.
   depends_on = [github_branch.delivery, github_repository_file.agent_trigger]
+}
+
+resource "github_repository_file" "gh_comment" {
+  count               = var.manage_files ? 1 : 0
+  repository          = var.repo
+  branch              = var.files_branch
+  file                = "scripts/gh_comment.py"
+  content             = var.comment_script_content
+  commit_message      = "ci: gh_comment.py for the agent-trigger workflow (managed by the infra repo, ADR 0048)"
+  overwrite_on_create = true
+
+  # The branch first, then the three files in order.
+  depends_on = [github_branch.delivery, github_repository_file.stack_kick]
 }
 
 resource "github_issue_label" "agent_task" {

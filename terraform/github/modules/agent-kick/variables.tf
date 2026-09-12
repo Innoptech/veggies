@@ -22,7 +22,7 @@ variable "stack_password" {
 
 variable "manage_files" {
   type        = bool
-  description = "Deliver agent-trigger.yml + stack_kick.py on the delivery branch (merge the PR by hand). false only for the repo holding the master copies (this one)."
+  description = "Deliver agent-trigger.yml + stack_kick.py + gh_comment.py on the delivery branch (merge the PR by hand). false only for the repo holding the master copies (this one)."
   default     = true
 }
 
@@ -47,5 +47,11 @@ variable "workflow_content" {
 variable "kick_script_content" {
   type        = string
   description = "Content of scripts/stack_kick.py, run by the workflow from the repo checkout."
+  default     = ""
+}
+
+variable "comment_script_content" {
+  type        = string
+  description = "Content of scripts/gh_comment.py, exec'd by the workflow's comment steps from the repo checkout."
   default     = ""
 }
