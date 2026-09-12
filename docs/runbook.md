@@ -203,9 +203,12 @@ Remote image builds (`veggies prepare` / `veggies up`) run as the
 egress-denied `stacks` user and fetch through the substrate squid
 (ADR 0006). A build step reaching a non-allowlisted domain fails, and the
 CLI reads the substrate squid's access log for the build window and
-re-raises the error naming the image and EVERY denied domain sourced from
-loopback (the build's path), plus a paste-ready `egress_allowlist_extra`
-YAML block (ADR 0054).
+re-raises the error naming the image and EVERY domain denied in that
+window, plus a paste-ready `egress_allowlist_extra` YAML block
+(ADR 0054). The proxy log is host-wide: pasta NATs host-side proxy
+users to the host's public IP, so the window may also carry denials
+from parallel stack or runner traffic - review each named domain before
+allowlisting it.
 
 The fix loop:
 
@@ -236,17 +239,16 @@ Alternative for exotic or one-shot toolchains: build the image in GitHub
 Actions, push to ghcr.io (already on the base allowlist), and `FROM`/pull
 it - no converge, no permanent list entry.
 
-If the error says NO proxy denials were logged in the window, the build
-tool bypassed the proxy env vars and hit the per-UID nftables drop
-instead - check with:
+If the error says NO proxy denials were logged in the window, the
+streamed build error above it is the cause to read. Only if the failing
+step was a network fetch: the tool may have bypassed the proxy env vars
+and hit the per-UID nftables drop instead - check with:
 
 ```bash
 ssh veggies 'sudo journalctl -k -g infra-egress-deny'
 ```
 
-Domains denied from NON-loopback sources in the same window come from
-pod runtime traffic (chained through the pasta gateway) and are usually
-unrelated to the failing build. To read the proxy log by hand:
+To read the proxy log by hand:
 
 ```bash
 ssh veggies sudo -n -u egress-proxy \
