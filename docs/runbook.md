@@ -434,6 +434,8 @@ the hooks take effect at merge while the binaries arrive with the
 rebuild. Hosts re-run `mask setup` after pulling - it installs the same
 pinned binaries into `~/.local/bin`. Smoke-test a rebuilt image:
 `podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`.
+The in-pod counterpart is a fresh kicked session on the rebuilt image: `command -v` for the rebuilt tools (gitleaks/actionlint today) must resolve to `/usr/local/bin/...` under the gate's own PATH - `PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH" command -v gitleaks actionlint` - because `$HOME` is a writable in-pod volume and a shadow in `~/.local/bin` would pass a plain `command -v` while the hooks run the shadow.
+Run a full `mask ci` for this check, not the rule-3 scaled gate - a narrow diff (docs-only, say) never fires path-filtered hooks such as actionlint (`files: ^\.github/workflows/`), so only the `--all-files` run proves the `language: system` hooks execute from the baked binaries with no download step (the python hooks' cold-cache pip install above still applies).
 
 ### Issue-triggered agent kicks (ADR 0033)
 
