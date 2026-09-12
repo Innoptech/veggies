@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import re
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -320,7 +321,7 @@ def test_main_skips_done_issues_with_exit_3(monkeypatch, calls, tmp_path, capsys
 # 34603739921: the agent's own plan comment re-kicked it) ---------------
 
 def _route_sessions(monkeypatch, sessions, status):
-    def fake_api(url, password, method, path, body=None):
+    def fake_api(url, password, method, path, body=None, query=None):
         if path == "/session":
             return sessions
         if path == "/session/status":
@@ -397,7 +398,7 @@ def test_main_inflight_check_failure_proceeds(monkeypatch, calls):
     for k in ("GITHUB_TOKEN", "GH_TOKEN"):
         monkeypatch.delenv(k, raising=False)
 
-    def boom(url, password, method, path, body=None):
+    def boom(url, password, method, path, body=None, query=None):
         raise TimeoutError("stack down")
 
     monkeypatch.setattr(stack_kick, "api", boom)
@@ -583,7 +584,7 @@ def test_main_discussion_inflight_failure_proceeds(monkeypatch, calls):
               "GITHUB_OUTPUT"):
         monkeypatch.delenv(k, raising=False)
 
-    def boom(url, password, method, path, body=None):
+    def boom(url, password, method, path, body=None, query=None):
         raise TimeoutError("stack down")
 
     monkeypatch.setattr(stack_kick, "api", boom)
@@ -1031,3 +1032,210 @@ def test_skip_reason_output_is_newline_safe(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_OUTPUT", str(out))
     assert stack_kick.skip("a\nb") == stack_kick.SKIP_DONE
     assert out.read_text().splitlines() == ["skip_reason=a // b"]
+
+
+# --- Tool-pin gate (issue #87 / ADR 0053): refuse to spend a session on
+# a stack image whose baked toolchain disagrees with the checkout's pins -
+# the live image attests them via .veggies/image-tool-pins, read back over
+# the serve API's /file/content ------------------------------------------
+
+TOOL_PIN_ARG = re.compile(r"^ARG (\w+_VERSION)=(\S+)$", re.M)
+
+
+def _real_containerfile_text():
+    return (Path(stack_kick.__file__).resolve().parents[1]
+            / stack_kick.TOOL_PIN_CONTAINERFILE).read_text(encoding="utf-8")
+
+
+def _stub_tool_pins(monkeypatch, expected=None, live=None, live_raises=None):
+    monkeypatch.setattr(stack_kick, "expected_tool_pins",
+                        lambda *a, **k: expected)
+    if live_raises is not None:
+        def boom(*a, **k):
+            raise live_raises
+        monkeypatch.setattr(stack_kick, "live_tool_pins", boom)
+    else:
+        monkeypatch.setattr(stack_kick, "live_tool_pins",
+                            lambda *a, **k: live)
+
+
+def test_expected_tool_pins_reads_the_real_containerfile():
+    # no-arg anchors to the script root, never cwd (the autouse fixture
+    # stands every test in a tmp dir - the real Containerfile is still
+    # found). No literal versions here: each value is re-parsed
+    # independently from the same file.
+    pins = stack_kick.expected_tool_pins()
+    assert pins is not None
+    assert sorted(pins) == sorted(f"{k}_VERSION"
+                                  for k in stack_kick.TOOL_PIN_KEYS)
+    args = dict(TOOL_PIN_ARG.findall(_real_containerfile_text()))
+    for key, value in pins.items():
+        assert value  # non-empty
+        assert args[key] == value
+
+
+def test_expected_tool_pins_missing_containerfile_is_none(tmp_path):
+    # adopted repos carry no Containerfile - the gate degrades, like the
+    # permission_envelope import failure
+    assert stack_kick.expected_tool_pins(tmp_path) is None
+
+
+def test_live_tool_pins_parses_the_manifest(monkeypatch):
+    seen = {}
+
+    def fake_api(url, password, method, path, body=None, query=None):
+        seen.update(method=method, path=path, query=query)
+        return {"type": "text",
+                "content": "GITLEAK_VERSION=8.30.1\nTOFU_VERSION=1.12.6\n"}
+
+    monkeypatch.setattr(stack_kick, "api", fake_api)
+    pins = stack_kick.live_tool_pins("http://h:1", "pw")
+    assert pins == {"GITLEAK_VERSION": "8.30.1", "TOFU_VERSION": "1.12.6"}
+    assert seen["method"] == "GET" and seen["path"] == "/file/content"
+    assert seen["query"] == {"path": ".veggies/image-tool-pins"}
+
+
+def test_live_tool_pins_absent_manifest_is_empty(monkeypatch):
+    # a pre-gate image: /file/content answers 200 with empty content for a
+    # missing file
+    monkeypatch.setattr(stack_kick, "api",
+                        lambda *a, **k: {"type": "text", "content": ""})
+    assert stack_kick.live_tool_pins("http://h:1", "pw") == {}
+
+
+def test_live_tool_pins_api_drift_raises(monkeypatch):
+    monkeypatch.setattr(stack_kick, "api", lambda *a, **k: {"weird": 1})
+    with pytest.raises(ValueError):
+        stack_kick.live_tool_pins("http://h:1", "pw")
+
+
+def test_tool_pin_gate_match_proceeds(monkeypatch):
+    pins = {"GITLEAK_VERSION": "8.30.1", "TOFU_VERSION": "1.12.6"}
+    _stub_tool_pins(monkeypatch, expected=pins, live=dict(pins))
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") is None
+
+
+def test_tool_pin_gate_skew_refuses_and_names_every_skewed_pin(
+        monkeypatch, capsys):
+    expected = {"GITLEAK_VERSION": "8.30.1", "TOFU_VERSION": "1.12.6",
+                "MASK_VERSION": "0.11.7"}
+    live = {"GITLEAK_VERSION": "8.30.0", "MASK_VERSION": "0.11.7"}
+    _stub_tool_pins(monkeypatch, expected=expected, live=live)
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") == stack_kick.SKIP_DONE
+    reason = capsys.readouterr().out
+    assert "stale stack image" in reason and "veggies sync" in reason
+    # both skew classes named, expected vs found: a differing pin AND a
+    # pin absent from the live manifest
+    assert "GITLEAK_VERSION expected 8.30.1, live image reports 8.30.0" \
+        in reason
+    assert "TOFU_VERSION expected 1.12.6, live image reports (absent)" \
+        in reason
+    assert "MASK_VERSION" not in reason  # a matching pin is not skew
+
+
+def test_tool_pin_gate_absent_manifest_refuses(monkeypatch, capsys):
+    # a healthy stack answering 200-empty predates the gate
+    _stub_tool_pins(monkeypatch, expected={"TOFU_VERSION": "1.12.6"}, live={})
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") == stack_kick.SKIP_DONE
+    assert "predates the kick-time tool-pin gate" in capsys.readouterr().out
+
+
+def test_tool_pin_gate_unparseable_manifest_refuses(monkeypatch, capsys):
+    # non-empty content without a single <K>_VERSION= line is corrupt
+    _stub_tool_pins(monkeypatch, expected={"TOFU_VERSION": "1.12.6"},
+                    live={"garbage": "blob"})
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") == stack_kick.SKIP_DONE
+    assert "unparseable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("failure", [
+    urllib.error.HTTPError("u", 401, "msg", {}, None),
+    urllib.error.HTTPError("u", 500, "msg", {}, None),
+    urllib.error.URLError("stack down"),
+    ValueError("unexpected /file/content shape"),
+])
+def test_tool_pin_gate_probe_failures_degrade(failure, monkeypatch, capsys):
+    # 401/403 ride the kick's own failure path; 404/5xx are a sick stack or
+    # API drift; transport/shape failures likewise - a gate must never deny
+    # all kicks on its own blind spot, but every degrade is loud
+    _stub_tool_pins(monkeypatch, expected={"TOFU_VERSION": "1.12.6"},
+                    live_raises=failure)
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") is None
+    assert capsys.readouterr().err
+
+
+def test_tool_pin_gate_undiscoverable_pins_degrade(monkeypatch, capsys):
+    _stub_tool_pins(monkeypatch, expected=None, live={})
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") is None
+    assert capsys.readouterr().err
+
+
+def test_tool_pin_keys_bound_to_containerfile_args():
+    # every gated key must be a real pinned ARG AND printed into the
+    # manifest - a key missing from either side silently drops out of the
+    # gate
+    text = _real_containerfile_text()
+    args = dict(TOOL_PIN_ARG.findall(text))
+    assert stack_kick.TOOL_PIN_KEYS  # a gutted tuple fails, never vacuous
+    for key in stack_kick.TOOL_PIN_KEYS:
+        assert f"{key}_VERSION" in args, key
+        assert f'"${{{key}_VERSION}}"' in text, key
+
+
+def test_main_skips_on_stale_image(monkeypatch, calls, tmp_path, capsys):
+    out = tmp_path / "github_output"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off, gate still on
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "expected_tool_pins",
+                        lambda *a, **k: {"TOFU_VERSION": "1.12.6"})
+    monkeypatch.setattr(stack_kick, "live_tool_pins",
+                        lambda *a, **k: {"TOFU_VERSION": "1.11.0"})
+    assert stack_kick.main() == stack_kick.SKIP_DONE
+    assert calls == []  # a proven-stale image never gets a session
+    assert "skip_reason=stale stack image" in out.read_text()
+    assert "SKIP" in capsys.readouterr().out
+
+
+def test_main_kicks_when_pins_match(monkeypatch, calls):
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "ISSUE_NUMBER": "7", "ISSUE_TITLE": "t", "ISSUE_URL": "u",
+                 "REPO": "o/r"}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)  # done-guard off
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "expected_tool_pins",
+                        lambda *a, **k: {"TOFU_VERSION": "1.12.6"})
+    monkeypatch.setattr(stack_kick, "live_tool_pins",
+                        lambda *a, **k: {"TOFU_VERSION": "1.12.6"})
+    assert stack_kick.main() == 0
+    assert calls and calls[0].full_url.endswith("/session?directory=/workspace")
+
+
+def test_discussion_mode_is_not_pin_gated(monkeypatch, calls, tmp_path):
+    """Discussion sessions never run the toolchain - distill/elaborate
+    kicks stay ungated (same env shape as
+    test_main_discussion_mode_kicks_with_thread)."""
+    out = tmp_path / "gh_out"
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "DISCUSSION_NUMBER": "7", "DISCUSSION_TITLE": "dt",
+                 "DISCUSSION_URL": "u", "DISCUSSION_BODY": "db",
+                 "REPO": "o/r", "GITHUB_TOKEN": "t",
+                 "GITHUB_OUTPUT": str(out)}.items():
+        monkeypatch.setenv(k, v)
+    _clear_issue_env(monkeypatch)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    monkeypatch.setattr(stack_kick, "fetch_discussion_comments",
+                        lambda r, n, t: [("alice", "hi")])
+
+    def gated(*a, **k):
+        raise AssertionError("discussion kicks must not run the tool-pin "
+                             "gate - those sessions never run the toolchain")
+
+    monkeypatch.setattr(stack_kick, "tool_pin_gate", gated)
+    assert stack_kick.main() == 0

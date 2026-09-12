@@ -23,6 +23,10 @@ from an operator machine:
 
 Stdlib-only. Exits non-zero with a message on any API failure.
 
+Refuses to kick (exit 3) when the live stack image's self-attested tool
+pins disagree with the checkout's Containerfile pins - the tool-pin gate
+(ADR 0053); the operator rebuilds the image and re-labels.
+
 Env:
     STACK_URL          base URL of the stack's opencode serve (no trailing /)
     STACK_PASSWORD     opencode serve basic-auth password
@@ -53,6 +57,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -76,7 +81,19 @@ TIMEOUT = 60
 BODY_LIMIT = 4000
 COMMENT_LIMIT = 2000  # per discussion comment
 THREAD_BUDGET = 12000  # total chars of rendered discussion thread
-SKIP_DONE = 3  # exit code: kick skipped - already handled (ADR 0035), in-flight (ADR 0040), or refused (ADR 0049)
+SKIP_DONE = 3  # exit code: kick skipped - already handled (ADR 0035), in-flight (ADR 0040), refused (ADR 0049), or stale-image (ADR 0053)
+
+# Tool-pin gate (issue #87, ADR 0053): refuse to spend a session on a
+# stack image whose baked toolchain disagrees with the checkout's pins.
+# The live stack cannot be ASKED (the serve API's exec route, /pty, is
+# broken on the musl image - node-pty's glibc .so fails dlopen, verified
+# 2026-09-11), so the image ATTESTS: /etc/veggies-tool-pins, baked from
+# the Containerfile ARGs, published into the workspace at container start
+# (cli/components/opencode.py), read back over /file/content.
+TOOL_PIN_CONTAINERFILE = "deploy/images/opencode.Containerfile"
+TOOL_PIN_MANIFEST = ".veggies/image-tool-pins"
+TOOL_PIN_KEYS = ("GITLEAK", "ACTIONLINT", "TOFU", "TFLINT", "MASK",
+                 "OPENCODE")
 
 # The elaborate persona roster (issue #33): (agent name, display role) per
 # persona. Each definition lives in agent-config/agents/<name>.md, and
@@ -166,6 +183,88 @@ def declared_verify_gate(repo_root: Path | str | None = None) -> str | None:
         m = GATE_MARKER.search(text)
         if m:
             return m.group("cmd").strip() or None
+    return None
+
+
+def expected_tool_pins(repo_root: Path | str | None = None) -> dict[str, str] | None:
+    """The gate-tool pins the kicked session will be held to: the six
+    TOOL_PIN_KEYS' <K>_VERSION ARGs in the repo's Containerfile. A None
+    root anchors to this vendored script's own repo root
+    (Path(__file__).resolve().parents[1]), never cwd - same reasoning as
+    declared_verify_gate. Returns None when the file is absent/
+    unreadable/undecodable: adopted repos carry no Containerfile, and
+    there the gate degrades to proceeding (a stderr note), exactly like
+    the permission_envelope import failure."""
+    root = (Path(repo_root) if repo_root is not None
+            else Path(__file__).resolve().parents[1])
+    try:
+        text = (root / TOOL_PIN_CONTAINERFILE).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    args = dict(re.findall(r"^ARG (\w+_VERSION)=(\S+)$", text, re.M))
+    # a Containerfile missing a key simply omits it from the comparison -
+    # CI's test_tool_pins binding owns that drift
+    return {f"{k}_VERSION": args[f"{k}_VERSION"]
+            for k in TOOL_PIN_KEYS if f"{k}_VERSION" in args}
+
+
+def live_tool_pins(url: str, password: str) -> dict[str, str]:
+    """The running stack's self-attested pins, one GET of the published
+    manifest. Returns {} when the manifest is absent (a pre-gate image:
+    /file/content answers 200 with empty content for a missing file).
+    Raises urllib.error.HTTPError/URLError on API/transport failure -
+    the caller classifies. A 200 whose body is not the expected
+    {"content": str} shape means opencode API drift: raises ValueError."""
+    result = api(url, password, "GET", "/file/content",
+                 query={"path": TOOL_PIN_MANIFEST})
+    if not isinstance(result, dict) or not isinstance(result.get("content"), str):
+        raise ValueError("unexpected /file/content shape")
+    return dict(line.split("=", 1) for line in result["content"].splitlines()
+                if line and "=" in line)
+
+
+def tool_pin_gate(url: str, password: str) -> int | None:
+    """SKIP_DONE on a PROVEN-stale image, else None. Block set (exit 3,
+    label cleared, operator rebuilds and re-labels): (a) any expected pin
+    differs from or is absent in the live manifest - the reason lists
+    EVERY skewed pin, expected vs found; (b) the manifest is absent/
+    empty on a healthy stack - the image predates the gate; (c) the
+    manifest exists but parses to nothing - corrupt. Degrade-loud (stderr
+    note, proceed) on: pins undiscoverable (adopted repo), any HTTPError
+    (401/403 ride the kick's own failure path; 404/5xx are a sick stack
+    or API drift - a gate must never deny all kicks on its own blind
+    spot), URLError/timeout (a truly down stack fails kick() with rc 1,
+    label preserved), ValueError (API shape drift)."""
+    expected = expected_tool_pins()
+    if expected is None:
+        print("tool pins undiscoverable (no Containerfile at script root); "
+              "tool-pin gate skipped", file=sys.stderr)
+        return None
+    try:
+        live = live_tool_pins(url, password)
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        # HTTPError is a URLError subclass - one family covers both
+        print(f"tool-pin probe failed ({e}); proceeding", file=sys.stderr)
+        return None
+    if not live:
+        return skip("the live stack image predates the kick-time tool-pin "
+                    "gate (no .veggies/image-tool-pins manifest): rebuild "
+                    "the opencode image on the stack host from a pulled "
+                    "infra checkout (veggies sync - runbook, in-container "
+                    "toolchain) to enroll it")
+    if not any(k.endswith("_VERSION") for k in live):
+        shown = "\n".join(f"{k}={v}" for k, v in live.items())[:80]
+        return skip(f"the live stack's tool-pin manifest is unparseable "
+                    f"({shown}): rebuild the opencode image on the stack "
+                    f"host (veggies sync - runbook)")
+    skew = sorted(f"{k} expected {v}, live image reports {live.get(k, '(absent)')}"
+                  for k, v in expected.items() if live.get(k) != v)
+    if skew:
+        return skip("stale stack image - the live image's baked tool pins "
+                    "disagree with the checkout (" + "; ".join(skew) + "): "
+                    "rebuild the opencode image on the stack host from a "
+                    "pulled infra checkout (veggies sync - runbook, "
+                    "in-container toolchain)")
     return None
 
 PROMPT_TEMPLATE = """You are the veggies agent for {repo}, working unattended in the stack's clone at /workspace.
@@ -517,11 +616,16 @@ def build_prompt(repo: str, number: str, title: str, body: str,
 
 
 def api(url: str, password: str, method: str, path: str,
-        body: dict | None = None) -> dict:
+        body: dict | None = None, query: dict | None = None) -> dict:
     """One opencode API call with the stack's basic auth. Raises on
-    transport/HTTP error; the caller turns that into an exit code."""
+    transport/HTTP error; the caller turns that into an exit code.
+    `query` appends extra URL parameters (the tool-pin gate's
+    /file/content path filter)."""
+    url_q = f"{url}{path}?directory=/workspace"
+    if query:
+        url_q += "&" + urllib.parse.urlencode(query)
     req = urllib.request.Request(
-        f"{url}{path}?directory=/workspace", method=method,
+        url_q, method=method,
         data=json.dumps(body).encode() if body is not None else None)
     req.add_header("Authorization", "Basic " + base64.b64encode(
         f"opencode:{password}".encode()).decode())
@@ -670,6 +774,11 @@ def main() -> int:
     # No-ask gate (ADR 0049): refuse to kick a repo whose project tier
     # reintroduces `ask` into the merged permission config.
     rc = permission_gate()
+    if rc is not None:
+        return rc
+    # Tool-pin gate (issue #87, ADR 0053): never spend a session on an
+    # image whose baked toolchain disagrees with the checkout's pins.
+    rc = tool_pin_gate(url, os.environ["STACK_PASSWORD"])
     if rc is not None:
         return rc
     title = f"#{os.environ['ISSUE_NUMBER']}: {os.environ['ISSUE_TITLE']}"
