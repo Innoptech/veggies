@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -216,14 +217,27 @@ def validate_overlay_containerfile(text: str, base: str = HARNESS_BASE_IMAGE) ->
     harness base; no COPY/ADD - the build context is the state images dir,
     so repo files are unreachable (teach the pinned-fetch pattern instead).
     Raises ValueError with an actionable message."""
-    # Join backslash-continuations into logical lines first, so a RUN ... \
-    # whose continuation line starts with the word COPY is not a false hit.
+    # The parsing mirrors imagebuilder (the parser buildah builds with):
+    # strip a leading UTF-8 BOM, drop comment lines BEFORE continuation
+    # joining, and join continuations by direct concatenation - never
+    # looser than the builder, or a keyword-split `FRO\`+`M evil` or a
+    # comment-ending backslash smuggles a real FROM/COPY past the checks
+    # below (divergence found by adversarial review on issue #69).
+    # Unsupported parser directives (`# escape=`) are rejected rather than
+    # ported: v1 overlays support the default `\` escape only.
+    text = text.removeprefix("\ufeff")
     logical_lines: list[str] = []
     pending = ""
     for line in text.splitlines():
-        line = pending + line
+        if re.match(r"^\s*#\s*escape\s*=", line, re.IGNORECASE):
+            raise ValueError(
+                "overlay Containerfile: the '# escape=' parser directive is "
+                "not supported - v1 overlays use the default '\\' escape only")
+        if line.lstrip().startswith("#"):
+            continue  # a comment line never joins with its successor
+        line = pending + line  # direct concatenation, no inserted space
         if line.rstrip().endswith("\\"):
-            pending = line.rstrip()[:-1] + " "
+            pending = line.rstrip()[:-1]
         else:
             logical_lines.append(line)
             pending = ""

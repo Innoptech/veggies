@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+import hashlib
 import importlib.util
 import json
 import shlex
@@ -689,6 +690,12 @@ def test_parse_repo_config_harness_containerfile_rejects_bad_values():
         # COPY must not read as a COPY instruction (logical lines join first)
         "FROM {base}\nRUN curl -fsSL -o /tmp/x https://example.com/x \\\n"
         "    COPY is just an argument here\n",
+        # imagebuilder strips a leading UTF-8 BOM; a BOM'd overlay is valid
+        "\ufeffFROM {base}\nRUN true\n",
+        # parity (issue #69 adversarial review): buildah joins continuations
+        # by DIRECT concatenation, so `FRO\`+`M <base>` builds as exactly
+        # FROM <base> - accept precisely what buildah would build
+        "FRO\\\nM {base}\nRUN true\n",
     ],
 )
 def test_validate_overlay_containerfile_ok(text):
@@ -706,6 +713,14 @@ def test_validate_overlay_containerfile_ok(text):
         "FROM --platform=linux/amd64 {base}\n",
         "FROM {base}\nCOPY tools/ /opt/\n",
         "FROM {base}\nADD https://x /y\n",
+        # keyword-split smuggle (issue #69 adversarial review): buildah's
+        # direct concatenation makes `FRO\`+`M x` a real second FROM ...
+        "FROM {base}\nFRO\\\nM docker.io/library/alpine:latest\nRUN true\n",
+        # ... and `CO\`+`PY x /y` a real COPY - both must trip here too
+        "FROM {base}\nCO\\\nPY x /y\n",
+        # imagebuilder strips comment lines BEFORE continuation joining:
+        # the trailing backslash on a comment must not hide the COPY
+        "FROM {base}\n# note \\\nCOPY x /y\n",
     ],
 )
 def test_validate_overlay_containerfile_rejects(text):
@@ -722,13 +737,35 @@ def test_validate_overlay_containerfile_copy_error_teaches():
         veggies_stack.validate_overlay_containerfile(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# escape=`\nFROM {base}\nRUN true\n",
+        "FROM {base}\n# escape=`\nRUN true\n",
+        "FROM {base}\nRUN true\n\t#  ESCAPE = ` \n",
+    ],
+)
+def test_validate_overlay_containerfile_rejects_escape_directive(text):
+    # Parser directives change tokenization itself; v1 overlays support the
+    # default `\` escape only, so the directive is rejected outright rather
+    # than ported (issue #69 adversarial review).
+    with pytest.raises(ValueError, match="escape"):
+        veggies_stack.validate_overlay_containerfile(
+            text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
 def test_overlay_image_name():
     import re
 
-    name = veggies_stack.overlay_image_name("FROM x\nRUN a\n")
+    text = "FROM x\nRUN a\n"
+    name = veggies_stack.overlay_image_name(text)
     assert name == veggies_stack.overlay_image_name("FROM x\nRUN a\n")  # deterministic
     assert name != veggies_stack.overlay_image_name("FROM x\nRUN b\n")  # content-addressed
     assert re.fullmatch(r"localhost/veggies-harness-overlay:[0-9a-f]{16}", name)
+    # the tag IS sha256(content)[:16] - the unconditional-rebuild invariant
+    # (ADR 0054 rule 3) hangs on this exact derivation
+    assert name == ("localhost/veggies-harness-overlay:"
+                    + hashlib.sha256(text.encode()).hexdigest()[:16])
 
 
 def test_resolve_harness_overlay_absent_key_returns_none(tmp_path):
