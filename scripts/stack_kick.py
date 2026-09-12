@@ -11,7 +11,9 @@ gate (ADR 0045), and the draft-first lifecycle: a DRAFT PR from the
 first commit, the ready-gate last - ADR 0036/0042/0046), a discussion
 kick distills
 the thread into issues (plan / happy path / criteria of success), then
-closes it as resolved (ADR 0050). Used by
+closes it as resolved (ADR 0050). A PR kick audits the final diff against
+the linked issue's acceptance criteria and posted plan, then posts
+exactly one comment-only `gh pr review` (issue #102 / ADR 0054). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
 
@@ -40,6 +42,11 @@ Env:
                        attributed POV comment (issue #33); anything else
                        (incl. unset) distills the thread into issues,
                        then closes the discussion as resolved (ADR 0050)
+    PR_NUMBER          GitHub PR number (PR-review mode; beats ISSUE_* and
+                       DISCUSSION_*)
+    PR_TITLE           PR title
+    PR_BODY            PR body (truncated like ISSUE_BODY)
+    PR_URL             PR html_url
     GITHUB_TOKEN       issue mode: done-guard (ADR 0035); discussion mode:
                        fetches the comment thread (REST) - without it the
                        prompt carries the opening post only
@@ -131,6 +138,24 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
         # the branch
     return None
 
+
+def review_reason(repo: str, number: str, token: str) -> str | None:
+    """Why this PR should NOT be reviewed, or None (the done-guard's PR
+    analog, issue #102 / ADR 0054). A PR is reviewable exactly when open
+    and non-draft: closed/merged means the review would audit dead work;
+    a draft is deliberately unfinished (the issue mode's no-synchronize
+    rationale applies to a manual /review too: per-push reviews of
+    known-unfinished work burn sessions and flood the 0051 spend log)."""
+    pr = gh_api(token, f"/repos/{repo}/pulls/{number}")
+    if pr.get("state") != "open":
+        if pr.get("merged_at"):
+            return f"PR {pr.get('html_url')} already merged"
+        return f"PR {pr.get('html_url')} state is {pr.get('state')}"
+    if pr.get("draft"):
+        return (f"PR {pr.get('html_url')} is a draft - mark it ready first "
+                "(ready_for_review is the automatic trigger)")
+    return None
+
 # The repo declares its in-pod verify gate as one HTML-comment marker in
 # its agent-instruction file (ADR 0045). Search order below: the first
 # file that exists, first marker match wins. The marker must be alone on
@@ -176,9 +201,9 @@ GitHub issue #{number}: {title}
 {body}
 
 Rules of engagement:
-- NEVER start a GitHub comment you post with `/opencode`, `/distill`, or
-  `/elaborate` - a leading command re-kicks this workflow (self-trigger
-  loop, ADR 0043).
+- NEVER start a GitHub comment you post with `/opencode`, `/distill`,
+  `/elaborate`, or `/review` - a leading command re-kicks this workflow
+  (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
 - Read the repo's own agent-instruction file first - whichever of
@@ -333,9 +358,9 @@ For each distinct piece of work the discussion asks for:
    permission (Discussions: write) in your final message and stop.
 
 Rules of engagement:
-- NEVER start a GitHub comment you post with `/opencode`, `/distill`, or
-  `/elaborate` - a leading command re-kicks this workflow (self-trigger
-  loop, ADR 0043).
+- NEVER start a GitHub comment you post with `/opencode`, `/distill`,
+  `/elaborate`, or `/review` - a leading command re-kicks this workflow
+  (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the issue bodies (or the discussion comment).
 - Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
@@ -390,9 +415,9 @@ allowed; being generic is not.
    `gh api graphql -f query='mutation($id: ID!, $body: String!) {{ addDiscussionComment(input: {{discussionId: $id, body: $body}}) {{ clientMutationId }} }}' -f id=<node id> -f body="..."`.
 
 Rules of engagement:
-- NEVER start a GitHub comment you post with `/opencode`, `/distill`, or
-  `/elaborate` - a leading command re-kicks this workflow (self-trigger
-  loop, ADR 0043).
+- NEVER start a GitHub comment you post with `/opencode`, `/distill`,
+  `/elaborate`, or `/review` - a leading command re-kicks this workflow
+  (self-trigger loop, ADR 0043).
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the persona comments.
 - Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
@@ -473,6 +498,96 @@ def build_elaborate_prompt(repo: str, number: str, title: str, body: str,
     prompt = ELABORATE_PROMPT_TEMPLATE.format(
         repo=repo, number=number, title=title, body=body, url=url,
         thread=render_thread(comments))
+    if comment.strip():
+        prompt += COMMENT_SECTION.format(author=comment_author or "?",
+                                         comment=comment.strip()[:2000])
+    return prompt
+
+
+REVIEW_PROMPT_TEMPLATE = """You are the veggies PR reviewer for {repo}, working unattended in the stack's clone at /workspace.
+
+GitHub PR #{number}: {title}
+{url}
+
+{body}
+
+Mission: post exactly ONE comment-only review on this PR - an audit of the
+final diff against the linked issue's acceptance criteria and the session's
+own posted plan, never a cold read (issue #102 - the ADR 0046 deferral's
+re-entry). You judge with a different model than the PR's author on purpose
+(ADR 0028/0036); your brief is the operator's triage, not a merge signal.
+
+1. Isolate read-only (ADR 0037): the shared checkout at /workspace is
+   read-only to you - never edit, commit, branch, or push ANYWHERE. Fetch
+   the exact head and create a detached read-only worktree:
+     git -C /workspace fetch origin
+     git -C /workspace fetch origin pull/{number}/head
+     sha=$(gh pr view {number} --json headRefOid --jq .headRefOid)
+     git -C /workspace worktree add --lock --reason 'review pr-{number}' \\
+       --detach /workspace/.veggies/wt/pr-{number} "$sha"
+   Recovery: "already exists"/"already used by worktree" means a crashed
+   review owns the path - take /workspace/.veggies/wt/pr-{number}-2 and say
+   so in the review body; never pass -f/--force, never remove a worktree
+   you did not create. File tools resolve relative paths against the
+   session dir (/workspace), not the shell's cwd - use absolute paths
+   under the worktree for every read.
+   Then materialize the audit input:
+     gh pr diff {number} > /workspace/.veggies/wt/pr-{number}.diff
+2. Gather the framing. The PR body's "Closes #M" links the issue:
+   `gh issue view M` for the acceptance criteria, and the issue's comments
+   carry the posted plan (the `## Role review` comment, ADR 0042). A PR
+   with no linked issue or no plan comment (a human-authored PR) is audited
+   against its own description alone - say so in the brief. Read the PR
+   thread (`gh pr view {number} --comments`) and the prior reviews
+   (`gh api repos/{repo}/pulls/{number}/reviews`): a re-review checks
+   whether earlier flags were addressed - it never regenerates a
+   contradictory second opinion from scratch.
+3. Dispatch the `pr-reviewer` task subagent (its definition:
+   agent-config/agents/pr-reviewer.md). Hand it the worktree path, the
+   diff file path, the issue + acceptance criteria, the posted plan, and
+   the thread. It is read-only by construction and runs a different model
+   than the author; it returns the brief text only.
+   INSPECT, NEVER EXECUTE: nothing from the PR tree runs - no tests, no
+   pre-commit, no mask, no builds. A PR editing .pre-commit-config.yaml or
+   a Makefile would otherwise turn this audit into code execution with
+   your credentials in the environment.
+4. Post exactly once:
+     gh pr review {number} --comment --body "<the brief>"
+   NEVER --approve, NEVER --request-changes (ADR 0054): the bot's approval
+   satisfies no review requirement (ADR 0007) and an approval-shaped
+   artifact invites merge-rights creep; a changes-requested review from
+   the bot is a blocking-looking artifact the human gate never asked for.
+   Double-post guard: if the prior-reviews read (step 2) already found a
+   review by this bot whose first line stamps the CURRENT head sha, the
+   review for this head has landed - post nothing and stop.
+
+Rules of engagement:
+- NEVER start a GitHub comment or review body you post with `/opencode`,
+  `/distill`, `/elaborate`, or `/review` - a leading command re-kicks this
+  workflow (self-trigger loop, ADR 0043).
+- Work autonomously. Never block waiting for a human - decide, and record
+  your assumptions in the review body.
+- Read the repo's own agent-instruction file first - whichever of
+  AGENTS.md/CLAUDE.md (or equivalent) the repo ships - and follow it.
+- No code changes: do not branch, commit, push, or open a PR - the
+  deliverable is exactly one comment-only review.
+- gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If the
+  review post is denied, name the exact missing token permission in your
+  final message and stop (the operator grants it).
+- Finish the task completely; never end your turn with a next step
+  unexecuted.
+"""
+
+
+def build_review_prompt(repo: str, number: str, title: str, body: str,
+                        url: str, comment: str = "",
+                        comment_author: str = "") -> str:
+    """Pure: the PR-review kick prompt (issue #102 / ADR 0054). Same shape
+    as build_prompt - same body budget, and the triggering /review comment
+    rides along."""
+    body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
+    prompt = REVIEW_PROMPT_TEMPLATE.format(
+        repo=repo, number=number, title=title, body=body, url=url)
     if comment.strip():
         prompt += COMMENT_SECTION.format(author=comment_author or "?",
                                          comment=comment.strip()[:2000])
@@ -631,9 +746,12 @@ def kick(url: str, password: str, prompt: str, title: str = "") -> str:
 
 
 def main() -> int:
+    pr = os.environ.get("PR_NUMBER", "")
     discussion = os.environ.get("DISCUSSION_NUMBER", "")
     required = ["STACK_URL", "STACK_PASSWORD", "REPO"]
-    if discussion:
+    if pr:
+        required += ["PR_NUMBER", "PR_TITLE", "PR_URL"]
+    elif discussion:
         required += ["DISCUSSION_NUMBER", "DISCUSSION_TITLE",
                      "DISCUSSION_URL"]
     else:
@@ -642,6 +760,8 @@ def main() -> int:
     if missing:
         print(f"missing env: {', '.join(missing)}", file=sys.stderr)
         return 2
+    if pr:
+        return main_pr(pr)
     if discussion:
         return main_discussion(discussion)
     url = os.environ["STACK_URL"].rstrip("/")
@@ -697,6 +817,56 @@ def main() -> int:
         return 1
     print(f"session queued: {sid} on {url} "
           f"(issue #{os.environ['ISSUE_NUMBER']})")
+    print(f"SESSION_ID={sid}")  # machine-readable, one per line
+    if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"session_id={sid}\n")
+    return 0
+
+
+def main_pr(number: str) -> int:
+    """PR-review mode (issue #102 / ADR 0054): a ready_for_review
+    transition or a trusted /review PR comment kicks one comment-only
+    review session. No done-guard - re-readying after rework and
+    re-commenting /review are deliberate acts (the 0038 discussion
+    stance); the in-flight guard owns the double-book window and
+    review_reason() skips dead or draft PRs."""
+    url = os.environ["STACK_URL"].rstrip("/")
+    # Review-guard (the done-guard's PR analog): never review dead or
+    # draft work. Same degrade-to-proceed posture as the other guards.
+    gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if gh_token:
+        try:
+            reason = review_reason(os.environ["REPO"], number, gh_token)
+        except Exception as e:  # the guard degrades, it never blocks
+            print(f"review-guard check failed ({e}); proceeding",
+                  file=sys.stderr)
+            reason = None
+        if reason:
+            return skip(reason)
+    else:
+        print("no GITHUB_TOKEN/GH_TOKEN in env; review-guard skipped",
+              file=sys.stderr)
+    rc = inflight_guard(url, os.environ["STACK_PASSWORD"],
+                        (f"PR#{number}: ",), "PR")
+    if rc is not None:
+        return rc
+    rc = permission_gate()
+    if rc is not None:
+        return rc
+    title = f"PR#{number}: {os.environ['PR_TITLE']}"
+    prompt = build_review_prompt(
+        os.environ["REPO"], number, os.environ["PR_TITLE"],
+        os.environ.get("PR_BODY", ""), os.environ["PR_URL"],
+        comment=os.environ.get("COMMENT_BODY", ""),
+        comment_author=os.environ.get("COMMENT_AUTHOR", ""))
+    try:
+        sid = kick(url, os.environ["STACK_PASSWORD"], prompt, title=title)
+    except (urllib.error.URLError, RuntimeError, TimeoutError,
+            json.JSONDecodeError) as e:
+        print(f"kick failed: {e}", file=sys.stderr)
+        return 1
+    print(f"session queued: {sid} on {url} (PR #{number})")
     print(f"SESSION_ID={sid}")  # machine-readable, one per line
     if os.environ.get("GITHUB_OUTPUT"):  # Actions convention
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:

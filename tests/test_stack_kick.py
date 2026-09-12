@@ -593,17 +593,19 @@ def test_main_discussion_inflight_failure_proceeds(monkeypatch, calls):
 
 def test_all_prompts_forbid_leading_command_comments():
     """ADR 0043: while olgam4 may trigger, the agent must never emit a
-    comment STARTING with /opencode, /distill, or /elaborate - the one
-    remaining self-kick vector. Every prompt template must carry the
-    hygiene line naming all three verbs."""
+    comment STARTING with /opencode, /distill, /elaborate, or /review -
+    the one remaining self-kick vector; review bodies count too (a
+    leading /review on a PR re-kicks the reviewer). Every prompt
+    template must carry the hygiene line naming all four verbs."""
     builders = [
         stack_kick.build_prompt("o/r", "1", "t", "b", "u"),
         stack_kick.build_discussion_prompt("o/r", "1", "t", "b", "u", []),
         stack_kick.build_elaborate_prompt("o/r", "1", "t", "b", "u", []),
+        stack_kick.build_review_prompt("o/r", "1", "t", "b", "u"),
     ]
     for p in builders:
         assert "NEVER start a GitHub comment" in p
-        for verb in ("/opencode", "/distill", "/elaborate"):
+        for verb in ("/opencode", "/distill", "/elaborate", "/review"):
             assert verb in p
     # closing the discussion is distill-only machinery (issue #67) - the
     # issue prompt never carries it
@@ -1031,3 +1033,178 @@ def test_skip_reason_output_is_newline_safe(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_OUTPUT", str(out))
     assert stack_kick.skip("a\nb") == stack_kick.SKIP_DONE
     assert out.read_text().splitlines() == ["skip_reason=a // b"]
+
+
+# --- PR-review mode (issue #102 / ADR 0054): a ready_for_review
+# transition or a trusted /review PR comment kicks one comment-only
+# review session ----------------------------------------------------------
+
+
+def test_build_review_prompt_carries_pr_mission_and_guards():
+    p = stack_kick.build_review_prompt(
+        "o/r", "12", "Add the thing", "Some body\n\nCloses #7",
+        "https://x/pr/12")
+    assert "#12" in p and "Add the thing" in p and "Some body" in p
+    assert "https://x/pr/12" in p
+    # the audit anchors: linked issue + acceptance criteria + the posted
+    # 0042 plan + the exact head, never a cold read
+    assert "Closes #M" in p and "gh issue view M" in p
+    assert "## Role review" in p
+    assert "headRefOid" in p and "pull/12/head" in p
+    # the read-only detached worktree (ADR 0037 shape, PR flavor)
+    assert "--detach /workspace/.veggies/wt/pr-12" in p
+    assert "read-only" in p
+    # the different-model persona does the analysis; the session posts once
+    assert "`pr-reviewer`" in p and "task subagent" in p
+    assert "gh pr review 12 --comment" in p
+    # comment-only is stated as a prohibition on the other two events
+    assert "NEVER --approve, NEVER --request-changes" in p
+    # the no-execution rule: the PR tree is audited, never run
+    assert "INSPECT, NEVER EXECUTE" in p
+    # prior reviews are read; a re-review checks flag resolution, and the
+    # double-post guard stops supervisor-refinement re-runs (ADR 0036)
+    assert "gh api repos/o/r/pulls/12/reviews" in p
+    assert "post nothing and stop" in p
+    # the deliverable excludes code changes
+    assert "do not branch, commit, push" in p
+
+
+def test_build_review_prompt_defaults_truncates_and_carries_comment():
+    p = stack_kick.build_review_prompt("o/r", "1", "t", "x" * 9000, "u")
+    assert "x" * (stack_kick.BODY_LIMIT + 1) not in p
+    assert "(no description)" in stack_kick.build_review_prompt(
+        "o/r", "1", "t", "", "u")
+    p = stack_kick.build_review_prompt(
+        "o/r", "3", "t", "b", "u", comment="/review please",
+        comment_author="josee")
+    assert "Triggered by a comment from @josee" in p
+    assert "/review please" in p
+
+
+def test_review_reason_states(monkeypatch):
+    # merged and closed PRs are handled work - never reviewed
+    monkeypatch.setattr(stack_kick, "gh_api", lambda tok, path: {
+        "state": "closed", "merged_at": "2026-09-12T00:00:00Z",
+        "html_url": "https://x/pr/9"})
+    assert "merged" in stack_kick.review_reason("o/r", "9", "t")
+    monkeypatch.setattr(stack_kick, "gh_api", lambda tok, path: {
+        "state": "closed", "merged_at": None, "html_url": "https://x/pr/9"})
+    assert "closed" in stack_kick.review_reason("o/r", "9", "t")
+    # a draft is deliberately unfinished - the no-synchronize rationale
+    monkeypatch.setattr(stack_kick, "gh_api", lambda tok, path: {
+        "state": "open", "draft": True, "html_url": "https://x/pr/9"})
+    assert "draft" in stack_kick.review_reason("o/r", "9", "t")
+    # open + ready is reviewable
+    monkeypatch.setattr(stack_kick, "gh_api", lambda tok, path: {
+        "state": "open", "draft": False, "html_url": "https://x/pr/9"})
+    assert stack_kick.review_reason("o/r", "9", "t") is None
+
+
+def _set_pr_env(monkeypatch, tmp_path):
+    for k, v in {"STACK_URL": "http://h:1", "STACK_PASSWORD": "pw",
+                 "PR_NUMBER": "12", "PR_TITLE": "pt", "PR_URL": "pu",
+                 "REPO": "o/r", "GITHUB_OUTPUT": str(tmp_path / "gh_out")
+                 }.items():
+        monkeypatch.setenv(k, v)
+    for k in ("ISSUE_NUMBER", "ISSUE_TITLE", "ISSUE_URL", "ISSUE_BODY",
+              "DISCUSSION_NUMBER", "DISCUSSION_TITLE", "DISCUSSION_URL",
+              "GITHUB_TOKEN", "GH_TOKEN", "COMMENT_BODY",
+              "COMMENT_AUTHOR"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_main_pr_happy_path(monkeypatch, calls, tmp_path):
+    _set_pr_env(monkeypatch, tmp_path)
+    # the in-flight guard is covered by its own tests; here it would only
+    # add two probe calls ahead of the kick
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    assert stack_kick.main() == 0
+    create, prompt = calls
+    # ADR 0034-style title; the terminator makes PR#12 never match PR#120
+    assert json.loads(create.data) == {"title": "PR#12: pt"}
+    text = json.loads(prompt.data)["parts"][0]["text"]
+    assert "gh pr review 12 --comment" in text
+    assert "session_id=ses_test" in (tmp_path / "gh_out").read_text()
+
+
+def test_main_pr_beats_issue_and_discussion_env(monkeypatch, calls,
+                                                tmp_path):
+    """The /review comment event fills both slots (the PR's issue slot and
+    PR_NUMBER) - PR mode must win."""
+    _set_pr_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ISSUE_NUMBER", "12")  # the PR's issue-slot number
+    monkeypatch.setenv("ISSUE_TITLE", "stale")
+    monkeypatch.setenv("ISSUE_URL", "su")
+    monkeypatch.setenv("DISCUSSION_NUMBER", "9")
+    monkeypatch.setenv("DISCUSSION_TITLE", "dt")
+    monkeypatch.setenv("DISCUSSION_URL", "du")
+    # in-flight guard stubbed: its probe calls would only pad `calls`
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    assert stack_kick.main() == 0
+    assert json.loads(calls[0].data) == {"title": "PR#12: pt"}
+
+
+def test_main_pr_skips_unreviewable_with_exit_3(monkeypatch, calls,
+                                                tmp_path, capsys):
+    _set_pr_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-tok")
+    monkeypatch.setattr(stack_kick, "review_reason",
+                        lambda r, n, t: "PR https://x/pr/12 already merged")
+    assert stack_kick.main() == stack_kick.SKIP_DONE
+    assert "skip_reason=PR https://x/pr/12 already merged" in \
+        (tmp_path / "gh_out").read_text()
+    assert calls == []  # an unreviewable PR is never kicked
+    assert "SKIP" in capsys.readouterr().out
+
+
+def test_main_pr_review_guard_degrades_on_failure(monkeypatch, calls,
+                                                  tmp_path, capsys):
+    _set_pr_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-tok")
+
+    def boom(tok, path):
+        raise TimeoutError("api down")
+
+    monkeypatch.setattr(stack_kick, "gh_api", boom)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    assert stack_kick.main() == 0  # the guard degrades, it never blocks
+    assert "review-guard check failed" in capsys.readouterr().err
+
+
+def test_main_pr_skips_inflight_with_exit_3(monkeypatch, calls, tmp_path):
+    _set_pr_env(monkeypatch, tmp_path)
+    _route_sessions(monkeypatch, [{"id": "s9", "title": "PR#12: pt"}],
+                    {"s9": {"type": "busy"}})
+    assert stack_kick.main() == stack_kick.SKIP_DONE
+    assert calls == []
+    assert "skip_reason=session s9" in (tmp_path / "gh_out").read_text()
+
+
+def test_main_pr_inflight_prefix_never_matches_near_numbers(monkeypatch,
+                                                            tmp_path):
+    _set_pr_env(monkeypatch, tmp_path)
+    _route_sessions(monkeypatch, [{"id": "s9", "title": "PR#120: other"}],
+                    {"s9": {"type": "busy"}})
+    monkeypatch.setattr(stack_kick, "kick", lambda *a, **k: "ses_x")
+    assert stack_kick.main() == 0  # PR#120 busy must not block PR#12
+
+
+def test_main_pr_permission_gate_blocks(monkeypatch, calls, tmp_path):
+    """The no-ask gate (ADR 0049) covers PR mode too."""
+    _set_pr_env(monkeypatch, tmp_path)
+    (tmp_path / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": "ask"}}))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stack_kick, "inflight_guard", lambda *a, **k: None)
+    assert stack_kick.main() == 3
+    assert calls == []
+
+
+def test_main_pr_missing_env_is_exit_2(monkeypatch, capsys):
+    monkeypatch.setenv("PR_NUMBER", "12")
+    for k in ("STACK_URL", "STACK_PASSWORD", "REPO", "PR_TITLE", "PR_URL",
+              "ISSUE_NUMBER", "DISCUSSION_NUMBER", "GITHUB_TOKEN",
+              "GH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+    assert stack_kick.main() == 2
+    assert "missing env" in capsys.readouterr().err
