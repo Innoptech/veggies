@@ -17,7 +17,7 @@ the rebuild checklist (section 1) is the acceptance test for the whole repo.
 | `mask molecule-test <role>` / `mask molecule-all` | role tests |
 | `mask converge` / `mask bootstrap` | Ansible against veggies |
 
-On PRs, `.github/workflows/infra-ci.yml` path-gates the molecule/tofu/tflint/ansible-lint/pytest jobs to changed areas (the required contexts still report on every run); the pre-commit security hooks and push-to-main runs always execute everything.
+On PRs, `.github/workflows/infra-ci.yml` path-gates the tofu/tflint/ansible-lint/pytest jobs to changed areas and scopes the molecule matrix to the roles the PR touches (`scripts/molecule_matrix.py` derives it from `ansible/roles/` + the converge.yml role-application map; unrecognized ansible paths fail open to all roles) - the required contexts still report on every run and the pre-commit job is ungated. Push to main always runs the full matrix, and a nightly schedule (`23 4 * * *`) re-runs everything as a drift tripwire (moving `fedora:44` base tag, galaxy collection bumps) with no required-check teeth - a red nightly pages no one; it is visible in the Actions tab, and GitHub auto-disables scheduled workflows after 60 days of repo inactivity (re-enable from the Actions tab). The accepted trade-off: with scoping, PR-green no longer implies main-green for cross-role breakage the dependency map cannot see; failed post-merge runs are the control until the merge queue (#79).
 
 Prerequisites: mask 0.11.x, tofu 1.12.6, python 3.14, podman 5.8.x
 (workstation and veggies are both Fedora 44); the pinned Python tooling is in
