@@ -185,6 +185,20 @@ def test_attribute(title, expected):
     assert costs.attribute(title) == expected
 
 
+def test_attribute_pr_review_titles():
+    """ADR 0054: PR-review sessions (titled PR#N:) roll up under the PR,
+    never into "unattributed" - review spend stays visible per PR."""
+    assert costs.attribute("PR#12: add the thing") == ("pr", 12)
+    # the colon is load-bearing here too: PR#1: must not prefix PR#12:
+    assert costs.attribute("PR#12: x") != ("pr", 1)
+    # ...and a PR title never folds into the issue axis (the deliberate
+    # author-spend vs review-spend split - `#12:` and `PR#12:` are two
+    # rows, not one)
+    assert costs.attribute("PR#12: x") != ("issue", 12)
+    assert costs.attribute("#12: x") == ("issue", 12)
+    assert costs.attribute("D#12: x") == ("discussion", 12)
+
+
 # --- filter_since ------------------------------------------------------------------
 
 
@@ -357,6 +371,24 @@ def test_render_summary_clamps_negative_days():
                                segments=["spend.jsonl"], skipped=0,
                                unpriced=0, bars=[], weekly=False)
     assert "(0 days)" in out.splitlines()[0]
+
+
+def test_render_summary_pr_row_and_nouns_count():
+    """ADR 0054: PR-review spend renders as its own PR#N row AND the prose
+    total names the PR count - review spend can never silently vanish."""
+    rows = costs.summarize([
+        _rec(session="#1: add the thing", session_id="s1", spend=1.00),
+        _rec(session="PR#2: review the thing", session_id="s2", spend=2.00),
+    ])
+    out = costs.render_summary(rows, since=date(2026, 9, 1),
+                               today=date(2026, 9, 2), earliest=True,
+                               segments=["spend.jsonl"], skipped=0, unpriced=0,
+                               bars=[], weekly=False)
+    lines = out.splitlines()
+    target_idx = next(i for i, ln in enumerate(lines) if ln.startswith("TARGET"))
+    assert lines[target_idx + 1].startswith("PR#2: review the thing")
+    total_line = next(ln for ln in lines if ln.startswith("total ("))
+    assert total_line == "total (1 issues, 1 PRs, 2 calls)  $3.00"
 
 
 # --- render_bars ---------------------------------------------------------------------------
