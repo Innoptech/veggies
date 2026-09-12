@@ -4,6 +4,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import re
 import shlex
 import stat
 import subprocess
@@ -548,13 +549,37 @@ def test_opencode_containerfile_pin_format():
 def test_squid_denied_domains_connect_strips_port():
     log = ("1763000000.123    150 127.0.0.1 TCP_DENIED/403 4123 "
            "CONNECT crates.io:443 - HIER_NONE/- text/html\n")
-    assert veggies.squid_denied_domains(log) == (["crates.io"], [])
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
+
+
+def test_squid_denied_domains_public_ip_client_yields_domain():
+    # pasta source-NATs host->published-port traffic to the host's PUBLIC
+    # IP (verified in ansible/roles/egress/tasks/main.yml, 2026-09-08:
+    # host curl appears as 51.161.10.231), so build-time denials arrive
+    # from the public IP, never 127.0.0.1 - client IP cannot attribute a
+    # denial to this build. Any in-window denial lists its domain.
+    log = ("1763000000.123    150 51.161.10.231 TCP_DENIED/403 4123 "
+           "CONNECT crates.io:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
 
 
 def test_squid_denied_domains_plain_url():
     log = ("1763000001.456     90 192.168.1.5 TCP_DENIED/403 3998 "
            "GET http://deb.example.com/dists/ - HIER_NONE/- text/html\n")
-    assert veggies.squid_denied_domains(log) == ([], ["deb.example.com"])
+    assert veggies.squid_denied_domains(log) == ["deb.example.com"]
+
+
+def test_squid_denied_domains_denied_407_yields_host():
+    # The TCP_DENIED prefix intentionally also catches proxy-auth denials.
+    log = ("1763000000.1 5 10.88.0.2 TCP_DENIED/407 1 CONNECT "
+           "pypi.org:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["pypi.org"]
+
+
+def test_squid_denied_domains_ipv6_loopback_client():
+    log = ("1763000000.1 5 ::1 TCP_DENIED/403 1 CONNECT "
+           "crates.io:443 - HIER_NONE/- text/html\n")
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
 
 
 def test_squid_denied_domains_ignores_non_denials():
@@ -566,7 +591,7 @@ def test_squid_denied_domains_ignores_non_denials():
         "1763000000.3 5 127.0.0.1 TCP_MISS/200 100 CONNECT "
         "c.example.com:443 - HIER_NONE/- text/html\n"
     )
-    assert veggies.squid_denied_domains(log) == ([], [])
+    assert veggies.squid_denied_domains(log) == []
 
 
 def test_squid_denied_domains_dedupes_order_preserved():
@@ -578,28 +603,24 @@ def test_squid_denied_domains_dedupes_order_preserved():
         "1763000000.3 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
         "b.io:443 - HIER_NONE/- text/html\n"
     )
-    assert veggies.squid_denied_domains(log) == (["b.io", "a.io"], [])
+    assert veggies.squid_denied_domains(log) == ["b.io", "a.io"]
 
 
-def test_squid_denied_domains_partitions_clients():
-    # Build traffic arrives via loopback (--network=host + REMOTE_PROXY);
-    # pod runtime chains through the pasta gateway and logs other sources.
+def test_squid_denied_domains_dedupes_across_clients():
+    # Global dedupe: one domain denied from different clients lists ONCE.
     log = (
-        "1763000000.1 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
+        "1763000000.1 5 51.161.10.231 TCP_DENIED/403 1 CONNECT "
         "crates.io:443 - HIER_NONE/- text/html\n"
-        "1763000000.2 5 192.168.1.5 TCP_DENIED/403 1 GET "
-        "http://deb.example.com/ - HIER_NONE/- text/html\n"
-        "1763000000.3 5 10.88.0.2 TCP_DENIED/403 1 CONNECT "
-        "pypi.org:443 - HIER_NONE/- text/html\n"
+        "1763000000.2 5 10.88.0.2 TCP_DENIED/403 1 CONNECT "
+        "crates.io:443 - HIER_NONE/- text/html\n"
     )
-    assert veggies.squid_denied_domains(log) == (
-        ["crates.io"], ["deb.example.com", "pypi.org"])
+    assert veggies.squid_denied_domains(log) == ["crates.io"]
 
 
 def test_squid_denied_domains_strips_bracketed_hosts():
     log = ("1763000000.1 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
            "[2001:db8::1]:443 - HIER_NONE/- text/html\n")
-    assert veggies.squid_denied_domains(log) == (["2001:db8::1"], [])
+    assert veggies.squid_denied_domains(log) == ["2001:db8::1"]
 
 
 def test_squid_denied_domains_skips_malformed_lines():
@@ -612,13 +633,12 @@ def test_squid_denied_domains_skips_malformed_lines():
         "1763000000.2 5 127.0.0.1 TCP_DENIED/403 1 CONNECT "
         "ok.io:443 - HIER_NONE/- text/html\n"
     )
-    assert veggies.squid_denied_domains(log) == (["ok.io"], [])
+    assert veggies.squid_denied_domains(log) == ["ok.io"]
 
 
 def test_egress_blocked_message_content():
     msg = veggies.egress_blocked_message(
-        "ghcr.io/example/opencode:1", ["crates.io", "npmjs.org"],
-        ["deb.example.com"], "boom")
+        "ghcr.io/example/opencode:1", ["crates.io", "npmjs.org"], "boom")
     assert "ghcr.io/example/opencode:1" in msg
     assert "egress_allowlist_extra:" in msg
     assert "  - crates.io" in msg and "  - npmjs.org" in msg
@@ -627,19 +647,26 @@ def test_egress_blocked_message_content():
     assert "ghcr.io is already allowlisted" in msg
     assert 'docs/runbook.md section "Image build fails with a blocked ' \
         'domain"' in msg
-    assert "deb.example.com" in msg and "unrelated" in msg
     assert msg.splitlines()[-1] == "original error: boom"
 
 
-def test_egress_blocked_message_omits_caveat_without_other():
-    msg = veggies.egress_blocked_message("img", ["crates.io"], [], "boom")
-    assert "unrelated" not in msg
-    assert msg.splitlines()[-1] == "original error: boom"
+def test_egress_blocked_message_host_wide_caveat_always_present():
+    # Client IP cannot attribute a denial to this build (pasta NATs host
+    # traffic to the public IP - see the parser tests), so the host-wide
+    # caveat is a STANDING line of every blocked message, not conditioned
+    # on an "other" bucket that no longer exists.
+    msg = veggies.egress_blocked_message("img", ["crates.io"], "boom")
+    assert "the proxy log is host-wide" in msg
+    assert "review each" in msg and "before allowlisting" in msg
 
 
 def test_egress_unrelated_message_content():
     msg = veggies.egress_unrelated_message("img", "veggies", "boom")
     assert "img" in msg and "veggies" in msg
+    # No in-window denials => the streamed build error is the cause to
+    # read; the nftables drop is only a conditional follow-up.
+    assert "error above is the cause to read" in msg
+    assert "if the failing step was a network fetch" in msg
     assert "infra-egress-deny" in msg
     assert 'docs/runbook.md section "Image build fails with a blocked ' \
         'domain"' in msg
@@ -1443,8 +1470,12 @@ def test_ensure_images_remote_failure_names_proxy_denied_domain(
         monkeypatch, spec):
     monkeypatch.setattr(veggies, "_REMOTE_UID", {})
     monkeypatch.setattr(veggies, "host_write", lambda *a, **k: None)
-    denial = ("1763000000.123 150 127.0.0.1 TCP_DENIED/403 4123 "
+    # Real client shape: pasta NATs host build traffic to the host's PUBLIC
+    # IP (verified in ansible/roles/egress/tasks/main.yml, 2026-09-08), so
+    # the denial arrives from 51.161.10.231 - never 127.0.0.1.
+    denial = ("1763000000.123 150 51.161.10.231 TCP_DENIED/403 4123 "
               "CONNECT crates.io:443 - HIER_NONE/- text/html\n")
+    log_reads = []
 
     def fake_run(cmd, **kw):
         assert cmd[:2] == ["ssh", "veggies"], cmd
@@ -1452,8 +1483,11 @@ def test_ensure_images_remote_failure_names_proxy_denied_domain(
             return subprocess.CompletedProcess(cmd, 0, stdout="1001\n",
                                                stderr="")
         if "podman logs" in cmd[2]:  # the substrate squid log read
+            log_reads.append(cmd[2])
             return subprocess.CompletedProcess(cmd, 0, stdout=denial,
                                                stderr="")
+        if kw.get("check") is False:  # run(check=False) never raises
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
         raise subprocess.CalledProcessError(1, cmd)  # the build itself
 
     monkeypatch.setattr(veggies, "run", fake_run)
@@ -1464,6 +1498,12 @@ def test_ensure_images_remote_failure_names_proxy_denied_domain(
     assert "egress_allowlist_extra:" in msg
     assert "mask converge" in msg
     assert isinstance(excinfo.value.__cause__, subprocess.CalledProcessError)
+    # The log read is windowed to the build: podman logs --since <N>s with
+    # N >= 30 (the +30s pre-build slack in _diagnose_egress_failure).
+    assert log_reads, "the failure path must read the substrate squid log"
+    m = re.search(r"podman logs --since (\d+)s squid", log_reads[0])
+    assert m, log_reads[0]
+    assert int(m.group(1)) >= 30
 
 
 def test_ensure_images_remote_failure_falls_back_when_log_unreadable(
@@ -1476,12 +1516,15 @@ def test_ensure_images_remote_failure_falls_back_when_log_unreadable(
         if cmd[2] == "sudo":
             return subprocess.CompletedProcess(cmd, 0, stdout="1001\n",
                                                stderr="")
+        if kw.get("check") is False:  # run(check=False) never raises
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
         raise subprocess.CalledProcessError(1, cmd)  # build AND log read
 
     monkeypatch.setattr(veggies, "run", fake_run)
     with pytest.raises(ValueError) as excinfo:
         veggies.ensure_images("veggies", INFRA_REPO, spec, verbose=True)
     msg = str(excinfo.value)
+    assert "error above is the cause to read" in msg
     assert "infra-egress-deny" in msg
     assert "veggies" in msg
     assert "TCP_DENIED" not in msg  # no domains fabricated from an unread log
@@ -1498,6 +1541,8 @@ def test_ensure_images_local_failure_reraises_untouched(monkeypatch, spec):
         if cmd[0] == "ssh":
             ssh_calls.append(cmd)
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if kw.get("check") is False:  # run(check=False) never raises
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
         raise subprocess.CalledProcessError(1, cmd)  # local podman build
 
     monkeypatch.setattr(veggies, "run", fake_run)
