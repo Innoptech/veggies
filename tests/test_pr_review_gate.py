@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import yaml
 
 _spec = importlib.util.spec_from_file_location(
     "pr_review_gate",
@@ -645,3 +646,111 @@ def test_main_merge_group_requires_head_sha(monkeypatch, tmp_path, capsys):
     monkeypatch.delenv("HEAD_SHA", raising=False)
     assert gate.main(["merge-group"]) == 2
     assert "missing env" in capsys.readouterr().err
+
+
+# --- workflow contract: .github/workflows/pr-review-gate.yml -------------
+#
+# The workflow is the ONLY writer of the pr-review-agent check; these tests
+# pin its safety invariants (ADR 0055). YAML 1.1 parses bare `on:` as True,
+# hence the .get("on", .get(True)) pattern (same as tests/test_infra_ci.py).
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW_PATH = ROOT / ".github/workflows/pr-review-gate.yml"
+WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
+GATE_JOB = WORKFLOW["jobs"]["gate"]
+BASE_REF = ("${{ github.event.pull_request.base.sha || "
+            "github.event.repository.default_branch }}")
+
+
+def test_workflow_triggers_are_exactly_the_four_required():
+    triggers = WORKFLOW.get("on", WORKFLOW.get(True))  # bare `on:` -> True
+    assert set(triggers) == {"pull_request_target", "pull_request_review",
+                             "issue_comment", "merge_group"}
+    assert triggers["pull_request_target"]["types"] == \
+        ["opened", "synchronize", "reopened", "ready_for_review"]
+    assert triggers["pull_request_review"]["types"] == \
+        ["submitted", "dismissed", "edited"]
+    assert triggers["issue_comment"]["types"] == ["created"]
+    assert triggers["merge_group"] is None  # no types filter
+
+
+def test_the_only_job_is_gate_and_nothing_is_named_like_the_context():
+    # Actions auto-creates a check run per job; a job named like the
+    # required context would be satisfied by job completion regardless of
+    # the gate's verdict.
+    assert set(WORKFLOW["jobs"]) == {"gate"}
+    for key, job in WORKFLOW["jobs"].items():
+        assert key != gate.CONTEXT
+        assert job.get("name") != gate.CONTEXT
+    raw = WORKFLOW_PATH.read_text()
+    assert not re.search(rf"^\s*name:\s*{re.escape(gate.CONTEXT)}\s*$",
+                         raw, re.MULTILINE), \
+        "no `name:` anywhere may equal the check context"
+
+
+def test_workflow_permissions_are_minimal_and_check_writing():
+    perms = WORKFLOW["permissions"]
+    assert perms["checks"] == "write"
+    # the check-runs API only: the legacy statuses API must never appear
+    # (a second writer surface for the same context)
+    assert "statuses" not in perms
+    assert set(perms) == {"checks", "contents", "pull-requests", "issues"}
+
+
+def test_every_checkout_pins_the_base_sha_never_the_head():
+    checkouts = [s for job in WORKFLOW["jobs"].values()
+                 for s in job.get("steps", [])
+                 if s.get("uses", "").startswith("actions/checkout@")]
+    assert checkouts, "the workflow must check out the repo"
+    for step in checkouts:
+        ref = step.get("with", {}).get("ref", "")
+        assert ref == BASE_REF
+        assert "head" not in ref  # never a PR-influenced ref
+
+
+def test_run_step_dispatches_merge_group_iff_event_is_merge_group():
+    run_steps = [s for s in GATE_JOB["steps"] if "run" in s]
+    (run_step,) = run_steps  # exactly one run step
+    script = run_step["run"]
+    assert "set -euo pipefail" in script
+    assert '"$EVENT_NAME" = "merge_group"' in script
+    assert "scripts/pr_review_gate.py merge-group" in script
+    assert "scripts/pr_review_gate.py gate" in script
+    env = run_step["env"]
+    for key in ("REPO", "GITHUB_TOKEN", "EVENT_NAME", "PR_NUMBER",
+                "HEAD_SHA", "DRAFT", "PR_AUTHOR", "PR_REVIEW_GATE"):
+        assert key in env, f"missing env {key}"
+
+
+def test_concurrency_serializes_per_subject_without_cancelling():
+    conc = GATE_JOB["concurrency"]
+    group = conc["group"]
+    assert group.startswith("pr-review-gate-")
+    for field in ("github.event.pull_request.number",
+                  "github.event.issue.number",
+                  "github.event.merge_group.head_sha", "github.run_id"):
+        assert field in group
+    # every run recomputes live head-scoped state; a cancelled run could
+    # drop a dismissed/edited review and strand a stale check
+    assert conc["cancel-in-progress"] is False
+
+
+def test_issue_comment_if_requires_pr_override_prefix_and_trust():
+    cond = GATE_JOB["if"]
+    # all other events always run; only issue_comment is narrowed
+    assert "github.event_name != 'issue_comment'" in cond
+    assert "github.event.issue.pull_request" in cond
+    assert "startsWith(github.event.comment.body, '/gate-override')" in cond
+    assert '["OWNER","MEMBER"]' in cond
+    assert "github.event.comment.author_association" in cond
+
+
+def test_runs_on_the_self_hosted_veggies_pool():
+    # the self-hosted runner is what lets the decision log reach the stack
+    # state dir (the script fails open if it cannot)
+    assert GATE_JOB["runs-on"] == ["self-hosted", "linux", "x64", "veggies"]
+
+
+def test_context_literal_matches_branch_protection():
+    # drift guard: the literal the workflow and branch protection rely on
+    assert gate.CONTEXT == "pr-review-agent"
