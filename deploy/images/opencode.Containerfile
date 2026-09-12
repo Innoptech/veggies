@@ -6,9 +6,10 @@
 # runs the repo's own checks in-container (`mask ci`, minus molecule: the
 # podman socket stays banned, ADR 0028).
 # The base is built first by `ensure_images` from
-# deploy/images/opencode-base.Containerfile - this file is NOT
-# standalone-buildable (a bare `podman build` would try to pull from a
-# registry literally named localhost). The overlay pins the base by tag;
+# deploy/images/opencode-base.Containerfile - this file is not
+# standalone-buildable on a host without the base image (a bare
+# `podman build` there would try to pull from a registry literally
+# named localhost). The overlay pins the base by tag;
 # the base pins the upstream image by tag+digest. Bump all four spots
 # together (both Containerfiles, IMAGE_OPENCODE_BASE/IMAGE_OPENCODE in
 # cli/components/opencode.py) - tests/test_veggies.py enforces the lockstep.
