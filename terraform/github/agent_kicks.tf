@@ -1,14 +1,15 @@
 # ADR 0048: the roster of repos the agent serves. Installing agent kicks on
 # a repo is ONE module block here - it declares everything the kick path
-# needs on the GitHub side: the workflow + kick script (delivered on the
-# repo's `infra/agent-trigger` branch - merge that PR once), the agent-task
-# label, and the stack coordinates (VEGGIES_STACK_HOST/PORT variables,
-# VEGGIES_STACK_PASSWORD secret). Substrate (VPS, podman, runner
+# needs on the GitHub side: the workflow + kick + comment scripts (delivered
+# on the repo's `infra/agent-trigger` branch - merge that PR once), the
+# agent-task label, and the stack coordinates (VEGGIES_STACK_HOST/PORT
+# variables, VEGGIES_STACK_PASSWORD secret). Substrate (VPS, podman, runner
 # registration, the stack itself, the vault) stays manual - docs/runbook.md.
 #
-# The master copies are this repo's own .github/workflows/agent-trigger.yml
-# and scripts/stack_kick.py, read with file() - NEVER templatefile(): the
-# workflow is full of `$${{ }}`, which templatefile would interpolate.
+# The master copies are this repo's own .github/workflows/agent-trigger.yml,
+# scripts/stack_kick.py and scripts/gh_comment.py, read with file() - NEVER
+# templatefile(): the workflow is full of `$${{ }}`, which templatefile
+# would interpolate.
 
 module "agent_kick_veggies" {
   source = "./modules/agent-kick"
@@ -25,6 +26,7 @@ module "agent_kick_veggies" {
   # documents the wiring every adopted repo relies on.
   source_branch = var.default_branch
 
-  workflow_content    = file("${path.module}/../../.github/workflows/agent-trigger.yml")
-  kick_script_content = file("${path.module}/../../scripts/stack_kick.py")
+  workflow_content       = file("${path.module}/../../.github/workflows/agent-trigger.yml")
+  kick_script_content    = file("${path.module}/../../scripts/stack_kick.py")
+  comment_script_content = file("${path.module}/../../scripts/gh_comment.py")
 }
