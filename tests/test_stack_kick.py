@@ -1208,3 +1208,36 @@ def test_main_pr_missing_env_is_exit_2(monkeypatch, capsys):
         monkeypatch.delenv(k, raising=False)
     assert stack_kick.main() == 2
     assert "missing env" in capsys.readouterr().err
+
+
+# --- PR-reviewer persona (issue #102 / ADR 0054): the post-ready auditor
+# is a rostered read-only subagent on a third model -----------------------
+
+
+def test_pr_reviewer_persona_shape():
+    """The pr-reviewer must exist as a read-only subagent (the exact 0041
+    envelope - no shell: the session hands it a materialized diff, so it
+    can neither execute PR-tree code nor post) on a model that is neither
+    the author default (kimi-k3) nor the in-session adversarial reviewer's
+    (deepseek-v4) - the 0028/0036 different-model invariant."""
+    f = (Path(__file__).parent.parent
+         / "agent-config/agents/pr-reviewer.md")
+    assert f.is_file()
+    parts = f.read_text().split("---", 2)
+    assert len(parts) == 3, "missing frontmatter"
+    front = yaml.safe_load(parts[1])
+    assert front.get("mode") == "subagent"
+    for key in ("edit", "bash", "task", "webfetch"):
+        assert front["permission"].get(key) == "deny", (
+            f"permission.{key} must be 'deny' (read-only auditor, "
+            f"ADR 0041 envelope), got {front['permission'].get(key)!r}")
+    assert front.get("model") == "litellm/glm-5"
+    # the brief contract: risk rank + audited head on the first line, and
+    # the mandatory not-checked section
+    body = parts[2]
+    assert "**veggies PR audit**" in body and "audited head" in body
+    assert "LOW|MEDIUM|HIGH" in body
+    assert "## Not checked" in body
+    assert "## Threat-model surface" in body
+    # never an approval-shaped artifact (ADR 0007/0054)
+    assert "never an approval" in body or "comment-only" in body
