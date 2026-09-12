@@ -4,13 +4,22 @@
 
 Reads a PR's changed files, reviews, and issue comments; computes a
 deterministic gate decision (declared-scope hard-fail, then the reviewer
-agent's `pr-review-verdict:` marker); creates the check run via the Checks
-API; and appends a decision record to a JSONL log (fail-open - logging
-never blocks the check). The merge stays human: the gate only ever hard-fails
-a declared-scope diff or a reviewer FAIL that no OWNER/MEMBER has cleared.
+agent's `pr-review-verdict:` marker); and creates the check run via the
+Checks API. The merge stays human: the gate only ever hard-fails a
+declared-scope diff or a reviewer FAIL that no OWNER/MEMBER has cleared.
+Fail CLOSED means a red check, never an absent one: any evaluation error
+after the head sha is known still reports a `failure` check run.
+
+This script does NOT write the decision log: the self-hosted runner
+container is ephemeral and mounts only its `_work` dir, so a workflow-side
+append would vanish silently. The GitHub review history is the system of
+record; scripts/pr_review_verdicts.py harvests it into
+pr-review-verdicts.jsonl (ADR 0055 decision 7). decision_record/append_log
+stay here because the harvester imports them.
 
 Stdlib-only (like scripts/stack_kick.py). Env-driven; exits 2 with a message
-on missing env, 1 on API failure, 0 otherwise - the check STATE carries the
+on missing env, 1 on API/evaluation failure (with the red check reported
+whenever the head sha is known), 0 otherwise - the check STATE carries the
 signal, so a legit failure verdict is still exit 0.
 
 Modes (argv[1]):
@@ -27,10 +36,7 @@ Env:
                        reads are skipped); merge-group: required
     DRAFT              'true'/'false' (gate; absent -> from the PR fetch)
     PR_AUTHOR          PR author login (gate; absent -> from the PR fetch)
-    EVENT_NAME         recorded in the log record
-    VEGGIES_REVIEW_LOG decision-log path (default LOG_DEFAULT)
-    PR_REVIEW_GATE     'disabled' -> skip all reads, report success, log
-                       reasons ['disabled'], exit 0
+    PR_REVIEW_GATE     'disabled' -> skip all reads, report success, exit 0
 """
 
 from __future__ import annotations
@@ -69,13 +75,21 @@ TRUSTED_VERDICT_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 # Human clearing acts (approval or /gate-override comment) only from these.
 HUMAN_ASSOCIATIONS = frozenset({"OWNER", "MEMBER"})
 OVERRIDE_PREFIX = "/gate-override"
+# The override command is HEAD-BOUND: `/gate-override <full-head-sha>`. The
+# sha (case-insensitive) must equal the head being gated, so one genuine
+# override can never pre-clear a later head. Trailing prose is fine.
+OVERRIDE_RE = re.compile(r"^/gate-override\s+([0-9a-fA-F]{40})(?:\s|$)")
 LOG_DEFAULT = "/home/stacks/.local/state/veggies/veggie/pr-review-verdicts.jsonl"
 TIMEOUT = 60
 MAX_PAGES = 30  # files/reviews/comments pagination cap (100/page)
 
-# The remediation line ending every red summary.
-REMEDIATION = ("Cleared by a human APPROVED review on the current head, or "
-               "an OWNER/MEMBER comment starting with /gate-override.")
+
+def remediation(head_sha: str) -> str:
+    """The remediation line ending every red summary. The summary is the
+    UI, so it carries the exact paste-able override command for THIS
+    head."""
+    return ("Cleared by a human APPROVED review on the current head, or an "
+            f"OWNER/MEMBER comment: /gate-override {head_sha}")
 
 
 def scope_hits(paths: list[str]) -> list[str]:
@@ -100,11 +114,15 @@ def latest_verdict(reviews: list[dict],
     """(verdict, submitted_at, html_url) of the LATEST review carrying a
     VERDICT_RE marker line, or None. Only reviews that: are pinned to
     head_sha (review['commit_id'] == head_sha), have
-    review['author_association'] in TRUSTED_VERDICT_ASSOCIATIONS, and have a
-    body matching VERDICT_RE (group 1 lowercased). Latest = max by
-    submitted_at (ISO 8601 strings compare correctly)."""
+    review['author_association'] in TRUSTED_VERDICT_ASSOCIATIONS, are not
+    DISMISSED (a dismissed verdict stops counting), and have a body
+    matching VERDICT_RE (group 1 lowercased). Latest = max by
+    (submitted_at, id): ISO 8601 strings compare correctly, and the review
+    id breaks same-second ties (higher id = newer; missing id = 0)."""
     candidates = []
     for review in reviews:
+        if (review.get("state") or "").upper() == "DISMISSED":
+            continue
         if review.get("commit_id") != head_sha:
             continue
         if review.get("author_association") not in TRUSTED_VERDICT_ASSOCIATIONS:
@@ -113,10 +131,13 @@ def latest_verdict(reviews: list[dict],
         if m:
             candidates.append((m.group(1).lower(),
                                review.get("submitted_at") or "",
-                               review.get("html_url") or ""))
+                               review.get("html_url") or "",
+                               review.get("id") or 0))
     if not candidates:
         return None
-    return max(candidates, key=lambda c: c[1])
+    verdict, submitted_at, url, _ = max(candidates,
+                                        key=lambda c: (c[1], c[3]))
+    return verdict, submitted_at, url
 
 
 def _iso_to_epoch(iso: str) -> float:
@@ -124,15 +145,33 @@ def _iso_to_epoch(iso: str) -> float:
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
 
 
-def _clearing_act(reviews: list[dict], comments: list[dict],
-                  head_sha: str, pr_author: str) -> tuple[float, str] | None:
-    """(epoch_seconds, actor_login) of the newest human clearing act, or
-    None. Two kinds:
-    - an APPROVED review (review['state'] == 'APPROVED') pinned to head_sha,
-      association in HUMAN_ASSOCIATIONS, and reviewer login != pr_author
-      (GitHub rejects self-approvals; belt and braces);
-    - an issue comment whose body starts with OVERRIDE_PREFIX and whose
-      author_association is in HUMAN_ASSOCIATIONS."""
+def _override_acts(comments: list[dict],
+                   head_sha: str) -> list[tuple[float, str]]:
+    """(epoch_ts, actor_login) per /gate-override comment naming THIS head
+    sha, from an OWNER/MEMBER. A comment naming any other sha (or no sha)
+    is not a clearing act."""
+    acts = []
+    for comment in comments:
+        m = OVERRIDE_RE.match(comment.get("body") or "")
+        if not m or m.group(1).lower() != head_sha.lower():
+            continue
+        if comment.get("author_association") not in HUMAN_ASSOCIATIONS:
+            continue
+        login = (comment.get("user") or {}).get("login") or ""
+        acts.append((_iso_to_epoch(comment["created_at"]), login))
+    return acts
+
+
+def human_acts(reviews: list[dict], comments: list[dict],
+               head_sha: str,
+               pr_author: str) -> list[tuple[float, str]]:
+    """Every qualifying human clearing act on THIS head, as
+    (epoch_seconds, actor_login) pairs. Two kinds:
+    - an APPROVED review (review['state'] == 'APPROVED') pinned to
+      head_sha, association in HUMAN_ASSOCIATIONS, reviewer login !=
+      pr_author (GitHub rejects self-approvals; belt and braces), and NOT
+      carrying a verdict marker - a verdict never clears itself;
+    - a sha-bound /gate-override comment (see _override_acts)."""
     acts: list[tuple[float, str]] = []
     for review in reviews:
         if review.get("state") != "APPROVED":
@@ -144,25 +183,11 @@ def _clearing_act(reviews: list[dict], comments: list[dict],
         login = (review.get("user") or {}).get("login") or ""
         if login == pr_author:
             continue
+        if VERDICT_RE.search(review.get("body") or ""):
+            continue
         acts.append((_iso_to_epoch(review["submitted_at"]), login))
-    for comment in comments:
-        if not (comment.get("body") or "").startswith(OVERRIDE_PREFIX):
-            continue
-        if comment.get("author_association") not in HUMAN_ASSOCIATIONS:
-            continue
-        login = (comment.get("user") or {}).get("login") or ""
-        acts.append((_iso_to_epoch(comment["created_at"]), login))
-    if not acts:
-        return None
-    return max(acts, key=lambda a: a[0])
-
-
-def clearing_act_ts(reviews: list[dict], comments: list[dict],
-                    head_sha: str, pr_author: str) -> float | None:
-    """Epoch seconds of the newest human clearing act, or None (see
-    _clearing_act for what counts)."""
-    act = _clearing_act(reviews, comments, head_sha, pr_author)
-    return act[0] if act else None
+    acts.extend(_override_acts(comments, head_sha))
+    return acts
 
 
 def matched_roots(paths: list[str]) -> list[str]:
@@ -178,69 +203,64 @@ def matched_roots(paths: list[str]) -> list[str]:
     return sorted(roots)
 
 
-def _evaluate(draft: bool, scope: list[str],
-              verdict: tuple[str, str, str] | None,
-              human_ts: float | None, head_commit_ts: float
-              ) -> tuple[str, str | None, str, str, list[str], str | None]:
-    """The gate decision plus its audit trail:
-    (status, conclusion, title, summary, reasons, resolution). Order
-    matters - draft first, then the declared-scope hard-fail, then the
-    reviewer verdict; a human clearing act only rescues a RED state, never
-    the no-verdict pending one."""
-    if draft:
-        return ("completed", "success", f"{CONTEXT}: draft",
-                "The gate evaluates at the ready-for-review transition.",
-                ["draft"], None)
-    if scope:
-        roots = ", ".join(f"`{r}`" for r in matched_roots(scope))
-        cleared = human_ts is not None and human_ts >= head_commit_ts
-        if cleared:
-            return ("completed", "success", f"{CONTEXT}: human override",
-                    "This PR touches the declared human-review scope "
-                    f"(roots: {roots}), and a human cleared the "
-                    "declared-scope diff at or after the head commit.",
-                    ["declared-scope", "human-override"], "human-override")
-        listing = "\n".join(f"- {p}" for p in scope)
-        return ("completed", "failure", f"{CONTEXT}: declared-scope diff",
-                "A reviewer agent may not clear this PR: it touches the "
-                "declared human-review scope (ADR 0055).\n\n"
-                f"Changed paths in declared scope:\n{listing}\n\n"
-                f"Matched scope roots: {roots}\n\n"
-                f"{REMEDIATION}",
-                ["declared-scope"], None)
-    if verdict and verdict[0] == "fail":
-        _, submitted_at, url = verdict
-        cleared = human_ts is not None and human_ts >= _iso_to_epoch(submitted_at)
-        if cleared:
-            return ("completed", "success", f"{CONTEXT}: human override",
-                    "A human overrode the reviewer agent's fail verdict "
-                    f"({url}) at or after the verdict was posted.",
-                    ["verdict-fail", "human-override"], "human-override")
-        return ("completed", "failure", f"{CONTEXT}: reviewer verdict: fail",
-                f"The reviewer agent returned a FAIL verdict: {url}\n\n"
-                f"{REMEDIATION}",
-                ["verdict-fail"], None)
-    if verdict and verdict[0] == "pass":
-        return ("completed", "success", f"{CONTEXT}: reviewer verdict: pass",
-                f"The reviewer agent passed this PR: {verdict[2]}",
-                ["verdict-pass"], None)
-    return ("in_progress", None, f"{CONTEXT}: awaiting reviewer verdict",
-            "The reviewer posts its verdict as a review carrying a "
-            "pr-review-verdict line (issue #102).",
-            ["awaiting-verdict"], None)
-
-
 def decide(draft: bool, scope: list[str],
            verdict: tuple[str, str, str] | None,
-           human_ts: float | None,
-           head_commit_ts: float) -> tuple[str, str | None, str, str]:
+           human_acts: list[tuple[float, str]],
+           head_sha: str) -> tuple[str, str | None, str, str]:
     """The whole state machine. Returns (status, conclusion, title, summary)
     for the check run: status is 'completed' or 'in_progress'; conclusion is
     'success'/'failure'/None. title is one short line; summary is the
-    check-run output body (markdown, may be multi-line)."""
-    status, conclusion, title, summary, _, _ = _evaluate(
-        draft, scope, verdict, human_ts, head_commit_ts)
-    return status, conclusion, title, summary
+    check-run output body (markdown, may be multi-line).
+
+    BOTH red lanes are evaluated on every call: scope (any act on this
+    head clears - head-binding IS the postdating) and verdict-fail (only
+    an act at or after the verdict's submitted_at clears). A human act
+    alone never rescues the no-verdict pending state."""
+    if draft:
+        return ("completed", "success", f"{CONTEXT}: draft",
+                "The gate evaluates at the ready-for-review transition.")
+    reds = []
+    if scope and not human_acts:
+        reds.append("declared-scope")
+    if verdict and verdict[0] == "fail":
+        verdict_ts = _iso_to_epoch(verdict[1])
+        if not any(ts >= verdict_ts for ts, _ in human_acts):
+            reds.append("verdict-fail")
+    if reds:
+        title = (f"{CONTEXT}: declared-scope diff"
+                 if reds[0] == "declared-scope"
+                 else f"{CONTEXT}: reviewer verdict: fail")
+        parts = []
+        if "declared-scope" in reds:
+            roots = ", ".join(f"`{r}`" for r in matched_roots(scope))
+            listing = "\n".join(f"- {p}" for p in scope)
+            parts.append(
+                "A reviewer agent may not clear this PR: it touches the "
+                "declared human-review scope (ADR 0055).\n\n"
+                f"Changed paths in declared scope:\n{listing}\n\n"
+                f"Matched scope roots: {roots}")
+        if "verdict-fail" in reds:
+            parts.append("The reviewer agent returned a FAIL verdict: "
+                         f"{verdict[2]}")
+        return ("completed", "failure", title,
+                "\n\n".join(parts) + "\n\n" + remediation(head_sha))
+    cleared = []
+    if scope:
+        roots = ", ".join(f"`{r}`" for r in matched_roots(scope))
+        cleared.append(f"the declared-scope diff (roots: {roots})")
+    if verdict and verdict[0] == "fail":
+        cleared.append(f"the reviewer fail verdict ({verdict[2]})")
+    if cleared and human_acts:
+        actors = ", ".join(sorted({actor for _, actor in human_acts}))
+        return ("completed", "success", f"{CONTEXT}: human override",
+                "A human cleared " + " and ".join(cleared) +
+                f". Clearing act(s) on this head by: {actors}.")
+    if verdict and verdict[0] == "pass":
+        return ("completed", "success", f"{CONTEXT}: reviewer verdict: pass",
+                f"The reviewer agent passed this PR: {verdict[2]}")
+    return ("in_progress", None, f"{CONTEXT}: awaiting reviewer verdict",
+            "The reviewer posts its verdict as a review carrying a "
+            "pr-review-verdict line (issue #102).")
 
 
 def decision_record(repo: str, pr: int | None, head_sha: str,
@@ -249,12 +269,13 @@ def decision_record(repo: str, pr: int | None, head_sha: str,
                     verdict_review_url: str | None = None,
                     human_actor: str | None = None,
                     resolution: str | None = None,
+                    review_id: int | None = None,
                     ts: float | None = None) -> dict:
-    """One ADR 0055 decision-log record. state is 'success'|'failure'|
-    'pending' (the check-run conclusion, 'pending' while the verdict is
-    awaited); reasons carries the state-machine branch tags ('declared-
-    scope', 'verdict-fail', 'human-override', 'draft', 'disabled',
-    'merge-group', 'awaiting-verdict', ...)."""
+    """One ADR 0055 decision-log record (12 keys, pinned by pytest).
+    Written only by the harvester (scripts/pr_review_verdicts.py): state is
+    'verdict', event 'harvest', reasons ['verdict-pass'|'verdict-fail'],
+    review_id the GitHub review id the record was harvested from (the
+    idempotency key), ts the review's submitted_at epoch."""
     return {
         "ts": time.time() if ts is None else ts,
         "repo": repo,
@@ -267,21 +288,23 @@ def decision_record(repo: str, pr: int | None, head_sha: str,
         "verdict_review_url": verdict_review_url,
         "human_actor": human_actor,
         "resolution": resolution,
+        "review_id": review_id,
     }
 
 
 def append_log(path: str, record: dict) -> None:
     """Append one JSON line. FAIL-OPEN: any OSError prints a loud warning to
-    stderr and returns - logging never blocks the check. Creates the parent
-    dir. Path comes from env VEGGIES_REVIEW_LOG or LOG_DEFAULT."""
+    stderr and returns - logging never blocks the caller. Creates the
+    parent dir. Path comes from env VEGGIES_REVIEW_LOG or LOG_DEFAULT."""
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, sort_keys=True) + "\n")
     except OSError as e:
-        print(f"WARNING: pr-review gate decision log append failed ({e}); "
-              "the check result stands", file=sys.stderr)
+        print(f"WARNING: pr-review verdict log append failed ({e}); "
+              "the GitHub review history remains the system of record",
+              file=sys.stderr)
 
 
 def gh_api(token: str, method: str, path: str,
@@ -338,15 +361,11 @@ def _require_env(names: list[str]) -> bool:
     return True
 
 
-def _report(token: str, repo: str, head_sha: str, event: str | None,
-            log_path: str, pr: int | None, status: str,
-            conclusion: str | None, title: str, summary: str,
-            reasons: list[str], verdict: tuple[str, str, str] | None = None,
-            human_actor: str | None = None,
-            resolution: str | None = None) -> int:
-    """Create the check run, append the decision log, print one summary
-    line. The exit code carries the plumbing (0 = ran), never the verdict -
-    the check STATE is the signal."""
+def _report(token: str, repo: str, head_sha: str, status: str,
+            conclusion: str | None, title: str, summary: str) -> int:
+    """Create the check run and print one summary line. The exit code
+    carries the plumbing (0 = ran), never the verdict - the check STATE is
+    the signal."""
     try:
         create_check_run(token, repo, head_sha, status, conclusion,
                          title, summary)
@@ -356,13 +375,28 @@ def _report(token: str, repo: str, head_sha: str, event: str | None,
               file=sys.stderr)
         return 1
     state = "pending" if status == "in_progress" else conclusion
-    append_log(log_path, decision_record(
-        repo, pr, head_sha, event, state, reasons,
-        verdict=verdict[0] if verdict else None,
-        verdict_review_url=verdict[2] if verdict else None,
-        human_actor=human_actor, resolution=resolution))
     print(f"{title} [{state}]")
     return 0
+
+
+def _report_gate_error(token: str, repo: str, head_sha: str,
+                       error: Exception) -> int:
+    """Fail CLOSED: the required context must report a NAMED red check,
+    never go absent. The summary names the exception CLASS only - the
+    message can carry untrusted API text."""
+    summary = (f"The gate could not evaluate this head "
+               f"({type(error).__name__}). Re-run the workflow, or clear "
+               f"with a human APPROVED review / /gate-override {head_sha}.")
+    try:
+        create_check_run(token, repo, head_sha, "completed", "failure",
+                         f"{CONTEXT}: gate error", summary)
+    except Exception as e2:
+        print(f"pr-review gate failed ({error}) and reporting the "
+              f"gate-error check also failed: {e2}", file=sys.stderr)
+        return 1
+    print(f"pr-review gate failed: {error} (reported a failing "
+          f"{CONTEXT} check)", file=sys.stderr)
+    return 1
 
 
 def main_gate() -> int:
@@ -379,8 +413,6 @@ def main_gate() -> int:
         return 2
     token = os.environ["GITHUB_TOKEN"]
     head_sha = os.environ.get("HEAD_SHA")
-    event = os.environ.get("EVENT_NAME")
-    log_path = os.environ.get("VEGGIES_REVIEW_LOG", LOG_DEFAULT)
     # Kill switch: report green and leave - no reads, so HEAD_SHA must come
     # from the env.
     if os.environ.get("PR_REVIEW_GATE") == "disabled":
@@ -388,10 +420,10 @@ def main_gate() -> int:
             print("missing env: HEAD_SHA (required when "
                   "PR_REVIEW_GATE=disabled)", file=sys.stderr)
             return 2
-        return _report(token, repo, head_sha, event, log_path, pr,
-                       "completed", "success", f"{CONTEXT}: disabled",
+        return _report(token, repo, head_sha, "completed", "success",
+                       f"{CONTEXT}: disabled",
                        "The gate is disabled by the PR_REVIEW_GATE "
-                       "repository variable.", ["disabled"])
+                       "repository variable.")
     draft_env = os.environ.get("DRAFT", "").lower()
     draft: bool | None = {"true": True, "false": False}.get(draft_env)
     pr_author = os.environ.get("PR_AUTHOR")
@@ -403,34 +435,45 @@ def main_gate() -> int:
                 draft = bool(pr_data.get("draft"))
             pr_author = (pr_author or (pr_data.get("user") or {})
                          .get("login") or "")
-        files = gh_paginated(token, f"/repos/{repo}/pulls/{pr}/files")
+        # Reviews and comments BEFORE files: on a >3000-file diff the files
+        # read overflows, and a sha-bound override comment is the escape -
+        # it must be knowable before the scan is attempted.
         reviews = gh_paginated(token, f"/repos/{repo}/pulls/{pr}/reviews")
         comments = gh_paginated(token, f"/repos/{repo}/issues/{pr}/comments")
-        scope = scope_hits([f.get("filename", "") for f in files])
+        try:
+            files = gh_paginated(token, f"/repos/{repo}/pulls/{pr}/files")
+        except RuntimeError:
+            overrides = _override_acts(comments, head_sha)
+            if overrides:
+                actors = ", ".join(sorted({a for _, a in overrides}))
+                return _report(token, repo, head_sha, "completed",
+                               "success", f"{CONTEXT}: human override",
+                               "The diff is too large to scan (>3000 "
+                               "files); a human took explicit "
+                               "responsibility for this exact head. "
+                               f"Override by: {actors}.")
+            raise
+        # A rename counts on BOTH names: out of scope (previous_filename)
+        # and into scope (filename) both hit the sentinel.
+        paths = []
+        for f in files:
+            paths.append(f.get("filename", ""))
+            if f.get("previous_filename"):
+                paths.append(f["previous_filename"])
+        scope = scope_hits(paths)
         verdict = latest_verdict(reviews, head_sha)
-        act = _clearing_act(reviews, comments, head_sha, pr_author)
-        human_ts = act[0] if act else None
-        human_actor = act[1] if act else None
-        # The PR payload does not carry the head commit date - the 'signal
-        # time' a clearing act must postdate for scope-red (per the ADR: the
-        # human's act must be newer than the thing it clears). Fetched only
-        # when a scope hit makes it load-bearing.
-        head_commit_ts = 0.0
-        if scope:
-            commit = gh_api(token, "GET",
-                            f"/repos/{repo}/commits/{head_sha}")
-            head_commit_ts = _iso_to_epoch(
-                commit["commit"]["committer"]["date"])
-        status, conclusion, title, summary, reasons, resolution = _evaluate(
-            draft, scope, verdict, human_ts, head_commit_ts)
-    except (urllib.error.URLError, RuntimeError, TimeoutError,
-            json.JSONDecodeError, KeyError) as e:
-        print(f"pr-review gate failed: {e}", file=sys.stderr)
-        return 1
-    return _report(token, repo, head_sha, event, log_path, pr,
-                   status, conclusion, title, summary, reasons,
-                   verdict=verdict, human_actor=human_actor,
-                   resolution=resolution)
+        acts = human_acts(reviews, comments, head_sha, pr_author)
+        status, conclusion, title, summary = decide(
+            draft, scope, verdict, acts, head_sha)
+    except Exception as e:
+        if not head_sha:
+            # nothing to report a check against
+            print(f"pr-review gate failed before the head sha was known: "
+                  f"{e}", file=sys.stderr)
+            return 1
+        return _report_gate_error(token, repo, head_sha, e)
+    return _report(token, repo, head_sha, status, conclusion, title,
+                   summary)
 
 
 def main_merge_group() -> int:
@@ -440,11 +483,10 @@ def main_merge_group() -> int:
     if not _require_env(["REPO", "HEAD_SHA", "GITHUB_TOKEN"]):
         return 2
     return _report(os.environ["GITHUB_TOKEN"], os.environ["REPO"],
-                   os.environ["HEAD_SHA"], os.environ.get("EVENT_NAME"),
-                   os.environ.get("VEGGIES_REVIEW_LOG", LOG_DEFAULT), None,
+                   os.environ["HEAD_SHA"],
                    "completed", "success", f"{CONTEXT}: gated at PR head",
                    "Each PR in the group passed the gate at its own head; "
-                   "the group run verifies CI only.", ["merge-group"])
+                   "the group run verifies CI only.")
 
 
 def main(argv: list[str] | None = None) -> int:

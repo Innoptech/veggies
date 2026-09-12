@@ -1,7 +1,9 @@
 """Tests for scripts/pr_review_gate.py - the deterministic core of the
 pr-review-agent required check (issue #103, ADR 0055): declared-scope
-hard-fail plus reviewer-verdict state machine, check-run writer, and the
-fail-open decision log."""
+hard-fail plus reviewer-verdict state machine, check-run writer, and
+fail-closed error reporting. The gate does NOT write the decision log -
+the runner container is ephemeral; scripts/pr_review_verdicts.py harvests
+it (ADR 0055 decision 7, tested in tests/test_pr_review_verdicts.py)."""
 
 import ast
 import importlib.util
@@ -70,14 +72,18 @@ def test_scope_hits_empty():
 # --- latest_verdict: the reviewer agent's marker, latest head-pinned one --
 
 HEAD = "abc123"
+# A realistic full sha for the sha-bound override command (/gate-override
+# names the exact 40-hex head).
+HEAD40 = "0123456789abcdef0123456789abcdef01234567"
 
 
 def _review(body, commit_id=HEAD, association="OWNER",
             submitted_at="2026-09-12T10:00:00Z", url="https://x/review/1",
-            login="reviewer-bot"):
+            login="reviewer-bot", state="COMMENTED", id=1):
     return {"body": body, "commit_id": commit_id,
             "author_association": association, "submitted_at": submitted_at,
-            "html_url": url, "user": {"login": login}, "state": "COMMENTED"}
+            "html_url": url, "user": {"login": login}, "state": state,
+            "id": id}
 
 
 def test_latest_verdict_parses_the_marker_line():
@@ -117,19 +123,55 @@ def test_latest_verdict_requires_a_trusted_association():
         assert v is not None, assoc
 
 
+def test_latest_verdict_ignores_dismissed_reviews():
+    # a dismissed verdict stops counting - the workflow re-triggers on
+    # `dismissed` and recomputes without it. The API uppercases the state;
+    # compare case-insensitively anyway.
+    dismissed = _review("pr-review-verdict: fail", state="DISMISSED",
+                        submitted_at="2026-09-12T11:00:00Z")
+    assert gate.latest_verdict([dismissed], HEAD) is None
+    lower = _review("pr-review-verdict: fail", state="dismissed")
+    assert gate.latest_verdict([lower], HEAD) is None
+    # a live pass posted BEFORE the dismissal survives the dismissed fail
+    live = _review("pr-review-verdict: pass", url="https://x/review/2")
+    v = gate.latest_verdict([dismissed, live], HEAD)
+    assert v == ("pass", "2026-09-12T10:00:00Z", "https://x/review/2")
+
+
 def test_latest_verdict_latest_submission_wins():
     older = _review("pr-review-verdict: fail", url="https://x/review/1",
-                    submitted_at="2026-09-12T10:00:00Z")
+                    submitted_at="2026-09-12T10:00:00Z", id=10)
     newer = _review("pr-review-verdict: pass", url="https://x/review/2",
-                    submitted_at="2026-09-12T11:00:00Z")
+                    submitted_at="2026-09-12T11:00:00Z", id=11)
     v = gate.latest_verdict([newer, older], HEAD)
     assert v == ("pass", "2026-09-12T11:00:00Z", "https://x/review/2")
     # order in the API page must not matter
     assert gate.latest_verdict([older, newer], HEAD) == v
 
 
-# --- clearing_act_ts: the newest human clearing act ----------------------
+def test_latest_verdict_same_timestamp_higher_review_id_wins():
+    # same-second submissions happen (retried posts); the review id breaks
+    # the tie - higher id = newer.
+    first = _review("pr-review-verdict: fail", url="https://x/review/1",
+                    id=101)
+    second = _review("pr-review-verdict: pass", url="https://x/review/2",
+                     id=102)
+    v = ("pass", "2026-09-12T10:00:00Z", "https://x/review/2")
+    assert gate.latest_verdict([first, second], HEAD) == v
+    assert gate.latest_verdict([second, first], HEAD) == v
+    # a missing id counts as 0 and loses any tie
+    no_id = _review("pr-review-verdict: fail", url="https://x/review/3")
+    del no_id["id"]
+    assert gate.latest_verdict([no_id, second], HEAD) == v
+
+
+# --- human_acts: every qualifying human act on THIS head -----------------
 #
+# Two kinds (ADR 0055 decision 5, as amended):
+# - an APPROVED review pinned to head_sha, OWNER/MEMBER, non-author, that
+#   does NOT itself carry a verdict marker (a verdict never clears itself);
+# - an issue comment starting with `/gate-override <full-head-sha>` from an
+#   OWNER/MEMBER - the sha binds the act to this exact head.
 # Expected epochs are built with the datetime constructor, an independent
 # path from the implementation's fromisoformat.
 
@@ -140,10 +182,11 @@ E2 = datetime(2026, 9, 12, 11, 0, 0, tzinfo=timezone.utc).timestamp()
 
 
 def _approval(commit_id=HEAD, association="OWNER", login="bob",
-              submitted_at=T1, state="APPROVED"):
+              submitted_at=T1, state="APPROVED", body=None):
     return {"state": state, "commit_id": commit_id,
             "author_association": association, "submitted_at": submitted_at,
-            "user": {"login": login}, "html_url": "https://x/review/9"}
+            "user": {"login": login}, "html_url": "https://x/review/9",
+            "body": body}
 
 
 def _comment(body, association="MEMBER", login="carol", created_at=T2):
@@ -152,84 +195,100 @@ def _comment(body, association="MEMBER", login="carol", created_at=T2):
             "html_url": "https://x/comment/1"}
 
 
-def test_clearing_act_ts_head_approval_by_owner_counts():
-    ts = gate.clearing_act_ts([_approval()], [], HEAD, "alice")
-    assert ts == E1
+def test_human_acts_head_approval_by_owner_counts():
+    assert gate.human_acts([_approval()], [], HEAD, "alice") == [(E1, "bob")]
 
 
-def test_clearing_act_ts_ignores_approval_on_an_old_sha():
-    assert gate.clearing_act_ts([_approval(commit_id="oldsha")], [],
-                                HEAD, "alice") is None
+def test_human_acts_ignores_approval_on_an_old_sha():
+    assert gate.human_acts([_approval(commit_id="oldsha")], [],
+                           HEAD, "alice") == []
 
 
-def test_clearing_act_ts_ignores_self_approval():
+def test_human_acts_ignores_self_approval():
     # GitHub rejects self-approvals; belt and braces (a forged payload must
     # not clear the gate either).
-    assert gate.clearing_act_ts([_approval(login="alice")], [],
-                                HEAD, "alice") is None
+    assert gate.human_acts([_approval(login="alice")], [], HEAD, "alice") == []
 
 
-def test_clearing_act_ts_ignores_contributor_approval():
-    assert gate.clearing_act_ts([_approval(association="CONTRIBUTOR")], [],
-                                HEAD, "alice") is None
+def test_human_acts_ignores_contributor_approval():
+    assert gate.human_acts([_approval(association="CONTRIBUTOR")], [],
+                           HEAD, "alice") == []
 
 
-def test_clearing_act_ts_ignores_non_approval_states():
+def test_human_acts_ignores_non_approval_states():
     for state in ("COMMENTED", "CHANGES_REQUESTED", "DISMISSED"):
-        assert gate.clearing_act_ts([_approval(state=state)], [],
-                                    HEAD, "alice") is None, state
+        assert gate.human_acts([_approval(state=state)], [],
+                               HEAD, "alice") == [], state
 
 
-def test_clearing_act_ts_override_comment_by_member_counts():
-    ts = gate.clearing_act_ts([], [_comment("/gate-override: I read the diff")],
-                              HEAD, "alice")
-    assert ts == E2
+def test_human_acts_marker_carrying_approval_is_not_a_clearing_act():
+    # a verdict must not clear itself, even when APPROVED-state from an
+    # OWNER/MEMBER non-author.
+    for body in ("pr-review-verdict: pass",
+                 "LGTM.\n\npr-review-verdict: fail\n"):
+        assert gate.human_acts([_approval(body=body)], [],
+                               HEAD, "alice") == [], body
 
 
-def test_clearing_act_ts_comment_must_start_with_the_prefix():
-    for body in ("please /gate-override this",  # leading prose
-                 "lgtm\n/gate-override"):        # mid-comment mention
-        assert gate.clearing_act_ts([], [_comment(body)], HEAD,
-                                    "alice") is None, body
+def test_human_acts_override_comment_naming_this_head_counts():
+    c = _comment(f"/gate-override {HEAD40}")
+    assert gate.human_acts([], [c], HEAD40, "alice") == [(E2, "carol")]
+    # trailing prose after the sha is fine
+    c = _comment(f"/gate-override {HEAD40} - I read the diff")
+    assert gate.human_acts([], [c], HEAD40, "alice") == [(E2, "carol")]
+    # the sha compare is case-insensitive (a pasted sha may be uppercased)
+    c = _comment(f"/gate-override {HEAD40.upper()}")
+    assert gate.human_acts([], [c], HEAD40, "alice") == [(E2, "carol")]
 
 
-def test_clearing_act_ts_override_comment_requires_a_human_association():
-    c = _comment("/gate-override", association="CONTRIBUTOR")
-    assert gate.clearing_act_ts([], [c], HEAD, "alice") is None
+def test_human_acts_override_comment_must_name_this_head():
+    # a comment naming any other sha (or no sha) is not a clearing act -
+    # one genuine override must not pre-clear later heads.
+    other = "f" * 40
+    for body in (f"/gate-override {other}",         # another sha
+                 "/gate-override",                  # no sha
+                 "/gate-override: I read the diff",  # the old unbound form
+                 f"/gate-override {HEAD40[:39]}",   # a short sha
+                 f"please /gate-override {HEAD40}",  # leading prose
+                 f"lgtm\n/gate-override {HEAD40}"):  # mid-comment mention
+        assert gate.human_acts([], [_comment(body)], HEAD40,
+                               "alice") == [], body
 
 
-def test_clearing_act_ts_newest_act_wins():
-    ts = gate.clearing_act_ts([_approval(submitted_at=T1)],
-                              [_comment("/gate-override", created_at=T2)],
-                              HEAD, "alice")
-    assert ts == E2
+def test_human_acts_override_comment_requires_a_human_association():
+    c = _comment(f"/gate-override {HEAD40}", association="CONTRIBUTOR")
+    assert gate.human_acts([], [c], HEAD40, "alice") == []
 
 
-def test_clearing_act_reports_the_newest_actor():
-    """main() logs human_actor: the login behind the NEWEST clearing act."""
-    act = gate._clearing_act([_approval(login="bob", submitted_at=T1)],
-                             [_comment("/gate-override", login="carol",
-                                       created_at=T2)],
-                             HEAD, "alice")
-    assert act == (E2, "carol")
-    act = gate._clearing_act([_approval(login="bob", submitted_at=T2)],
-                             [_comment("/gate-override", login="carol",
-                                       created_at=T1)],
-                             HEAD, "alice")
-    assert act == (E2, "bob")
+def test_human_acts_returns_every_qualifying_act():
+    acts = gate.human_acts(
+        [_approval(commit_id=HEAD40, submitted_at=T1),
+         _approval(commit_id=HEAD40, login="dave", submitted_at=T2)],
+        [_comment(f"/gate-override {HEAD40}", created_at=T2)],
+        HEAD40, "alice")
+    assert acts == [(E1, "bob"), (E2, "dave"), (E2, "carol")]
 
 
 # --- decide: the whole state machine -------------------------------------
+#
+# decide() evaluates BOTH red lanes on every call; a human act only rescues
+# a RED state, never the no-verdict pending one. human_acts is the list of
+# (epoch_ts, actor_login) qualifying acts on THIS head (see above).
 
-REMEDIATION = ("Cleared by a human APPROVED review on the current head, or "
-               "an OWNER/MEMBER comment starting with /gate-override.")
 FAIL_VERDICT = ("fail", T1, "https://x/review/1")
 PASS_VERDICT = ("pass", T1, "https://x/review/1")
 
 
+def _remediation(head=HEAD):
+    # the red summaries' last line: the exact paste-able command (the
+    # summary is the UI).
+    return ("Cleared by a human APPROVED review on the current head, or an "
+            f"OWNER/MEMBER comment: /gate-override {head}")
+
+
 def test_decide_draft_short_circuits_everything():
     status, conclusion, title, summary = gate.decide(
-        True, ["scripts/x.py"], FAIL_VERDICT, None, E1)
+        True, ["scripts/x.py"], FAIL_VERDICT, [(E2, "bob")], HEAD)
     assert (status, conclusion) == ("completed", "success")
     assert title == "pr-review-agent: draft"
     assert summary == "The gate evaluates at the ready-for-review transition."
@@ -238,7 +297,7 @@ def test_decide_draft_short_circuits_everything():
 def test_decide_scope_red_uncleared_fails_closed():
     scope = ["scripts/x.py", "AGENTS.md", "docs/CODEOWNERS"]
     status, conclusion, title, summary = gate.decide(
-        False, scope, PASS_VERDICT, None, E1)
+        False, scope, PASS_VERDICT, [], HEAD)
     assert (status, conclusion) == ("completed", "failure")
     assert title == "pr-review-agent: declared-scope diff"
     # every matched path, one per line (listed as a markdown bullet)
@@ -248,55 +307,88 @@ def test_decide_scope_red_uncleared_fails_closed():
     # the matched roots are named (derived from the paths)
     for root in ("scripts/", "AGENTS.md", "CODEOWNERS"):
         assert root in summary
-    assert summary.endswith(REMEDIATION)
+    assert summary.endswith(_remediation())
 
 
-def test_decide_scope_red_cleared_by_a_human():
+def test_decide_scope_red_cleared_by_a_human_act_on_this_head():
     status, conclusion, title, summary = gate.decide(
-        False, ["scripts/x.py"], None, E2, E1)
+        False, ["scripts/x.py"], None, [(E2, "bob")], HEAD)
     assert (status, conclusion) == ("completed", "success")
     assert title == "pr-review-agent: human override"
     assert "scripts/" in summary  # the matched root is named
-    assert "human" in summary.lower()
+    assert "bob" in summary       # and so is the clearing actor
 
 
-def test_decide_scope_clearing_must_postdate_the_head_commit():
-    # the human's act must be newer than the thing it clears: equal clears
-    # (>=), older does not.
-    scope = ["scripts/x.py"]
-    assert gate.decide(False, scope, None, E1, E1)[1] == "success"
-    assert gate.decide(False, scope, None, E1 - 1, E1)[1] == "failure"
+def test_decide_scope_clearing_needs_no_timestamp_comparison():
+    # head-binding IS the postdating for scope: the human named/approved
+    # this exact head, so even an act OLDER than the head commit clears it
+    # (the forgeable GIT_COMMITTER_DATE signal is gone).
+    assert gate.decide(False, ["scripts/x.py"], None,
+                       [(E1 - 9000, "bob")], HEAD)[1] == "success"
+
+
+def test_decide_scope_cleared_then_a_later_fail_verdict_is_red():
+    # the M2 hole: a human's scope-clearing act must NOT green a reviewer
+    # fail posted AFTER it - both red lanes are evaluated on every call.
+    status, conclusion, title, summary = gate.decide(
+        False, ["scripts/x.py"], ("fail", T2, "https://x/review/2"),
+        [(E1, "bob")], HEAD)
+    assert (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: reviewer verdict: fail"
+    assert "https://x/review/2" in summary
+
+
+def test_decide_both_lanes_red_names_the_first_and_covers_both():
+    status, conclusion, title, summary = gate.decide(
+        False, ["scripts/x.py"], FAIL_VERDICT, [], HEAD)
+    assert (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: declared-scope diff"
+    assert "declared human-review scope" in summary  # the scope reason
+    assert "FAIL verdict" in summary                 # the verdict reason
+    assert "https://x/review/1" in summary
+    assert summary.endswith(_remediation())
 
 
 def test_decide_verdict_fail_uncleared():
     status, conclusion, title, summary = gate.decide(
-        False, [], FAIL_VERDICT, None, E1)
+        False, [], FAIL_VERDICT, [], HEAD)
     assert (status, conclusion) == ("completed", "failure")
     assert title == "pr-review-agent: reviewer verdict: fail"
     assert "https://x/review/1" in summary
-    assert summary.endswith(REMEDIATION)
+    assert summary.endswith(_remediation())
 
 
 def test_decide_verdict_fail_cleared_only_when_newer_than_the_verdict():
-    # E1 is the verdict's own timestamp; the act must postdate it (>=).
-    assert gate.decide(False, [], FAIL_VERDICT, E1, 0.0)[1] == "success"
-    status, conclusion, title, summary = gate.decide(
-        False, [], FAIL_VERDICT, E1 - 1, 0.0)
+    # T1/E1 is the verdict's own timestamp; the act must postdate it (>=).
+    assert gate.decide(False, [], FAIL_VERDICT, [(E1, "bob")],
+                       HEAD)[1] == "success"
+    status, conclusion, title, _ = gate.decide(
+        False, [], FAIL_VERDICT, [(E1 - 1, "bob")], HEAD)
     assert (status, conclusion) == ("completed", "failure")
 
 
 def test_decide_verdict_fail_cleared_reports_the_override():
     status, conclusion, title, summary = gate.decide(
-        False, [], FAIL_VERDICT, E2, E1)
+        False, [], FAIL_VERDICT, [(E2, "carol")], HEAD)
     assert (status, conclusion) == ("completed", "success")
     assert title == "pr-review-agent: human override"
     assert "fail" in summary  # says the human overrode the fail verdict
     assert "https://x/review/1" in summary  # and links the review
+    assert "carol" in summary               # and names the actor
+
+
+def test_decide_cleared_scope_title_wins_over_a_pass_verdict():
+    # a human-cleared scope diff plus a pass verdict: the override is the
+    # more significant fact for the check title.
+    status, conclusion, title, _ = gate.decide(
+        False, ["scripts/x.py"], PASS_VERDICT, [(E2, "bob")], HEAD)
+    assert (status, conclusion) == ("completed", "success")
+    assert title == "pr-review-agent: human override"
 
 
 def test_decide_verdict_pass():
     status, conclusion, title, summary = gate.decide(
-        False, [], PASS_VERDICT, None, E1)
+        False, [], PASS_VERDICT, [], HEAD)
     assert (status, conclusion) == ("completed", "success")
     assert title == "pr-review-agent: reviewer verdict: pass"
     assert "https://x/review/1" in summary
@@ -304,7 +396,7 @@ def test_decide_verdict_pass():
 
 def test_decide_no_verdict_stays_pending():
     status, conclusion, title, summary = gate.decide(
-        False, [], None, None, E1)
+        False, [], None, [], HEAD)
     assert (status, conclusion) == ("in_progress", None)
     assert title == "pr-review-agent: awaiting reviewer verdict"
     assert summary == ("The reviewer posts its verdict as a review carrying "
@@ -314,30 +406,49 @@ def test_decide_no_verdict_stays_pending():
 def test_decide_human_act_does_not_rescue_the_pending_state():
     # a /gate-override or approval clears a RED state, never substitutes
     # for the reviewer agent's verdict.
-    status, conclusion, title, _ = gate.decide(False, [], None, E2, E1)
+    status, conclusion, title, _ = gate.decide(
+        False, [], None, [(E2, "bob")], HEAD)
     assert (status, conclusion) == ("in_progress", None)
     assert title == "pr-review-agent: awaiting reviewer verdict"
 
 
-# --- decision_record + append_log: the ADR 0055 audit trail --------------
+def test_decide_override_posted_early_clears_the_same_head_later():
+    # accepted and now explicit: the override binds a HEAD, not a moment -
+    # posted while the PR was still a draft, it clears the post-ready red
+    # at that same head (the comment named this exact sha).
+    acts = gate.human_acts(
+        [], [_comment(f"/gate-override {HEAD40}", created_at=T1)],
+        HEAD40, "alice")
+    status, conclusion, title, _ = gate.decide(
+        False, ["scripts/x.py"], None, acts, HEAD40)
+    assert (status, conclusion) == ("completed", "success")
+    assert title == "pr-review-agent: human override"
 
-# The log schema, key for key - the workflow task and the contract tests
-# rely on exactly this set.
+
+# --- decision_record + append_log: the ADR 0055 audit-trail schema -------
+#
+# The gate itself never appends (the runner container is ephemeral); the
+# harvester (scripts/pr_review_verdicts.py) is the writer. The schema is
+# pinned here because decision_record/append_log live in the gate module.
+
 LOG_KEYS = {"ts", "repo", "pr", "head_sha", "event", "state", "reasons",
-            "verdict", "verdict_review_url", "human_actor", "resolution"}
+            "verdict", "verdict_review_url", "human_actor", "resolution",
+            "review_id"}
 
 
 def test_decision_record_has_the_exact_schema_keys():
-    rec = gate.decision_record("o/r", 12, HEAD, "pull_request", "success",
+    rec = gate.decision_record("o/r", 12, HEAD, "harvest", "verdict",
                                ["verdict-pass"], verdict="pass",
                                verdict_review_url="https://x/review/1",
-                               human_actor=None, resolution=None, ts=E1)
+                               human_actor=None, resolution=None,
+                               review_id=101, ts=E1)
     assert set(rec) == LOG_KEYS
     assert rec == {"ts": E1, "repo": "o/r", "pr": 12, "head_sha": HEAD,
-                   "event": "pull_request", "state": "success",
+                   "event": "harvest", "state": "verdict",
                    "reasons": ["verdict-pass"], "verdict": "pass",
                    "verdict_review_url": "https://x/review/1",
-                   "human_actor": None, "resolution": None}
+                   "human_actor": None, "resolution": None,
+                   "review_id": 101}
 
 
 def test_decision_record_defaults():
@@ -346,17 +457,19 @@ def test_decision_record_defaults():
     assert set(rec) == LOG_KEYS
     assert rec["verdict"] is None and rec["verdict_review_url"] is None
     assert rec["human_actor"] is None and rec["resolution"] is None
+    assert rec["review_id"] is None
 
 
 def test_append_log_writes_one_parseable_json_line(tmp_path):
     log = tmp_path / "nested" / "dir" / "verdicts.jsonl"  # parent created
-    rec = gate.decision_record("o/r", 12, HEAD, "pull_request", "failure",
-                               ["declared-scope"], ts=E1)
+    rec = gate.decision_record("o/r", 12, HEAD, "harvest", "verdict",
+                               ["verdict-fail"], verdict="fail",
+                               review_id=101, ts=E1)
     gate.append_log(str(log), rec)
     lines = log.read_text().splitlines()
     assert len(lines) == 1
     parsed = json.loads(lines[0])
-    assert set(parsed) == LOG_KEYS and parsed["state"] == "failure"
+    assert set(parsed) == LOG_KEYS and parsed["state"] == "verdict"
     gate.append_log(str(log), rec)  # appends, never truncates
     assert len(log.read_text().splitlines()) == 2
 
@@ -364,9 +477,9 @@ def test_append_log_writes_one_parseable_json_line(tmp_path):
 def test_append_log_fails_open_on_an_unwritable_path(tmp_path, capsys):
     blocker = tmp_path / "afile"
     blocker.write_text("not a dir")
-    rec = gate.decision_record("o/r", 12, HEAD, "pull_request", "success",
-                               ["verdict-pass"], ts=E1)
-    # no raise - logging never blocks the check
+    rec = gate.decision_record("o/r", 12, HEAD, "harvest", "verdict",
+                               ["verdict-pass"], review_id=101, ts=E1)
+    # no raise - logging never blocks the caller
     gate.append_log(str(blocker / "x.jsonl"), rec)
     assert capsys.readouterr().err  # but loudly, on stderr
 
@@ -484,11 +597,16 @@ def test_create_check_run_in_progress_omits_conclusion(monkeypatch):
 BASE_ENV = {"REPO": "o/r", "PR_NUMBER": "12", "GITHUB_TOKEN": "tok",
             "HEAD_SHA": HEAD, "DRAFT": "false", "PR_AUTHOR": "alice",
             "EVENT_NAME": "pull_request"}
-OPTIONAL_ENV = ("PR_REVIEW_GATE", "VEGGIES_REVIEW_LOG")
+GATE_ENV = ("REPO", "PR_NUMBER", "GITHUB_TOKEN", "HEAD_SHA", "DRAFT",
+            "PR_AUTHOR", "EVENT_NAME", "PR_REVIEW_GATE",
+            "VEGGIES_REVIEW_LOG")
 
 
 def _env(monkeypatch, values, tmp_path):
-    for k in OPTIONAL_ENV:
+    """A hermetic gate env (nothing leaks in from the real environment).
+    Returns the decision-log path - every main_* test asserts the gate
+    never writes it (the harvester owns the log)."""
+    for k in GATE_ENV:
         monkeypatch.delenv(k, raising=False)
     for k, v in values.items():
         monkeypatch.setenv(k, v)
@@ -504,15 +622,19 @@ def _no_reads(monkeypatch):
     monkeypatch.setattr(gate, "gh_paginated", boom)
 
 
+def _no_single_fetch(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("HEAD_SHA/DRAFT/PR_AUTHOR are all in env - "
+                             "no single-resource fetch may happen")
+
+    monkeypatch.setattr(gate, "gh_api", boom)
+
+
 def _capture_checks(monkeypatch):
     created = []
     monkeypatch.setattr(gate, "create_check_run",
                         lambda *a: created.append(a) or {"id": 1})
     return created
-
-
-def _read_log(log):
-    return [json.loads(l) for l in log.read_text().splitlines()]
 
 
 def test_main_usage_exit_2(capsys):
@@ -523,7 +645,7 @@ def test_main_usage_exit_2(capsys):
 
 
 def test_main_gate_missing_env_is_exit_2(monkeypatch, capsys):
-    for k in ("REPO", "PR_NUMBER", "GITHUB_TOKEN"):
+    for k in GATE_ENV:
         monkeypatch.delenv(k, raising=False)
     assert gate.main(["gate"]) == 2
     assert "missing env" in capsys.readouterr().err
@@ -532,12 +654,7 @@ def test_main_gate_missing_env_is_exit_2(monkeypatch, capsys):
 def test_main_gate_happy_path_pass_verdict(monkeypatch, tmp_path):
     log = _env(monkeypatch, BASE_ENV, tmp_path)
     created = _capture_checks(monkeypatch)
-
-    def no_single_fetch(*a, **k):
-        raise AssertionError("HEAD_SHA/DRAFT/PR_AUTHOR are all in env, and "
-                             "an unscoped diff never needs the commit fetch")
-
-    monkeypatch.setattr(gate, "gh_api", no_single_fetch)
+    _no_single_fetch(monkeypatch)
 
     def fake_paginated(token, path):
         if "/pulls/12/files" in path:
@@ -554,28 +671,16 @@ def test_main_gate_happy_path_pass_verdict(monkeypatch, tmp_path):
     assert (token, repo, head) == ("tok", "o/r", HEAD)
     assert (status, conclusion) == ("completed", "success")
     assert title == "pr-review-agent: reviewer verdict: pass"
-    (rec,) = _read_log(log)
-    assert set(rec) == LOG_KEYS
-    assert rec["state"] == "success" and rec["reasons"] == ["verdict-pass"]
-    assert rec["verdict"] == "pass"
-    assert rec["verdict_review_url"] == "https://x/review/1"
-    assert rec["pr"] == 12 and rec["head_sha"] == HEAD
-    assert rec["event"] == "pull_request" and rec["resolution"] is None
+    assert not log.exists()  # the gate NEVER writes the decision log
 
 
-def test_main_gate_scope_red_fetches_the_head_commit_and_fails(
-        monkeypatch, tmp_path):
+def test_main_gate_scope_red_needs_no_head_commit_fetch(monkeypatch,
+                                                        tmp_path):
+    # the committer-date postdating is gone (it was forgeable via
+    # GIT_COMMITTER_DATE) - scope-red never fetches /commits/{sha}.
     log = _env(monkeypatch, BASE_ENV, tmp_path)
     created = _capture_checks(monkeypatch)
-    fetched = []
-
-    def fake_api(token, method, path, body=None):
-        fetched.append(path)
-        if path == f"/repos/o/r/commits/{HEAD}":
-            return {"commit": {"committer": {"date": T1}}}
-        raise AssertionError(f"unexpected path {path}")
-
-    monkeypatch.setattr(gate, "gh_api", fake_api)
+    _no_single_fetch(monkeypatch)
 
     def fake_paginated(token, path):
         if "/pulls/12/files" in path:
@@ -587,13 +692,60 @@ def test_main_gate_scope_red_fetches_the_head_commit_and_fails(
     monkeypatch.setattr(gate, "gh_paginated", fake_paginated)
     # a legit failure verdict is exit 0 - the check STATE carries the signal
     assert gate.main(["gate"]) == 0
-    assert f"/repos/o/r/commits/{HEAD}" in fetched  # the scope signal time
     (_, _, _, status, conclusion, title, _), = created
     assert (status, conclusion) == ("completed", "failure")
     assert title == "pr-review-agent: declared-scope diff"
-    (rec,) = _read_log(log)
-    assert rec["state"] == "failure" and rec["reasons"] == ["declared-scope"]
-    assert rec["verdict"] is None and rec["human_actor"] is None
+    assert not log.exists()
+
+
+def test_main_gate_scope_scan_sees_a_rename_out_of_scope(monkeypatch,
+                                                         tmp_path):
+    # scripts/x.py -> docs/x.py: the OLD name was in scope; the files API
+    # carries it as previous_filename and the scan must see both names.
+    _env(monkeypatch, BASE_ENV, tmp_path)
+    created = _capture_checks(monkeypatch)
+    _no_single_fetch(monkeypatch)
+
+    def fake_paginated(token, path):
+        if "/pulls/12/files" in path:
+            return [{"filename": "docs/x.py",
+                     "previous_filename": "scripts/x.py"}]
+        if "/pulls/12/reviews" in path:
+            return [_review("pr-review-verdict: pass")]
+        if "/issues/12/comments" in path:
+            return []
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(gate, "gh_paginated", fake_paginated)
+    assert gate.main(["gate"]) == 0
+    (_, _, _, status, conclusion, title, summary), = created
+    assert (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: declared-scope diff"
+    assert "scripts/x.py" in summary
+
+
+def test_main_gate_scope_scan_sees_a_rename_into_scope(monkeypatch,
+                                                       tmp_path):
+    # docs/x.py -> scripts/x.py: the new name alone hits.
+    _env(monkeypatch, BASE_ENV, tmp_path)
+    created = _capture_checks(monkeypatch)
+    _no_single_fetch(monkeypatch)
+
+    def fake_paginated(token, path):
+        if "/pulls/12/files" in path:
+            return [{"filename": "scripts/x.py",
+                     "previous_filename": "docs/x.py"}]
+        if "/pulls/12/reviews" in path:
+            return [_review("pr-review-verdict: pass")]
+        if "/issues/12/comments" in path:
+            return []
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(gate, "gh_paginated", fake_paginated)
+    assert gate.main(["gate"]) == 0
+    (_, _, _, status, conclusion, title, _), = created
+    assert (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: declared-scope diff"
 
 
 def test_main_gate_disabled_short_circuits(monkeypatch, tmp_path):
@@ -607,28 +759,110 @@ def test_main_gate_disabled_short_circuits(monkeypatch, tmp_path):
     assert title == "pr-review-agent: disabled"
     assert summary == ("The gate is disabled by the PR_REVIEW_GATE "
                        "repository variable.")
-    (rec,) = _read_log(log)
-    assert rec["state"] == "success" and rec["reasons"] == ["disabled"]
+    assert not log.exists()
 
 
-def test_main_gate_api_failure_is_exit_1(monkeypatch, tmp_path, capsys):
+def test_main_gate_api_failure_reports_a_red_check_and_exits_1(
+        monkeypatch, tmp_path, capsys):
+    # fail CLOSED means a red check, not an absent check: the required
+    # context must always report.
     _env(monkeypatch, BASE_ENV, tmp_path)
-    _capture_checks(monkeypatch)
+    created = _capture_checks(monkeypatch)
 
     def boom(token, path):
         raise gate.urllib.error.URLError("api down")
 
     monkeypatch.setattr(gate, "gh_paginated", boom)
+    _no_single_fetch(monkeypatch)
     assert gate.main(["gate"]) == 1
+    (_, _, head, status, conclusion, title, summary), = created
+    assert head == HEAD and (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: gate error"
+    assert "URLError" in summary      # the exception CLASS is named...
+    assert "api down" not in summary  # ...never the message (untrusted text)
+    assert f"/gate-override {HEAD}" in summary  # the escape is spelled out
+    assert "api down" in capsys.readouterr().err  # full error on stderr
+
+
+def test_main_gate_failure_before_the_head_sha_is_known_reports_nothing(
+        monkeypatch, tmp_path, capsys):
+    # no head sha yet -> nothing to report a check against -> exit 1,
+    # stderr only (issue_comment events resolve the head from the PR).
+    env = {"REPO": "o/r", "PR_NUMBER": "12", "GITHUB_TOKEN": "tok",
+           "EVENT_NAME": "issue_comment"}
+    _env(monkeypatch, env, tmp_path)
+    created = _capture_checks(monkeypatch)
+
+    def boom(*a, **k):
+        raise gate.urllib.error.URLError("api down")
+
+    monkeypatch.setattr(gate, "gh_api", boom)
+    monkeypatch.setattr(gate, "gh_paginated", boom)
+    assert gate.main(["gate"]) == 1
+    assert created == []
     assert "api down" in capsys.readouterr().err
+
+
+def _overflow_fakes(monkeypatch, reviews, comments):
+    """The files read overflows (>3000-file diff); reviews/comments were
+    fetched FIRST so a sha-bound override is knowable."""
+    def fake_paginated(token, path):
+        if "/pulls/12/reviews" in path:
+            return reviews
+        if "/issues/12/comments" in path:
+            return comments
+        if "/pulls/12/files" in path:
+            raise RuntimeError(f"pagination overflow: {path}")
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(gate, "gh_paginated", fake_paginated)
+    _no_single_fetch(monkeypatch)
+
+
+def test_main_gate_overflow_with_a_sha_bound_override_clears(
+        monkeypatch, tmp_path):
+    _env(monkeypatch, {**BASE_ENV, "HEAD_SHA": HEAD40}, tmp_path)
+    created = _capture_checks(monkeypatch)
+    _overflow_fakes(monkeypatch, [], [_comment(f"/gate-override {HEAD40}")])
+    assert gate.main(["gate"]) == 0
+    (_, _, head, status, conclusion, title, summary), = created
+    assert head == HEAD40
+    assert (status, conclusion) == ("completed", "success")
+    assert title == "pr-review-agent: human override"
+    assert ">3000 files" in summary  # the diff was too large to scan
+    assert "carol" in summary        # the human took responsibility
+
+
+def test_main_gate_overflow_without_an_override_fails_closed(
+        monkeypatch, tmp_path, capsys):
+    _env(monkeypatch, {**BASE_ENV, "HEAD_SHA": HEAD40}, tmp_path)
+    created = _capture_checks(monkeypatch)
+    _overflow_fakes(monkeypatch, [], [])
+    assert gate.main(["gate"]) == 1
+    (_, _, _, status, conclusion, title, summary), = created
+    assert (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: gate error"
+    assert "RuntimeError" in summary  # the overflow's exception class
+    assert "overflow" in capsys.readouterr().err
+
+
+def test_main_gate_overflow_is_not_cleared_by_an_approval_alone(
+        monkeypatch, tmp_path):
+    # only the explicit sha-bound override comment rescues an unscannable
+    # diff - typing THIS head's sha is the deliberate act.
+    _env(monkeypatch, {**BASE_ENV, "HEAD_SHA": HEAD40}, tmp_path)
+    created = _capture_checks(monkeypatch)
+    _overflow_fakes(monkeypatch, [_approval(commit_id=HEAD40)], [])
+    assert gate.main(["gate"]) == 1
+    (_, _, _, status, conclusion, title, _), = created
+    assert (status, conclusion) == ("completed", "failure")
+    assert title == "pr-review-agent: gate error"
 
 
 def test_main_merge_group_mode(monkeypatch, tmp_path):
     env = {"REPO": "o/r", "HEAD_SHA": HEAD, "GITHUB_TOKEN": "tok",
            "EVENT_NAME": "merge_group"}
     log = _env(monkeypatch, env, tmp_path)
-    for k in ("PR_NUMBER", "DRAFT", "PR_AUTHOR"):
-        monkeypatch.delenv(k, raising=False)
     created = _capture_checks(monkeypatch)
     _no_reads(monkeypatch)
     assert gate.main(["merge-group"]) == 0
@@ -637,14 +871,11 @@ def test_main_merge_group_mode(monkeypatch, tmp_path):
     assert title == "pr-review-agent: gated at PR head"
     assert summary == ("Each PR in the group passed the gate at its own "
                        "head; the group run verifies CI only.")
-    (rec,) = _read_log(log)
-    assert rec["state"] == "success" and rec["reasons"] == ["merge-group"]
-    assert rec["pr"] is None and rec["event"] == "merge_group"
+    assert not log.exists()
 
 
 def test_main_merge_group_requires_head_sha(monkeypatch, tmp_path, capsys):
     _env(monkeypatch, {"REPO": "o/r", "GITHUB_TOKEN": "tok"}, tmp_path)
-    monkeypatch.delenv("HEAD_SHA", raising=False)
     assert gate.main(["merge-group"]) == 2
     assert "missing env" in capsys.readouterr().err
 
@@ -659,8 +890,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/pr-review-gate.yml"
 WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 GATE_JOB = WORKFLOW["jobs"]["gate"]
-BASE_REF = ("${{ github.event.pull_request.base.sha || "
-            "github.event.repository.default_branch }}")
+DEFAULT_REF = "${{ github.event.repository.default_branch }}"
 
 
 def test_workflow_triggers_are_exactly_the_four_required():
@@ -698,15 +928,24 @@ def test_workflow_permissions_are_minimal_and_check_writing():
     assert set(perms) == {"checks", "contents", "pull-requests", "issues"}
 
 
-def test_every_checkout_pins_the_base_sha_never_the_head():
+def test_every_checkout_pins_the_default_branch_never_a_pr_ref():
+    # The gate script must NEVER run PR-influenced code. base.sha is the
+    # tip of whatever branch a PR targets - attacker-controlled for PRs to
+    # unprotected branches (the ruleset covers main only) - and head refs
+    # are the PR author's own tree. The default branch is the only trusted
+    # ref, for every event.
     checkouts = [s for job in WORKFLOW["jobs"].values()
                  for s in job.get("steps", [])
                  if s.get("uses", "").startswith("actions/checkout@")]
     assert checkouts, "the workflow must check out the repo"
     for step in checkouts:
-        ref = step.get("with", {}).get("ref", "")
-        assert ref == BASE_REF
-        assert "head" not in ref  # never a PR-influenced ref
+        ref = str(step.get("with", {}).get("ref", ""))
+        assert ref == DEFAULT_REF
+        for banned in ("pull_request.base.sha", "pull_request.head.sha",
+                       "merge_group.head_sha"):
+            assert banned not in ref
+    # the job if/ref carry the safety - never a trigger filter
+    assert "branches:" not in WORKFLOW_PATH.read_text()
 
 
 def test_run_step_dispatches_merge_group_iff_event_is_merge_group():
@@ -736,19 +975,25 @@ def test_concurrency_serializes_per_subject_without_cancelling():
     assert conc["cancel-in-progress"] is False
 
 
-def test_issue_comment_if_requires_pr_override_prefix_and_trust():
+def test_job_if_narrows_issue_comment_and_pull_request_review_events():
     cond = GATE_JOB["if"]
-    # all other events always run; only issue_comment is narrowed
+    # other events always run; only issue_comment / pull_request_review are
+    # narrowed (their payloads carry untrusted authors)
     assert "github.event_name != 'issue_comment'" in cond
+    assert "github.event_name != 'pull_request_review'" in cond
+    # issue_comment: only a PR comment starting with /gate-override from an
+    # OWNER/MEMBER reaches the script (which re-verifies everything itself)
     assert "github.event.issue.pull_request" in cond
     assert "startsWith(github.event.comment.body, '/gate-override')" in cond
     assert '["OWNER","MEMBER"]' in cond
     assert "github.event.comment.author_association" in cond
+    # pull_request_review: untrusted reviews can't force a self-hosted
+    # runner slot (they never change the decision anyway)
+    assert "github.event.review.author_association" in cond
+    assert '["OWNER","MEMBER","COLLABORATOR"]' in cond
 
 
 def test_runs_on_the_self_hosted_veggies_pool():
-    # the self-hosted runner is what lets the decision log reach the stack
-    # state dir (the script fails open if it cannot)
     assert GATE_JOB["runs-on"] == ["self-hosted", "linux", "x64", "veggies"]
 
 

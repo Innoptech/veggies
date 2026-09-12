@@ -13,10 +13,11 @@ name: pr-review-gate
 # required context would be satisfied by job completion regardless of the
 # verdict the script computed (see the warning above the job).
 #
-# checkout pins the BASE sha: on pull_request_target/pull_request_review
-# events GITHUB_SHA resolves to the PR (merge) ref - PR-controlled code.
-# The gate script must NEVER execute PR-authored code, so PR events check
-# out the base sha and everything else the default branch.
+# checkout pins the DEFAULT BRANCH for every event: on
+# pull_request_target/pull_request_review events GITHUB_SHA resolves to
+# the PR (merge) ref, and base.sha is the tip of whatever branch the PR
+# targets - both PR-influenced. The gate script must NEVER execute
+# PR-authored code; the default branch is the only trusted ref.
 
 on:
   pull_request_target:
@@ -39,18 +40,23 @@ jobs:
   # context would report success on mere job completion, silently bypassing
   # the gate's verdict. The context belongs to scripts/pr_review_gate.py.
   gate:
-    # Fast no-op for ordinary comments: only a PR comment that STARTS with
-    # /gate-override from an OWNER/MEMBER reaches the script (which
-    # re-verifies everything itself). `/gate-override` never collides with
-    # agent-trigger.yml - that workflow's comment gate is issues-only.
+    # Fast no-op for ordinary comments and untrusted reviews: only a PR
+    # comment that STARTS with /gate-override from an OWNER/MEMBER, or a
+    # review from an OWNER/MEMBER/COLLABORATOR, reaches the script (which
+    # re-verifies everything itself). Untrusted reviews never change the
+    # decision, so they must not burn a self-hosted runner slot either.
+    # `/gate-override` never collides with agent-trigger.yml - that
+    # workflow's comment gate is issues-only.
     if: >-
-      github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request &&
+      (github.event_name != 'issue_comment' && github.event_name != 'pull_request_review') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/gate-override') &&
-        contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))
-    # Same pool as agent-trigger: the self-hosted runner is what lets the
-    # decision log reach the stack state dir (the script fails open if it
-    # cannot).
+        contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association))
+    # Same pool as agent-trigger. NOT for the decision log: the runner
+    # container is ephemeral and mounts only _work, so the log is
+    # harvested host-side by scripts/pr_review_verdicts.py (ADR 0055).
     runs-on: [self-hosted, linux, x64, veggies]
     concurrency:
       # cancel-in-progress: false - every run recomputes live head-scoped
@@ -61,13 +67,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # pull_request_review's GITHUB_SHA is the PR merge ref
-          # (PR-controlled); the gate script must NEVER run PR-authored
-          # code - pin the base sha on PR events, the default branch
-          # elsewhere. Do NOT use github.event.merge_group.head_sha here:
-          # the group ref is a PR-influenced tree, and the merge-group arm
-          # only creates a fixed check.
-          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          # The gate script must NEVER run PR-influenced code. base.sha is the
+          # tip of whatever branch a PR targets - attacker-controlled for PRs
+          # to unprotected branches (verified: the ruleset covers main only).
+          # The default branch is the only trusted ref, for every event.
+          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.14"
