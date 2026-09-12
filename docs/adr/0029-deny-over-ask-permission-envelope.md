@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (amended by 0031)
 date: 2026-09-09
 ---
 

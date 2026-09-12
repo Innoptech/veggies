@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight)
 date: 2026-09-11
 ---
 
