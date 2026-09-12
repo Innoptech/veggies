@@ -36,17 +36,29 @@ this failure mode.
 Option A. The allowlist is unchanged - there is no build-time egress
 lane. On a remote build/pull failure the CLI reads
 `podman logs --since <window> squid` as the `egress-proxy` user over
-ssh+sudo, partitions the `TCP_DENIED/403` lines by client (loopback =
-this build's path; anything else = pod/runtime traffic sharing the
-host-wide log), and raises a legible error naming the image, every
-loopback-denied domain in the window, a paste-ready
-`egress_allowlist_extra` YAML block, `mask converge`, the
+ssh+sudo, collects every `TCP_DENIED` host in the build's time window,
+and raises a legible error naming the image, every denied domain, a
+paste-ready `egress_allowlist_extra` YAML block, `mask converge`, the
 build-elsewhere-and-pull alternative (ghcr.io is already allowlisted),
 and the runbook pointer. The original build error is chained, never
 replaced. When the window shows no denials (or the log is unreadable),
-the original error is re-raised with a hint covering proxy-bypassing
-tools, which hit the per-UID nftables drop instead
-(`journalctl -k -g infra-egress-deny`).
+the original error is re-raised with a conditional hint: if the failing
+step was a network fetch, a proxy-bypassing tool hit the per-UID
+nftables drop (`journalctl -k -g infra-egress-deny`); otherwise the
+streamed build error is the cause to read.
+
+The window is the ONLY scoping - client IP is not an attribution
+signal. The egress role carries the verified fact (2026-09-08) that
+pasta source-NATs host-to-published-port connections to the host's
+PUBLIC IP: host-side proxy users (`podman build` named explicitly)
+appear as the public address, sharing a class with other host traffic.
+An earlier draft of this diagnostic partitioned denials by client
+(loopback = build) and was falsified by that note in review - the same
+"host source-IP is not a trustworthy build marker" argument that kills
+option B. The message therefore lists all in-window denials with a
+standing caveat: the proxy log is host-wide, the window may include
+parallel stack or runner traffic, review each domain before
+allowlisting it.
 
 Why B fails even though squid can express it: squid ACLs can scope by
 source IP, and build traffic is even distinguishable there (loopback vs
@@ -84,11 +96,11 @@ today, before any overlay arrives - ghcr.io is allowlisted, an overlay's
   (ADR 0014's recorded assumption); no new privilege is granted.
 - Accepted caveat - log-window attribution: the substrate log is
   host-wide, so parallel builds and runtime traffic can coincide in one
-  window. The client partition plus the "during this build's window"
-  wording is the honesty mechanism, and a named denial is a review
-  prompt, not a rubber stamp: storage.googleapis.com stays off the base
-  list on purpose (it fronts all of GCS; pinned by test) no matter how
-  often a build asks for it.
+  window. The "during this build's window" wording plus the standing
+  host-wide caveat is the honesty mechanism, and a named denial is a
+  review prompt, not a rubber stamp: storage.googleapis.com stays off
+  the base list on purpose (it fronts all of GCS; pinned by test) no
+  matter how often a build asks for it.
 - `egress_allowlist_extra` is host-wide and permanent once converged -
   it serves every stack, runner job, and host build. For exotic or
   one-shot toolchains, prefer building the image in CI and pulling it
