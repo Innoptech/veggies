@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0053. Generate the ADR index; the frontmatter status line is living metadata
+# 0053. Generate the ADR index; status and title are living metadata
 
 ## Context and problem statement
 
@@ -37,7 +37,9 @@ free number - already observed in 0051's mid-flight renumbering.
 Chosen: (a). `scripts/adr_index.py` (stdlib-only, ADR 0047) renders the
 table between `adr-index` markers; a `language: system` pre-commit hook
 regenerates it and fails on drift; a pytest byte-compare mirrors
-`test_render_matches_golden`. Duplicate numbers, bad filenames,
+`test_render_matches_golden`. (The hook runs everywhere pre-commit does,
+in-pod included; the byte-compare runs where pytest runs - the focused
+verify gate and CI.) Duplicate numbers, bad filenames,
 missing/invalid frontmatter, unknown statuses, and H1/filename mismatches
 are hard validator errors.
 
@@ -54,13 +56,15 @@ can both claim the next number; the second one's rebase fails the
 validator; fix = rename one file, re-run the script. No allocation
 service - that is perpetual machinery to solve a formatting problem.
 
-**The `status:` frontmatter line is living metadata, not decision text**:
-decision text stays immutable (AGENTS.md rule 5), but a PR that supersedes
-or amends an ADR updates that ADR's `status:` line in the same PR - MADR's
-own lifecycle (`superseded by ADR-XXXX` is template vocabulary). This PR
-synced 14 stale status lines and two pre-rename H1s (0013/0014, renamed at
-0015) under that rule; the 0004/0009 rows dropped (records never landed;
-follow-up #92).
+**The `status:` frontmatter line and the H1 title are living metadata, not
+decision text**: decision text stays immutable (AGENTS.md rule 5), but a
+PR that supersedes or amends an ADR updates that ADR's `status:` line in
+the same PR - MADR's own lifecycle (`superseded by ADR-XXXX` is template
+vocabulary). The H1 is the index's title source - this PR corrected the
+pre-rename `garden` titles of 0013/0014 (the rename record is 0015). This
+PR synced 15 stale status lines (0001 included - this ADR amends its
+blanket "never edit" with the metadata exception); the 0004/0009 rows
+dropped (records never landed; follow-up #92).
 
 ## Consequences
 

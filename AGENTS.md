@@ -30,9 +30,9 @@ reviews PRs; agents implement. These rules are not negotiable:
    ADR - one new file; the index table is generated from the ADR files by
    `scripts/adr_index.py` (the pre-commit hook re-renders it; never
    hand-edit the table, and stage the regenerated README as part of your
-   diff). Decision text is immutable; the `status:` frontmatter line is
-   living metadata (ADR 0053): a PR that supersedes or amends an ADR
-   updates that ADR's `status:` line in the same PR. Keep the
+   diff). Decision text is immutable; the `status:` frontmatter line and the
+   H1 title are living metadata (ADR 0053): a PR that supersedes or amends
+   an ADR updates that ADR's `status:` line in the same PR. Keep the
    hand-maintained deviation ledger in `docs/adr/README.md` in sync.
 6. **Placeholders**: `TODO(you)` = human supplies the value; never invent one.
    `TODO(verify)` = uncertain upstream detail; check docs before relying on it,
