@@ -2,7 +2,8 @@
 
 An opt-in sidecar (`supervision: supervisor` in veggies.yml) running the
 ADR 0028 critic loop inside the pod: poll the harness API on pod loopback,
-judge every finish of a KICKED session (`#N:` titles, ADR 0034) with a
+judge every finish of a KICKED session (`#N: ...` and `PR#N: ...` titles,
+ADR 0034/0054) with a
 different model via the in-pod router, post a refinement when below
 threshold. The payload ships as stack-config files (the tested pure logic
 from cli/supervisor.py + the daemon from deploy/supervisor/daemon.py), so

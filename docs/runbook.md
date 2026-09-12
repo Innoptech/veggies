@@ -377,7 +377,9 @@ veggies costs veggie --pr 16             # PR -> agent/issue-M via gh, then --is
   supervisor re-runs and re-kicks as separate session rows with
   per-title subtotals - plus a per-model breakdown.
 - `--pr N` resolves `agent/issue-M` via operator-side `gh pr view`
-  (needs gh auth), then behaves as `--issue M`.
+  (needs gh auth), then behaves as `--issue M` - authoring spend only;
+  review spend rolls up under the separate `PR#N:` row (ADR 0054's
+  deliberate split).
 - Attribution rides the title conventions (`#N:`, `D#N`, `PR#N:` - ADR
   0034/0038/0041/0054); anything off-convention lands in the
   always-printed `(unattributed)` bucket.
@@ -491,7 +493,7 @@ re-comment `/elaborate` to re-run. Personas register at stack boot (ADR
 
 **PR-review kicks (ADR 0054).** A same-repo `agent/issue-*` PR flipping
 `ready_for_review` - or a trusted comment starting with `/review` on any
-PR - kicks one comment-only review session titled `PR#N: <title>`: the
+same-repo PR - kicks one comment-only review session titled `PR#N: <title>`: the
 read-only `pr-reviewer` persona (a third model) audits the final diff
 against the issue's acceptance criteria and the posted plan, and the
 session posts exactly one `gh pr review --comment` brief - risk rank on
@@ -501,7 +503,8 @@ first line also stamps the audited head sha - compare it to the PR's
 current head before trusting the rank; a stale stamp means the PR moved
 since the audit. The review-guard skips closed/merged PRs (the audit
 would cover dead work) and drafts - mark ready first; `/review` on a
-draft skips the same way. Re-review on demand: comment `/review` again -
+draft skips the same way. Fork PRs are refused by the review-guard:
+their trees are untrusted, and they get human review only. Re-review on demand: comment `/review` again -
 it checks whether earlier flags were addressed, and a double-post guard
 (a prior bot review stamped with the current head sha) stops a redundant
 post. A HIGH-risk brief's rework path is the incantation above:
@@ -510,8 +513,9 @@ ready as handled, so un-readying re-opens the issue path); the reworked
 PR's next ready transition kicks a fresh review. Reviewer sessions are
 judged by the 0036 supervisor like every kicked session, and their spend
 rolls up under the PR in `veggies costs` (separate from the authoring
-`#M:` issue row; `veggies costs veggie --session "PR#N"` is the
-review-only number). Personas register at stack boot (ADR 0019), same
+`#M:` issue row; `veggies costs veggie --session "PR#N:"` is the
+review-only number - the session filter is a substring match, and the
+trailing colon keeps PR#1 from matching PR#12). Personas register at stack boot (ADR 0019), same
 posture as `/elaborate`: run `veggies up veggie` after the merge before
 the reviewer dispatches.
 

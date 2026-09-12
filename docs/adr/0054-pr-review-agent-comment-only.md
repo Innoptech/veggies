@@ -57,7 +57,11 @@ merge-authority half: [0007](0007-github-policy-as-code.md)'s invariant
 2. **Kick mode** (`scripts/stack_kick.py` `main_pr()`, routed on
    `PR_NUMBER`): the review-guard `review_reason()` skips closed/merged
    PRs (the review would audit dead work) and drafts (deliberately
-   unfinished); like every guard here it degrades to proceeding on API
+   unfinished), and refuses fork PRs - the job-if's same-repo check
+   covers the auto trigger, but a trusted /review comment can name a
+   fork PR, and fetching an external tree into a pod holding the write
+   PAT is refused outright; such PRs get human review only. Like every
+   guard here it degrades to proceeding on API
    failure. Then the in-flight guard (`PR#N: ` title prefix), the
    no-ask gate, and a session titled `PR#N: <title>` (0034's shape). No
    done-guard: re-readying after rework and re-commenting `/review` are
@@ -121,7 +125,10 @@ Rejected / deferred:
   risk-ranked audit object over the exact commits CI ran on; the
   operator's review collapses from a cold adversarial read to
   confirming a brief. `/review` extends the audit to human PRs on
-  demand.
+  demand, and keeps the house's startsWith command semantics - a
+  `/reviewer...` false positive kicks one bounded, non-looping review
+  session (the in-flight guard and the hygiene line bound it, same as
+  0040's posture).
 - Positive: the 0042 plan comment gains a second consumer - the audit
   audits the session against its own posted plan.
 - Accepted risk, named (the credential honesty paragraph): GitHub has
@@ -132,10 +139,12 @@ Rejected / deferred:
   credentials" is therefore delivered as a structurally read-only
   *analyst* (no bash, no gh) plus a session whose single write is the
   review call; the boundary for the session itself is prompt-level. The
-  residual is bound to #56 (GitHub App per-purpose installation
-  tokens). If the letter of the criterion is ever required, the honest
-  shape is a separate reviewer stack holding a review-scoped PAT - its
-  own issue and ADR.
+   residual is bound to #56 (GitHub App per-purpose installation
+   tokens). If the letter of the criterion is ever required, the honest
+   shape is a separate reviewer stack holding a review-scoped PAT - its
+   own issue and ADR. The same ambient-PAT reality is why fork PRs are
+   refused rather than sandboxed - there is no per-session credential
+   to strip.
 - Accepted risk, named: different-model is best-effort at the router -
   the litellm fallback chain (`glm-5: [kimi-k3]`) silently degrades the
   reviewer to the author's own model under a glm-5 outage (fail-open is
