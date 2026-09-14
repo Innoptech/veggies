@@ -43,6 +43,10 @@ from capabilities import (
 # output shape on a bump too.
 IMAGE_OPENCODE_BASE = "localhost/veggies-opencode-base:1.18.27"
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
+# The pinned harness base every per-repo overlay must FROM (issue #69,
+# ADR 0060): the SLIM base, never this repo's derived toolchain image -
+# overlays join ADR 0057's pin chain at the same link ours uses.
+HARNESS_BASE_IMAGE = IMAGE_OPENCODE_BASE
 _OPENCODE_CONTAINER_PORT = 4096
 
 
