@@ -966,6 +966,31 @@ def test_overlay_image_name():
                     + hashlib.sha256(text.encode()).hexdigest()[:16])
 
 
+def test_resolve_harness_overlay_absent_key_returns_none(tmp_path):
+    assert veggies.resolve_harness_overlay(None, str(tmp_path), {}) is None
+
+
+def test_resolve_harness_overlay_reads_validates_and_names(tmp_path):
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nRUN true\n"
+    (tmp_path / "harness.Containerfile").write_text(text)
+    pair = veggies.resolve_harness_overlay(
+        None, str(tmp_path), {"harness_containerfile": "harness.Containerfile"})
+    assert pair == (veggies_stack.overlay_image_name(text), text)
+
+
+def test_resolve_harness_overlay_missing_file_raises(tmp_path):
+    with pytest.raises(ValueError, match="harness_containerfile"):
+        veggies.resolve_harness_overlay(
+            None, str(tmp_path), {"harness_containerfile": "nope.Containerfile"})
+
+
+def test_resolve_harness_overlay_invalid_containerfile_raises(tmp_path):
+    (tmp_path / "bad.Containerfile").write_text("FROM alpine:3\n")
+    with pytest.raises(ValueError):
+        veggies.resolve_harness_overlay(
+            None, str(tmp_path), {"harness_containerfile": "bad.Containerfile"})
+
+
 def test_stack_components_includes_mcps():
     spec = veggies_stack.StackSpec(name="t", repo="/tmp/x", mcps=("toolbox",))
     names = [c.name for c in veggies_stack.stack_components(spec)]
@@ -1599,15 +1624,16 @@ def test_prepare_uses_local_repo_config_and_streams(monkeypatch, tmp_path,
     (tmp_path / "veggies.yml").write_text("mcps: [toolbox]\n")
     calls = []
 
-    def fake_ensure(host, repo, spec, verbose=False):
-        calls.append((host, verbose,
+    def fake_ensure(host, repo, spec, verbose=False, overlay=None):
+        calls.append((host, verbose, overlay,
                           [c.name for c in veggies.stack_components(spec)]))
 
     monkeypatch.setattr(veggies, "ensure_images", fake_ensure)
     args = argparse.Namespace(repo=str(tmp_path), host="veggies", name=None)
     assert veggies.cmd_prepare(args) == 0
-    host, verbose, comps = calls[0]
+    host, verbose, overlay, comps = calls[0]
     assert host == "veggies" and verbose is True
+    assert overlay is None  # no harness_containerfile in this veggies.yml
     assert "toolbox" in comps  # mcps from the local veggies.yml honored
     assert comps[:3] == ["opencode", "litellm", "squid"]
     out = capsys.readouterr().out
@@ -1666,6 +1692,62 @@ def test_ensure_images_builds_base_before_overlay(monkeypatch, spec):
     tags = [b[b.index("-t") + 1] for b in builds]
     assert tags[:2] == [veggies_stack.IMAGE_OPENCODE_BASE,
                         veggies_stack.IMAGE_OPENCODE]
+
+
+def test_ensure_images_builds_overlay_after_components_and_unconditionally(
+        monkeypatch, spec):
+    # ADR 0060: the overlay tag names CONTENT only, so the overlay build
+    # runs AFTER the component builds (its FROM base must exist) and
+    # UNCONDITIONALLY - an existence guard would let a base flip leave a
+    # stale image under the same tag forever. With an overlay the harness
+    # component's DERIVED image is skipped; the base still builds (the
+    # overlay's FROM resolves to it).
+    calls = []
+    writes = []
+
+    class R:
+        returncode = 0  # "image exists" says YES - the overlay builds anyway
+        stdout = ""
+
+    monkeypatch.setattr(veggies, "run",
+                        lambda cmd, **kw: (calls.append(cmd), R())[1])
+    monkeypatch.setattr(veggies, "host_write",
+                        lambda host, path, content, mode=0o600:
+                        writes.append(path))
+    monkeypatch.setattr(veggies, "_REMOTE_UID", {})
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nRUN true\n"
+    image = veggies_stack.overlay_image_name(text)
+    veggies.ensure_images(None, INFRA_REPO, spec, verbose=True,
+                          overlay=(image, text))
+    builds = [c for c in calls if c[:2] == ["podman", "build"]]
+    tags = [b[b.index("-t") + 1] for b in builds]
+    # the harness DERIVED image is skipped (the repo overlay replaces it);
+    # its base still builds - the overlay's FROM resolves to it
+    assert veggies_stack.IMAGE_OPENCODE not in tags
+    assert veggies_stack.IMAGE_OPENCODE_BASE in tags
+    overlay_builds = [c for c in builds if image in c]
+    assert overlay_builds, "overlay build missing"
+    component_builds = [c for c in builds if c not in overlay_builds]
+    assert component_builds, "the base and squid images still build"
+    assert calls.index(overlay_builds[0]) > max(
+        calls.index(c) for c in component_builds), "overlay must build last"
+    # the overlay path never queries existence (guard-free rebuild)
+    assert ["podman", "image", "exists", image] not in calls
+    # the shipped Containerfile name carries the content tag, so two stacks
+    # with different overlays never clobber each other's build file
+    tag = image.rsplit(":", 1)[-1]
+    assert any(w.endswith(f"veggies-harness-overlay.{tag}.Containerfile")
+               for w in writes)
+
+    # remote: the overlay build rides the substrate proxy build-args too
+    calls.clear()
+    veggies.ensure_images("overlay-test-host", INFRA_REPO, spec,
+                          overlay=(image, text))
+    remote_overlay = [c for c in calls if len(c) > 2 and f"-t {image}" in c[2]]
+    assert remote_overlay, "remote overlay build missing"
+    remote_cmd = remote_overlay[0][2]
+    assert "--network=host" in remote_cmd
+    assert f"--build-arg HTTPS_PROXY={veggies.REMOTE_PROXY}" in remote_cmd
 
 
 def test_ensure_images_quiet_still_prints_action_headers(
