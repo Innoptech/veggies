@@ -291,7 +291,7 @@ jobs:
             body="$body [Workflow log](${run_url})."
           elif [ -n "$PR_NUMBER" ]; then
             if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-              body="$body"$' (auto-kick; no action needed unless the head moved past the in-flight or landed review - then comment /review once it lands.)'
+              body="$body"$' (auto-kick skipped - the reason is above; comment /review to re-request once the stack is free and the head has settled.)'
             else
               body="$body"$' Comment /review again if it truly needs another review.'
             fi
