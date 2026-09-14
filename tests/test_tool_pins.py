@@ -108,8 +108,30 @@ def test_containerfile_writes_the_tool_pin_manifest():
     for tool in MANIFEST_ARG_TOOLS:
         # printf'd from the pinned ARG - never a duplicated literal
         assert f'"${{{tool}_VERSION}}"' in text, tool
-    # the harness version comes from the base image's own binary
-    assert '"$(opencode --version)"' in text
+    # the harness version comes from the base image's own binary,
+    # captured via a standalone assignment so a failing/absent
+    # `opencode --version` fails the build under `set -e` (a command
+    # substitution inside the printf ARGUMENT would not propagate)
+    assert '"$base_ver"' in text
+    assert 'base_ver="$(opencode --version)"' in text
+
+
+def test_containerfile_manifest_printf_arg_order():
+    """A transposed printf arg bakes a crossed manifest - parseable,
+    non-empty, all keys present, and the gate blocks every kick while no
+    key-presence assertion sees it. Bind the format-string labels to the
+    arguments positionally."""
+    text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
+    block = re.search(r"RUN set -eu; .*?> /etc/veggies/tool-pins",
+                      text, re.S).group(0)
+    fmt = re.search(r"printf '([^']+)'", block).group(1)
+    labels = re.findall(r"([A-Z0-9_]+)=%s", fmt)
+    tokens = re.findall(r'"(\$\{\w+\}|\$base_ver)"', block)
+    args = ["OPENCODE_BASE_VERSION" if t == "$base_ver"
+            else re.fullmatch(r"\$\{(\w+)\}", t).group(1)
+            for t in tokens]
+    assert args == labels
+    assert labels == list(MANIFEST_KEYS)
 
 
 # Instruction keywords a logical Containerfile line may start with (comments,

@@ -1218,6 +1218,17 @@ def test_tool_pin_gate_undiscoverable_pins_degrade(monkeypatch, capsys):
     assert capsys.readouterr().err
 
 
+def test_tool_pin_gate_empty_pins_degrade(monkeypatch, capsys):
+    """PR #96 review 2 (M2): an adopted repo on the paved ADR 0057 overlay
+    path HAS a Containerfile that declares none of the pinned keys, so
+    expected_tool_pins returns {} - not None. The gate must degrade like
+    the absent-Containerfile case, not arm and block every kick against
+    their manifest-less images with a rebuild remedy that loops forever."""
+    _stub_tool_pins(monkeypatch, expected={}, live={})
+    assert stack_kick.tool_pin_gate("http://h:1", "pw") is None
+    assert "absent or empty" in capsys.readouterr().err
+
+
 def test_tool_pin_keys_bound_to_containerfile_args():
     # every gated key must resolve on BOTH sides of the comparison - a key
     # missing from either side silently drops out of the gate. The binary
@@ -1233,7 +1244,7 @@ def test_tool_pin_keys_bound_to_containerfile_args():
             assert re.search(
                 rf"^FROM {re.escape(stack_kick.TOOL_PIN_BASE_FROM)}:\S+$",
                 text, re.M), key
-            assert '"$(opencode --version)"' in text, key
+            assert 'base_ver="$(opencode --version)"' in text, key
             continue
         assert f"{key}_VERSION" in args, key
         assert f'"${{{key}_VERSION}}"' in text, key

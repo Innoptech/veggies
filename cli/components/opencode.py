@@ -37,7 +37,10 @@ from capabilities import (
 # /file/content (missing file -> 200 with empty content; the `path` param
 # must carry literal slashes, it is not percent-decoded - both verified
 # 2026-09-11/12) and compares OPENCODE_BASE_VERSION - re-verify that
-# endpoint contract when bumping these images.
+# endpoint contract when bumping these images. The gate also assumes
+# `opencode --version` prints exactly the bare version, one line - the
+# manifest bakes it verbatim as OPENCODE_BASE_VERSION. Re-verify that
+# output shape on a bump too.
 IMAGE_OPENCODE_BASE = "localhost/veggies-opencode-base:1.18.27"
 IMAGE_OPENCODE = "localhost/veggies-opencode:1.18.27"
 _OPENCODE_CONTAINER_PORT = 4096

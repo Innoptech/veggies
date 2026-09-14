@@ -246,7 +246,9 @@ def tool_pin_gate(url: str, password: str) -> int | None:
     EVERY skewed pin, expected vs found; (b) the manifest is absent/
     empty on a healthy stack - the image predates the gate; (c) the
     manifest exists but parses to nothing - corrupt. Degrade-loud (stderr
-    note, proceed) on: pins undiscoverable (adopted repo), any HTTPError
+    note, proceed) on: pins undiscoverable or empty (adopted repo: no
+    Containerfile at script root, or one declaring none of the pinned
+    keys - the paved ADR 0057 overlay path), any HTTPError
     (401/403 ride the kick's own failure path; 404/5xx are a sick stack
     or API drift - a gate must never deny all kicks on its own blind
     spot), URLError/timeout (a truly down stack fails kick() with rc 1,
@@ -254,8 +256,8 @@ def tool_pin_gate(url: str, password: str) -> int | None:
     BadStatusLine/IncompleteRead escape urlopen unwrapped), ValueError
     (API shape drift)."""
     expected = expected_tool_pins()
-    if expected is None:
-        print("tool pins undiscoverable (no Containerfile at script root); "
+    if not expected:
+        print("no Containerfile pins at script root (absent or empty); "
               "tool-pin gate skipped", file=sys.stderr)
         return None
     try:
