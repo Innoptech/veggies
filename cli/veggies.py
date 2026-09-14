@@ -311,7 +311,7 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
                   verbose: bool = False) -> None:
     """Images are component-owned: build/pull exactly the selected
     components' images. A component may declare its image's local base
-    (`BuildSpec.base`, ADR 0053); the base builds first. Built images use
+    (`BuildSpec.base`, ADR 0057); the base builds first. Built images use
     layer-cache (no-op when unchanged); pull-only images are pulled once.
     Remote: Containerfiles are shipped into the remote state dir and built
     there. verbose streams the full build output (`veggies prepare`); `up`
@@ -329,7 +329,7 @@ def ensure_images(host: str | None, infra_repo: Path, spec: StackSpec,
         if c.build is None:
             continue
         # An image may be FROM another locally-built image (base/overlay
-        # split, ADR 0053): build the declared base first so the overlay's
+        # split, ADR 0057): build the declared base first so the overlay's
         # FROM resolves to the local store.
         chain = [c.build.base, c.build] if c.build.base else [c.build]
         for b in chain:

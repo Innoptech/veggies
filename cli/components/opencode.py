@@ -24,7 +24,7 @@ from capabilities import (
     secret_env,
 )
 
-# Harness images (ADR 0053): the slim BASE (official image + git/gh -
+# Harness images (ADR 0057): the slim BASE (official image + git/gh -
 # deploy/images/opencode-base.Containerfile) is every stack's harness;
 # THIS REPO's image overlays it with the ADR 0032 dogfood toolchain
 # (deploy/images/opencode.Containerfile). The base pins the upstream image
@@ -101,7 +101,7 @@ def _render(ctx: PodContext) -> dict:
             "cp -r /stack-config/agents /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/skills /root/.config/opencode/ 2>/dev/null; "
             "cp -r /stack-config/plugins /root/.config/opencode/ 2>/dev/null; "
-            # No ansible vault dummy here (ADR 0053): that is this-repo
+            # No ansible vault dummy here (ADR 0057): that is this-repo
             # glue, baked into the overlay image itself.
             + git_setup +
             f"exec opencode serve --hostname 0.0.0.0 --port {_OPENCODE_CONTAINER_PORT}"

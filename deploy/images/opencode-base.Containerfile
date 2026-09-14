@@ -1,4 +1,4 @@
-# veggies opencode BASE image: the harness every stack shares (ADR 0053) -
+# veggies opencode BASE image: the harness every stack shares (ADR 0057) -
 # the official opencode image plus git, which the official image lacks
 # (verified 2026-09-04: alpine-based, root, no git/node), plus gh for
 # github-enabled stacks (ADR 0030): gh reads GH_TOKEN and api.github.com is
