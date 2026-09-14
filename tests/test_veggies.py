@@ -128,7 +128,7 @@ def test_render_containers_and_pins(spec):
 
 
 def test_default_render_carries_no_ansible_vault_dummy(spec):
-    # ADR 0053: the vault dummy is this-repo overlay glue, baked into the
+    # ADR 0057: the vault dummy is this-repo overlay glue, baked into the
     # image (ANSIBLE_VAULT_PASSWORD_FILE) - the shared renderer no longer
     # ships it to stacks whose repo has no ansible.
     args = _pod(spec)["spec"]["containers"][0]["args"][0]
@@ -535,7 +535,7 @@ def _image_tag(image: str) -> str:
 
 
 def test_opencode_base_containerfile_pin_format():
-    # ADR 0053 pin chain: the base pins the UPSTREAM by tag+digest (the
+    # ADR 0057 pin chain: the base pins the UPSTREAM by tag+digest (the
     # digest pins the outside world). Its own tag must match
     # IMAGE_OPENCODE_BASE and both image constants stay in lockstep - a
     # partial bump would otherwise tag an overlay 1.x while silently
@@ -1351,7 +1351,7 @@ def test_ensure_images_verbose_streams_and_quiet_default(monkeypatch, spec):
 
 
 def test_ensure_images_builds_base_before_overlay(monkeypatch, spec):
-    # ADR 0053: the overlay is FROM the locally-built base - the base must
+    # ADR 0057: the overlay is FROM the locally-built base - the base must
     # build first or the overlay's FROM has nothing to resolve to.
     calls = []
 

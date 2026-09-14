@@ -1,4 +1,4 @@
-# veggies opencode image: THIS REPO's harness variant (ADR 0053) - the
+# veggies opencode image: THIS REPO's harness variant (ADR 0057) - the
 # pinned shared base (harness only: opencode serve, git, gh) plus this
 # repo's ADR 0032 dogfood toolchain (python/mask/ansible/tofu/tflint, plus
 # gitleaks/actionlint for the networkless pre-commit hooks, ADR 0047). The
