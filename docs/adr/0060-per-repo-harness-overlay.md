@@ -111,7 +111,12 @@ domain NAMED and a paste-ready remedy; widening the envelope is a
 normal substrate PR (`egress_allowlist_base` /
 `egress_allowlist_extra`), not a gate. Local builds are unproxied, so a
 fetch that works locally can still be denied on the VPS - and the 0058
-error names the domain when it is.
+error names the domain when it is. 0057 recorded the why: overlay RUN
+steps are arbitrary build-time code running as the stacks user with
+`--network=host` on the VPS, so other stacks' published ports are
+reachable from the build netns (passwords bound the damage) - that is
+why the rule is pinned fetches reviewed in PRs, not "the repo asked
+nicely".
 
 ### Session isolation (0037)
 
@@ -162,8 +167,15 @@ edit it makes takes effect only at the next operator-driven up/sync.
   stderr note), never false-refuses. The container-start manifest
   publish is likewise tolerant of overlay images carrying no
   `/etc/veggies/tool-pins` (rm-first, missing-file-tolerant). Per-repo
-  pin attestation is 0059's named future opt-in (pins declared in the
-  kicked checkout, the way 0045's marker declares the verify gate).
+   pin attestation is 0059's named future opt-in (pins declared in the
+   kicked checkout, the way 0045's marker declares the verify gate). One
+   combination stays unreachable today and must stay so: a checkout
+   carrying BOTH infra's `deploy/images/opencode.Containerfile` AND the
+   `harness_containerfile` key would be refused by the gate with a
+   rebuild remedy that cannot apply (the key skips the derived build),
+   so this repo must not adopt its own key without the overlay baking a
+   matching manifest; adopted repos cannot reach it - the kick delivery
+   ships only the workflow and the script, no Containerfile.
 - Boundary carried from 0057: the kick prompt's "tools preinstalled"
   line describes THIS repo's dogfood image - on an overlay stack the
   real toolchain is the repo's overlay plus its AGENTS.md, and per-repo
