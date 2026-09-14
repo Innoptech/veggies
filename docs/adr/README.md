@@ -68,7 +68,7 @@ hand-maintained.
 | [0044](0044-live-first-watch-path-no-close-time-deletion.md) | Watch path lists live sessions first; no close-time session deletion | accepted |
 | [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
 | [0046](0046-draft-first-pr-lifecycle.md) | Draft-first PR lifecycle and the redefined done-guard | accepted (amended by 0053) |
-| [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted |
+| [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted (amended by 0059) |
 | [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted |
 | [0049](0049-no-ask-merged-roster-and-instruction-discovery.md) | No-ask over the merged roster; repo instruction files stay configuration-free | accepted |
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
@@ -80,6 +80,7 @@ hand-maintained.
 | [0056](0056-reviewer-verdict-status-check.md) | The reviewer verdict gates; it never merges | accepted (renumbered from 0055 - main landed its own 0054/0055 mid-flight) |
 | [0057](0057-harness-base-image-and-repo-overlay.md) | Harness base image split from the repo toolchain overlay | accepted (renumbered from 0053 - main landed its own 0053..0056 mid-flight) |
 | [0058](0058-build-time-egress-legible-denials.md) | Build-time egress: no separate lane; the CLI surfaces proxy denials by domain | accepted (renumbered from 0054 - main landed 0053..0057 mid-flight) |
+| [0059](0059-kick-time-tool-pin-gate.md) | Kick-time tool-pin gate: the image attests its toolchain pins, stale images are refused | accepted (renumbered from 0053 - main landed its own 0053..0058 mid-flight) |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)
