@@ -56,6 +56,12 @@ class StackSpec:
     selections: dict[str, str] | None = None  # capability -> impl (v1)
     mcps: tuple[str, ...] = ()  # opt-in MCP sidecars (ADR 0018)
     github: bool = False  # opt-in: GH_TOKEN + git identity for push/PR (ADR 0030)
+    # Resolved per-repo harness overlay image ref (issue #69, ADR 0060):
+    # set by the up-time IO layer when veggies.yml carries
+    # `harness_containerfile:`; None renders this repo's derived toolchain
+    # image (the ADR 0057 default). Single-purpose: not a pattern for
+    # per-component env/mount overrides.
+    harness_image: str | None = None
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     )
