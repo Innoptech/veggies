@@ -496,7 +496,7 @@ def test_squid_containerfile_reused():
 def test_egress_proxy_constants_match_role():
     # The remote build-failure diagnostic reads the substrate squid's log as
     # EGRESS_PROXY_USER / EGRESS_PROXY_CONTAINER; a drifted default here
-    # silently degrades it to the fallback hint (accepted, ADR 0054).
+    # silently degrades it to the fallback hint (accepted, ADR 0058).
     defaults = yaml.safe_load(
         (ROOT / "ansible/roles/egress/defaults/main.yml").read_text()
     )
@@ -507,7 +507,7 @@ def test_egress_proxy_constants_match_role():
 
 
 def test_substrate_squid_log_surface_stays_native_on_stdout():
-    # ADR 0054: the CLI parses the substrate squid's access log after a
+    # ADR 0058: the CLI parses the substrate squid's access log after a
     # failed remote build. The parsed surface is native format (the
     # default - any `logformat` directive would change field order) on
     # container stdout (read via `podman logs`). Pinned alongside the

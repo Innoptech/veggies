@@ -28,7 +28,7 @@ REMOTE_PROXY = "http://127.0.0.1:3128"
 # shells in as this user. Tracks the egress role's egress_proxy_user
 # default and the quadlet's ContainerName= - a group_vars override of
 # egress_proxy_user silently degrades that diagnostic to its fallback hint
-# (accepted, ADR 0054); drift-guarded in tests/test_veggies.py.
+# (accepted, ADR 0058); drift-guarded in tests/test_veggies.py.
 EGRESS_PROXY_USER = "egress-proxy"
 EGRESS_PROXY_CONTAINER = "squid"
 REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/veggies"
