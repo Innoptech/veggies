@@ -45,8 +45,9 @@ jobs:
     # review from an OWNER/MEMBER/COLLABORATOR, reaches the script (which
     # re-verifies everything itself). Untrusted reviews never change the
     # decision, so they must not burn a self-hosted runner slot either.
-    # `/gate-override` never collides with agent-trigger.yml - that
-    # workflow's comment gate is issues-only.
+    # `/gate-override` never collides with agent-trigger.yml: that
+    # workflow's comment commands are /opencode (issues) and /review
+    # (PRs, ADR 0062) - a disjoint verb set, both sides command-anchored.
     if: >-
       (github.event_name != 'issue_comment' && github.event_name != 'pull_request_review') ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&

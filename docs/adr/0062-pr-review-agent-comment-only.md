@@ -102,7 +102,13 @@ merge-authority half: [0007](0007-github-policy-as-code.md)'s invariant
     reading prior reviews - a re-review checks flag resolution, never
     regenerates a contradictory second opinion - and a double-post guard
     (a prior bot review stamped with the current head sha means stop),
-    so a 0036 supervisor refinement cannot double-post.
+    so a 0036 supervisor refinement cannot double-post. Freshness at post
+    time (0056): GitHub pins a review to the PR head AT SUBMISSION, so
+    the session re-resolves `headRefOid` immediately before posting - a
+    moved head means the verdict would pin to a head it never read, so
+    the session re-audits ONCE for the new head and posts that; a head
+    that moved twice gets nothing posted and the gate stays pending
+    (the safe state - the next push or a human `/review` re-requests).
 4. **Supervision and spend follow the title**: the 0036 critic's
    `KICKED_TITLE` widens to `^(?:PR)?#\d+:` (the review session posts
    public content off untrusted diff material - it is exactly the
@@ -178,9 +184,21 @@ Rejected / deferred:
 - Accepted: personas register at stack boot (0019) - `veggies up
   veggie` is required after merge before the reviewer dispatches (same
   posture as 0041).
-- Known cosmetic limitation: the reviewer posts under the same bot
-  identity as the author until #56 lands - structurally harmless (the
-  review is comment-only either way).
+- Known limitation, amended post-conformance: the reviewer posts under
+  the same bot identity as the author until #56 lands. Comment-only made
+  that structurally harmless; carrying the 0056 verdict it is NOT -
+  under 0043's shared identity an author session could self-post a
+  `pr-review-verdict: pass` on its own head, indistinguishable from the
+  reviewer's. 0056 prices exactly this class (agent-forgeable, advisory
+  until #56); this ADR adds the producer-side hygiene bullet to the
+  issue kick prompt (never review your own PR, never write a verdict
+  line) and inherits 0056's pricing verbatim.
+- Accepted residual, named: the gate's VERDICT_RE reads the FIRST
+  marker line in a body while the brief contract puts the verdict LAST -
+  a malformed brief that quotes a verdict-shaped line earlier inverts
+  the verdict. Guarded producer-side (the persona contract: exactly one
+  verdict line, the last line, no verdict-shaped quotations); a
+  gate-side findall/last-wins rule belongs to 0056's next amendment.
 - Accepted, named (from this PR's own adversarial review): the
   double-post guard matches the brief's short-sha stamp as a prefix of
   the current head - a PR author could grind a head sha with a colliding
