@@ -52,8 +52,12 @@ pinned tag+digest) is every stack's harness; this repo's overlay
 (`veggies-opencode`) carries the dev toolchain
 (python/mask/ansible/tofu/tflint/gitleaks/actionlint - ADR 0032/0047) so
 agents run the repo's own checks in-pod; molecule is excluded (no podman
-socket, ADR 0028). Per-repo overlays land with #69/#70 - this repo's
-overlay is the reference implementation.
+socket, ADR 0028). A repo layers its own check toolchain on top via
+`harness_containerfile:` in veggies.yml - a repo-local overlay
+Containerfile FROM the pinned base, validated, content-hash tagged,
+built at up-time over the substrate proxy on remote hosts (ADR 0060);
+absent the key the harness image is this repo's derived overlay,
+exactly as 0057 describes.
 
 Cost metering (ADR 0022; contract 0051; writer 0052): the litellm router
 writes one JSON line per model call to `<state_root>/<stack>/spend.jsonl`

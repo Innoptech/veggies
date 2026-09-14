@@ -356,7 +356,9 @@ Daily: `veggies up` in a repo; `veggies attach <name>`; `veggies ls`;
 `veggies sync <name>` (clone-mode stacks: pull + re-up, see below).
 Remote: `veggies up --host veggies --clone --repo <git-url>` then attach over the
 tailnet (or an `ssh -L` forward while tailscale is deferred - ADR 0024). Per-repo customization: `veggies.yml` (schema v1: `model`,
-`components`, capability keys, `mcps`, `github`; ADR 0016/0023). A repo's
+`components`, capability keys, `mcps`, `github`,
+`harness_containerfile` - the repo's own check toolchain, see "Per-repo
+harness overlay" below; ADR 0016/0023/0060). A repo's
 own agent files need no key at all: keep your CLAUDE.md (or AGENTS.md) and
 your `.claude/`/`.opencode/` agents and skills - the harness discovers
 them as-is, project over global (ADR 0019/0049). Installing a stack never
@@ -598,6 +600,98 @@ and check the base stayed slim:
 The in-pod counterpart is a fresh kicked session on the rebuilt image: `command -v` for the rebuilt tools (gitleaks/actionlint today) must resolve to `/usr/local/bin/...` under the gate's own PATH - `PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH" command -v gitleaks actionlint` - because `$HOME` is a writable in-pod volume and a shadow in `~/.local/bin` would pass a plain `command -v` while the hooks run the shadow.
 Run a full `mask ci` for this check, not the rule-3 scaled gate - a narrow diff (docs-only, say) never fires path-filtered hooks such as actionlint (`files: ^\.github/workflows/`), so only the `--all-files` run proves the `language: system` hooks execute from the baked binaries with no download step (the python hooks' cold-cache pip install above still applies).
 
+### Per-repo harness overlay (harness_containerfile, ADR 0060)
+
+The section above baked *this repo's* toolchain into its own overlay
+image (ADR 0032/0057); `harness_containerfile` lets *your* repo layer
+its own check toolchain onto the same pinned base. The trust framing:
+repos layer onto the pinned, audited base image - they never pull
+arbitrary images.
+
+Setting the key swaps the toolchain, it does not add to it: the stack
+builds the slim base plus your overlay and SKIPS this repo's derived
+image. Your stack therefore does NOT get this repo's
+python/mask/ansible/tofu toolchain - the repo's overlay replaces it, so
+the repo's own AGENTS.md and declared verify gate (ADR 0045) must only
+name tools its overlay carries.
+
+Usage: one veggies.yml line plus a Containerfile, both versioned with
+the repo (any repo-relative path works; `.veggies/` is the suggested
+convention):
+
+```yaml
+# veggies.yml
+harness_containerfile: .veggies/harness.Containerfile
+```
+
+```dockerfile
+# .veggies/harness.Containerfile - the FROM must match the CLI's pinned
+# harness base exactly (HARNESS_BASE_IMAGE in cli/components/opencode.py).
+FROM localhost/veggies-opencode-base:1.18.27
+
+# Build-time proxy plumbing for egress-denied hosts (same as the base image).
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG http_proxy=""
+ARG https_proxy=""
+ARG NO_PROXY=""
+
+# Version+sha256-pinned fetch - the only supply-chain pattern overlays use
+# (values verified against go.dev 2026-09-11).
+ARG GO_VERSION=1.27.1
+ARG GO_SHA256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+RUN set -eux; cd /tmp; \
+    curl -fsSL -o go.tgz "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz"; \
+    echo "${GO_SHA256}  go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf go.tgz; \
+    rm go.tgz
+ENV PATH="$PATH:/usr/local/go/bin"
+```
+
+The rules as the CLI enforces them: exactly one FROM, and it must be the
+pinned base ref exactly - no `AS` stage name, no `--platform`, no second
+FROM. COPY/ADD are refused: the error tells you to fetch
+pinned+checksummed in a RUN step instead. The build context carries no
+repo files (it is the state images dir) - which is also why the
+toolchain layer caches until the Containerfile itself changes.
+
+Build semantics: the overlay is built by `veggies up`/`prepare`, over
+the substrate proxy on remote hosts, after the base image (this repo's
+derived `veggies-opencode` image is skipped for the stack - the
+`==> ... skipped: repo harness_containerfile replaces it` line says so).
+The tag is
+content-addressed - `localhost/veggies-harness-overlay:<sha256 of the
+Containerfile text, first 16 hex>` - and the build runs on every `up`
+(never skip-checked), so a base bump always takes effect: buildah's
+parent-image-ID layer-cache keying busts the cache and the rebuilt image
+re-takes the same tag. `up` prints an `overlay:` line naming the
+resolved ref; `veggies prepare` streams the build log and prints the
+tag; `veggies render` resolves silently. The ref is never written to
+stack state - every up/sync/render re-resolves it from the checkout.
+Each content hash is one image tag in the host's image store; stacks do
+not garbage-collect old overlay images - prune them with
+`podman image prune` or remove them by hand.
+
+Fetch envelope (v1): on the VPS, RUN steps reach the internet through
+the substrate squid allowlist (`ansible/roles/egress/defaults/main.yml`):
+github.com + release CDNs, dl-cdn.alpinelinux.org, pypi.org +
+files.pythonhosted.org, registry.npmjs.org, go.dev + dl.google.com +
+proxy.golang.org + sum.golang.org, registry.opentofu.org, docker hub +
+ghcr. Since ADR 0058 a denied fetch fails the remote build naming the
+blocked domain and the paste-ready fix; widening the list is a normal
+substrate PR (`egress_allowlist_base` in the egress role, or
+`egress_allowlist_extra` in group_vars, then `mask converge`), not a
+gate. Local builds are unproxied, so a build that works locally can
+still be denied on the VPS.
+
+**Shadowing callout.** Anything repo-local on PATH or in the
+environment - a mounted `.venv`, mise, `.tool-versions`, a go.mod
+toolchain directive - SHADOWS the overlay's tools, and verification
+then runs the WRONG environment silently. `up` warns on stderr when it
+sees a repo `.venv` alongside an overlay; in mount mode, run the gate
+host-side or remove the shadow. Same trap as the ADR 0032 paragraph
+above - the overlay generalizes it to every repo.
+
 ### Issue-triggered agent kicks (ADR 0033)
 
 `.github/workflows/agent-trigger.yml` (self-hosted runners, this repo)
@@ -770,10 +864,10 @@ at a mask/make target.
 
 The gate executes inside the harness image (ADR 0032): a foreign gate
 needs an image that can run it - the repo owner owns that toolchain
-story. The pattern (ADR 0057): a repo's overlay is
-`FROM localhost/veggies-opencode-base:<opencode-version>` built as e.g.
-`<repo>-opencode`; the per-repo wiring (veggies.yml key, build egress)
-lands with #69/#70.
+story, and that story is the harness overlay (`harness_containerfile`,
+"Per-repo harness overlay" above, ADR 0060): a repo's overlay is
+`FROM localhost/veggies-opencode-base:<opencode-version>`, built at
+up-time as a content-hash-tagged `veggies-harness-overlay` image.
 
 Scope: the marker is ONLY the verify gate. Broader respect for a repo's
 own agent files (instructions, skills, rosters) is issue #54's territory.
