@@ -88,12 +88,18 @@ Three parts, as landed:
    overlay Containerfile (script-root anchored, the
    [0045](0045-repo-declared-verify-gate.md) precedent; the binary
    tools from their ARGs, the harness from the FROM tag) - kicks branch
-   off `origin/main`, so the comparison is precisely "what the session
-   will be held to" vs "what the image carries", the skew window itself
-   - then GETs the published manifest over `/file/content` and refuses
+   off `origin/main`, so the comparison is "what the session will be
+   held to" vs "what the image carries", the skew window itself - then
+   GETs the published manifest over `/file/content` and refuses
    (exit 3) a proven-stale image, the reason naming every skewed pin
    expected-vs-found plus the remedy (rebuild on the stack host from a
-   pulled infra checkout, re-add the label).
+   pulled infra checkout, re-add the label). The comparison is exact
+   only at event time: the expected pins come from the runner's
+   checkout when the event fires while the session fetches
+   `origin/main` when it starts work, so a pin-affecting merge landing
+   in between means the gate compared the old expectation. The window
+   is accepted as bounded - it needs a pin merge inside minutes, and
+   PR CI runs the pinned tools as backstop.
 
 The pip-pinned python layer (yamllint, ansible-lint, pre-commit-hooks)
 is the same skew class but carries no ARG/sha pin shape in the image -

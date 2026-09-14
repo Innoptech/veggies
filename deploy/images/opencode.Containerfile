@@ -98,6 +98,8 @@ ENV ANSIBLE_VAULT_PASSWORD_FILE=/etc/veggies/vault-password
 # The harness version is attested by the binary itself: the overlay's FROM
 # is the pinned base tag and tests/test_veggies.py pins that chain, so
 # $(opencode --version) at build time IS the pinned base's version.
-RUN printf 'GITLEAK_VERSION=%s\nACTIONLINT_VERSION=%s\nTOFU_VERSION=%s\nTFLINT_VERSION=%s\nMASK_VERSION=%s\nOPENCODE_BASE_VERSION=%s\n' \
-    "${GITLEAK_VERSION}" "${ACTIONLINT_VERSION}" "${TOFU_VERSION}" "${TFLINT_VERSION}" "${MASK_VERSION}" "$(opencode --version)" \
+RUN set -eu; \
+    base_ver="$(opencode --version)"; \
+    printf 'GITLEAK_VERSION=%s\nACTIONLINT_VERSION=%s\nTOFU_VERSION=%s\nTFLINT_VERSION=%s\nMASK_VERSION=%s\nOPENCODE_BASE_VERSION=%s\n' \
+    "${GITLEAK_VERSION}" "${ACTIONLINT_VERSION}" "${TOFU_VERSION}" "${TFLINT_VERSION}" "${MASK_VERSION}" "$base_ver" \
     > /etc/veggies/tool-pins
