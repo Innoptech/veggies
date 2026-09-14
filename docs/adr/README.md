@@ -69,7 +69,7 @@ hand-maintained.
 | [0045](0045-repo-declared-verify-gate.md) | Repo-declared verify gate for kicked sessions | accepted |
 | [0046](0046-draft-first-pr-lifecycle.md) | Draft-first PR lifecycle and the redefined done-guard | accepted (amended by 0053) |
 | [0047](0047-networkless-lint-hooks.md) | Networkless gitleaks/actionlint hooks: image-baked pinned binaries, language: system | accepted (amended by 0059) |
-| [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted |
+| [0048](0048-agent-kick-install-as-one-module.md) | Install agent kicks as one terraform module block per repo | accepted (amended by 0061) |
 | [0049](0049-no-ask-merged-roster-and-instruction-discovery.md) | No-ask over the merged roster; repo instruction files stay configuration-free | accepted |
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
@@ -82,6 +82,7 @@ hand-maintained.
 | [0058](0058-build-time-egress-legible-denials.md) | Build-time egress: no separate lane; the CLI surfaces proxy denials by domain | accepted (renumbered from 0054 - main landed 0053..0057 mid-flight) |
 | [0059](0059-kick-time-tool-pin-gate.md) | Kick-time tool-pin gate: the image attests its toolchain pins, stale images are refused | accepted (renumbered from 0053 - main landed its own 0053..0058 mid-flight) |
 | [0060](0060-per-repo-harness-overlay.md) | Per-repo harness overlay: one veggies.yml key, built from the pinned base at up-time | accepted |
+| [0061](0061-comment-helper-joins-kick-delivery-set.md) | Comment helper joins the agent-kick delivery set | accepted (renumbered from 0054 - main landed its own 0054..0060 mid-flight) |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)
