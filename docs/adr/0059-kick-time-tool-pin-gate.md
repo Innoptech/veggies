@@ -112,7 +112,9 @@ healthy, answering stack (the image predates the gate); the manifest
 present but unparseable (corrupt). Exit 3 spends the one-shot label, so
 it must mean "we KNOW the image is wrong". Everything else degrades
 loud - a stderr note, and the kick proceeds: pins undiscoverable in the
-checkout (adopted repos carry no Containerfile), ANY HTTPError incl.
+checkout (adopted repos carry no Containerfile, or an overlay that
+declares none of the pinned keys - the repo-local-overlay path), ANY
+HTTPError incl.
 401/403 (the kick itself fails identically on those),
 URLError/timeout and the unwrapped http.client family (a truly down or
 mid-restart stack fails the kick itself with rc 1, label preserved),
