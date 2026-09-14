@@ -771,7 +771,11 @@ draft skips the same way. Fork PRs are refused by the review-guard:
 their trees are untrusted, and they get human review only. Re-review on demand: comment `/review` again -
 it checks whether earlier flags were addressed, and a double-post guard
 (a prior bot review stamped with the current head sha) stops a redundant
-post. A HIGH-risk brief's rework path is the incantation above:
+post. Freshness is enforced at post time: GitHub pins a review to the
+head AT SUBMISSION, so the session re-resolves the head before posting -
+a moved head gets one re-audit; a head that moved again gets nothing
+posted and the `pr-review-agent` check stays pending (the safe state) -
+comment `/review` to re-request. A HIGH-risk brief's rework path is the incantation above:
 `gh pr ready --undo`, then re-kick the issue (the done-guard treats
 ready as handled, so un-readying re-opens the issue path); the reworked
 PR's next ready transition kicks a fresh review. Reviewer sessions are

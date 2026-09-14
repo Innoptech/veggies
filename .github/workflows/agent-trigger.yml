@@ -54,7 +54,7 @@ on:
 # kicks (the kick itself already succeeded; the PR just gets no link).
 permissions:
   issues: write # comment the kicked session back onto the issue (ADR 0034)
-  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0046)
+  pull-requests: read # the done-guard looks up existing agent/issue-N PRs (ADR 0035/0046); the review-guard reads the kicked PR (ADR 0062)
   discussions: write # read the thread for the prompt; comment the session link back (ADR 0038)
 
 jobs:
@@ -104,7 +104,11 @@ jobs:
     concurrency:
       # one kick per subject at a time; a re-label/re-comment queues behind,
       # not parallel. Prefixed by event: issue and discussion numbers are
-      # independent sequences and would otherwise collide.
+      # independent sequences and would otherwise collide. A deliberate
+      # consequence (ADR 0062): a /review comment (issue_comment) and a
+      # ready_for_review/synchronize on the SAME PR form different groups
+      # and do not serialize against each other - the `PR#N: ` in-flight
+      # guard in stack_kick.py is the sole double-book protection there.
       group: agent-kick-${{ github.event_name }}-${{ github.event.issue.number || github.event.discussion.number || github.event.pull_request.number }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -287,7 +291,7 @@ jobs:
             body="$body [Workflow log](${run_url})."
           elif [ -n "$PR_NUMBER" ]; then
             if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-              body="$body"$' (auto-kicked on the ready transition or a ready-PR push - no action needed; a /review comment re-requests.)'
+              body="$body"$' (auto-kick; no action needed unless the head moved past the in-flight or landed review - then comment /review once it lands.)'
             else
               body="$body"$' Comment /review again if it truly needs another review.'
             fi
@@ -312,6 +316,9 @@ jobs:
           body="**veggies kick failed** - the stack accepted no session for this ${kind}."
           body="$body"$' Check \`veggies status veggie\` and that the Actions variable'
           body="$body"$' \`VEGGIES_STACK_PORT\` matches \`veggies ls\`.'
+          if [ "$kind" = "PR" ]; then
+            body="$body"$' With the ADR 0056 gate enabled this head stays pending meanwhile - comment /review once the stack recovers.'
+          fi
           body="$body"$' [Workflow log]('"${run_url})."
           # failure feedback must land on the actual subject: gh_comment
           # selects addDiscussionComment (discussions) vs addComment

@@ -64,6 +64,10 @@ def test_build_prompt_contains_issue_and_rules():
     assert "npm test -- --changed" in p
     # issue #48: gitleaks/actionlint are enumerated as image-baked
     assert "gitleaks/actionlint" in p
+    # ADR 0056/0062: the author session never self-posts a review or a
+    # verdict line - under the interim shared identity (0043) it would be
+    # indistinguishable from the reviewer's
+    assert "Never review your own PR" in p and "pr-review-verdict:" in p
 
 
 def test_build_prompt_mandates_a_per_session_worktree():
@@ -1344,6 +1348,10 @@ def test_build_review_prompt_carries_pr_mission_and_guards():
     # the brief carries the machine-readable verdict line the
     # `pr-review-agent` gate reads (ADR 0056 conformance)
     assert "pr-review-verdict:" in p
+    # freshness at post time: GitHub pins a review to the head AT
+    # SUBMISSION - a moved head gets one re-audit, never the stale
+    # verdict (ADR 0056's fresh-verdict-on-new-head requirement)
+    assert "AT SUBMISSION" in p and "Re-audit ONCE" in p
 
 
 def test_build_review_prompt_defaults_truncates_and_carries_comment():
@@ -1591,10 +1599,12 @@ def test_pr_reviewer_persona_shape():
     # never an approval-shaped artifact (ADR 0007/0062)
     assert "never an approval" in body or "comment-only" in body
     # the verdict contract (ADR 0056): exactly one machine-readable line,
-    # both values named, and the fail semantics spelled out
+    # both values named, and the fail semantics spelled out; the
+    # multiplicity guard names the gate's first-match read
     assert "pr-review-verdict: pass" in body
     assert "pr-review-verdict: fail" in body
     assert "exactly one" in body
+    assert "FIRST matching line" in body
 
 
 # --- The workflow's PR gate (issue #102 / ADR 0062): the fork gate, the

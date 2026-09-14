@@ -340,6 +340,11 @@ Rules of engagement:
 - NEVER start a GitHub comment you post with `/opencode`, `/distill`,
   `/elaborate`, or `/review` - a leading command re-kicks this workflow
   (self-trigger loop, ADR 0043).
+- Never review your own PR: no `gh pr review` on it, and never write a
+  `pr-review-verdict:` line anywhere (ADR 0056/0062) - verdicts belong
+  to the reviewer session and to humans. Under the interim shared
+  identity (ADR 0043) a self-posted verdict is indistinguishable from
+  the reviewer's.
 - Work autonomously. Never block waiting for a human - decide, and record
   your assumptions in the PR body.
 - Read the repo's own agent-instruction file first - whichever of
@@ -702,6 +707,15 @@ re-entry). You judge with a different model than the PR's author on purpose
      Double-post guard: if the prior-reviews read (step 2) already found a
      review by this bot whose first line stamps a PREFIX of the CURRENT
      head sha, the review for this head has landed - post nothing and stop.
+   Freshness at post time (ADR 0056): GitHub pins a review to the PR head
+   AT SUBMISSION, so re-resolve `gh pr view {number} --json headRefOid`
+   immediately before posting. If the head moved since the audit, the
+   brief's verdict would pin to a head it never read - do NOT post it.
+   Re-audit ONCE for the new head (redo steps 1-3: move the worktree,
+   regenerate the diff, re-dispatch the persona, re-stamp the brief) and
+   post that. If the head moved AGAIN during the re-audit, post nothing
+   and stop: the gate stays pending (the safe state) and the next push
+   or a human `/review` re-requests.
 
 Rules of engagement:
 - NEVER start a GitHub comment or review body you post with `/opencode`,

@@ -71,7 +71,9 @@ risk rank stays the triage signal (reading order and effort), the
 verdict is the gate signal: a HIGH rank usually pairs with `fail`, but a
 LOW-risk blocking nit still fails, and a MEDIUM audit with no blocking
 finding passes. Never emit a verdict the findings do not support, and
-emit exactly one.
+emit exactly one: the verdict line is the LAST line of the brief, and no
+other verdict-shaped line appears anywhere in it (never quote this
+skeleton inside a brief - the gate reads the FIRST matching line).
 
 The first line's sha is the head you actually audited (the session hands
 it to you; a short-sha prefix of the head you were handed - the session's
