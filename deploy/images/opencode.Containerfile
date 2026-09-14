@@ -88,3 +88,16 @@ RUN set -eux; cd /tmp; \
 RUN mkdir -p /etc/veggies \
     && printf 'ci-dummy-not-a-real-secret\n' > /etc/veggies/vault-password
 ENV ANSIBLE_VAULT_PASSWORD_FILE=/etc/veggies/vault-password
+
+# Tool-pin manifest (issue #87, ADR 0059): the running container's
+# self-attestation of the pinned gate toolchain. The container start
+# command (cli/components/opencode.py) publishes it into the workspace so
+# scripts/stack_kick.py can compare it against the checkout's pins over
+# the serve API - the pod's only inbound channel (the pty exec route is
+# broken on musl: node-pty's glibc .so fails dlopen, verified 2026-09-11).
+# The harness version is attested by the binary itself: the overlay's FROM
+# is the pinned base tag and tests/test_veggies.py pins that chain, so
+# $(opencode --version) at build time IS the pinned base's version.
+RUN printf 'GITLEAK_VERSION=%s\nACTIONLINT_VERSION=%s\nTOFU_VERSION=%s\nTFLINT_VERSION=%s\nMASK_VERSION=%s\nOPENCODE_BASE_VERSION=%s\n' \
+    "${GITLEAK_VERSION}" "${ACTIONLINT_VERSION}" "${TOFU_VERSION}" "${TFLINT_VERSION}" "${MASK_VERSION}" "$(opencode --version)" \
+    > /etc/veggies/tool-pins

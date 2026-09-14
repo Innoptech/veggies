@@ -7,7 +7,9 @@ later. Also pins the converted hooks' shape: gitleaks/actionlint are
 language: system under repo: local - hook time involves zero network
 fetches (tofu-fmt precedent). Also guards Containerfile syntax itself: CI
 builds no image, so an unparsable line would otherwise surface only as a
-failed remote build at `up`/`sync` time."""
+failed remote build at `up`/`sync` time. The image additionally attests
+the pins at runtime via /etc/veggies/tool-pins (the kick gate, ADR 0059);
+the manifest printf is bound here so it can never drift from the ARGs."""
 
 import re
 from pathlib import Path
@@ -36,6 +38,16 @@ ASSETS = {
     "TOFU": "tofu_1.12.6_linux_amd64.zip",
     "TFLINT": "tflint_linux_amd64.zip",
 }
+
+# The kick gate's manifest (issue #87, ADR 0059) attests the four pinned
+# gate tools plus mask (it runs the in-pod gate) and the harness base.
+# The first five printf their pinned ARGs; the harness version is attested
+# by the binary itself ($(opencode --version) at build time) because the
+# overlay's FROM is the pinned base tag (tests/test_veggies.py pins that
+# chain) - there is no ARG to printf.
+MANIFEST_ARG_TOOLS = (*TOOLS, "MASK")
+MANIFEST_KEYS = tuple(f"{t}_VERSION" for t in MANIFEST_ARG_TOOLS) + \
+    ("OPENCODE_BASE_VERSION",)
 
 
 def _containerfile_pins():
@@ -83,6 +95,21 @@ def test_maskfile_setup_matches_containerfile():
                 break
         else:
             raise AssertionError(f"{tool} asset {asset} missing from maskfile")
+
+
+def test_containerfile_writes_the_tool_pin_manifest():
+    """Issue #87 / ADR 0059: the kick gate compares the live image's
+    /etc/veggies/tool-pins against these pins - a key missing from the
+    manifest printf silently drops out of the gate."""
+    text = (ROOT / "deploy/images/opencode.Containerfile").read_text()
+    assert "/etc/veggies/tool-pins" in text
+    for key in MANIFEST_KEYS:
+        assert f"{key}=" in text, key  # the manifest's label
+    for tool in MANIFEST_ARG_TOOLS:
+        # printf'd from the pinned ARG - never a duplicated literal
+        assert f'"${{{tool}_VERSION}}"' in text, tool
+    # the harness version comes from the base image's own binary
+    assert '"$(opencode --version)"' in text
 
 
 # Instruction keywords a logical Containerfile line may start with (comments,
