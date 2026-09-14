@@ -1,5 +1,5 @@
 ---
-status: accepted (interim - sunsets at the GitHub App agent identity)
+status: accepted (interim - sunsets at the GitHub App agent identity; extended by 0050)
 date: 2026-09-11
 ---
 
