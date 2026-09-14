@@ -73,10 +73,12 @@ reviews PRs; agents implement. These rules are not negotiable:
     instead kicks one session that fans out to the vendored persona roster
     (`agent-config/agents/`: domain-expert, infra-architect, marketer,
     seller, cto) and posts one attributed POV comment per persona (ADR
-    0041); a PR flipping `ready_for_review` (or a trusted `/review` PR
-    comment) kicks one comment-only review session whose `pr-reviewer`
-    persona audits plan-vs-diff on a third model and posts a risk-ranked
-    brief - never an approval (ADR 0054; 0007 stays load-bearing); the
+    0041); a PR flipping `ready_for_review` (or a ready-PR push, or a
+    trusted `/review` PR comment) kicks one comment-only review session
+    whose `pr-reviewer` persona audits plan-vs-diff on a third model and
+    posts a risk-ranked brief carrying the machine-readable
+    `pr-review-verdict:` line (ADR 0062, conforming to 0056) - never an
+    approval (0007 stays load-bearing); the
     kick prompt mandates the pipeline (plan refined by that
     same persona roster and posted on the issue first with each role's
     input, task subagents, adversarial-review subagent on the diff, the

@@ -1,9 +1,9 @@
 ---
-status: accepted
+status: accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight)
 date: 2026-09-12
 ---
 
-# 0054. Comment-only PR-review agent on the ready transition
+# 0062. Comment-only PR-review agent on the ready transition
 
 ## Context and problem statement
 
@@ -38,8 +38,17 @@ merge-authority half: [0007](0007-github-policy-as-code.md)'s invariant
 ## Decision
 
 1. **Trigger** (`.github/workflows/agent-trigger.yml`):
-   `pull_request_target: types: [ready_for_review]`, plus a trusted
+   `pull_request_target: types: [ready_for_review, synchronize]`, the
+   job-if restricting both to NON-DRAFT PRs, plus a trusted
    command-anchored `/review` PR comment on the `issue_comment` event.
+   `synchronize` is scoped to ready PRs by the draft check: [0056](0056-reviewer-verdict-status-check.md)'s
+   landed verdict contract (accepted while this issue was in flight)
+   requires a fresh verdict when a READY PR's head moves - the gate
+   pends on a head with no verdict, so a push to a ready PR re-kicks the
+   reviewer. The issue's "explicitly NOT synchronize" rationale stands
+   for what it targeted: DRAFT pushes (draft-first, 0046, pushes early
+   and often) never kick - per-push reviews of known-unfinished work
+   would burn sessions and flood the 0051 spend log.
    NOT plain `pull_request`: under it the workflow *definition* comes
    from the PR head, so an agent-authored PR that edits the workflow
    would execute its own modified copy - with `VEGGIES_STACK_PASSWORD`
@@ -50,10 +59,7 @@ merge-authority half: [0007](0007-github-policy-as-code.md)'s invariant
    every event, so `scripts/stack_kick.py` and the no-ask scan always
    run trusted code. The auto-kick job-if requires a same-repo head
    (`head.repo.full_name == github.repository` - fork PRs never reach
-   the kick) and an `agent/issue-*` head ref (human PRs use `/review`).
-   Explicitly NOT `synchronize`: draft-first (0046) pushes early and
-   often, so per-push reviews would burn sessions on known-unfinished
-   work and flood the 0051 spend log.
+    the kick) and an `agent/issue-*` head ref (human PRs use `/review`).
 2. **Kick mode** (`scripts/stack_kick.py` `main_pr()`, routed on
    `PR_NUMBER`): the review-guard `review_reason()` skips closed/merged
    PRs (the review would audit dead work) and drafts (deliberately
@@ -79,18 +85,24 @@ merge-authority half: [0007](0007-github-policy-as-code.md)'s invariant
    --comment`. INSPECT, NEVER EXECUTE is a prompt rule for the session
    too: a PR editing `.pre-commit-config.yaml` or a Makefile would
    otherwise turn the audit into code execution with credentials in
-   env. The persona's brief contract: the first line is
-   `**veggies PR audit** - risk: LOW|MEDIUM|HIGH - audited head <sha>`,
-   then Plan vs diff, Threat-model surface (egress, secrets,
-   permissions, branch protection, `agent-config/`, the kick prompt,
-   the supervisor - including a PR that edits the reviewer's own
-   config), Residual
-   risks, and a mandatory Not-checked list; ~60 lines hard cap (a brief
-   the operator skims is worse than none). The prompt also mandates
-   reading prior reviews - a re-review checks flag resolution, never
-   regenerates a contradictory second opinion - and a double-post guard
-   (a prior bot review stamped with the current head sha means stop),
-   so a 0036 supervisor refinement cannot double-post.
+    env. The persona's brief contract: the first line is
+    `**veggies PR audit** - risk: LOW|MEDIUM|HIGH - audited head <sha>`,
+    then Plan vs diff, Threat-model surface (egress, secrets,
+    permissions, branch protection, `agent-config/`, the kick prompt,
+    the supervisor - including a PR that edits the reviewer's own
+    config), Residual
+    risks, and a mandatory Not-checked list; ~60 lines hard cap (a brief
+    the operator skims is worse than none). The LAST line is the
+    machine-readable verdict (the
+    [0056](0056-reviewer-verdict-status-check.md) contract this PR
+    conforms to): exactly one `pr-review-verdict: pass|fail` line - fail
+    means a blocking finding a human must fix or explicitly override,
+    pass means none; the risk rank stays the triage signal, the verdict
+    is the gate signal. The prompt also mandates
+    reading prior reviews - a re-review checks flag resolution, never
+    regenerates a contradictory second opinion - and a double-post guard
+    (a prior bot review stamped with the current head sha means stop),
+    so a 0036 supervisor refinement cannot double-post.
 4. **Supervision and spend follow the title**: the 0036 critic's
    `KICKED_TITLE` widens to `^(?:PR)?#\d+:` (the review session posts
    public content off untrusted diff material - it is exactly the
@@ -107,7 +119,11 @@ Rejected / deferred:
 
 - Plain `pull_request` (decision 1: the PR head would control the
   workflow definition).
-- `synchronize` (decision 1).
+- `synchronize` on DRAFT PRs (decision 1: the issue's spend rationale).
+  Synchronize on READY PRs was this issue's "explicitly NOT" until
+  [0056](0056-reviewer-verdict-status-check.md) landed mid-flight and
+  made the fresh-verdict-on-new-head a hard requirement - recorded here
+  as the conformance delta.
 - The workflow job posting the brief with its GITHUB_TOKEN while the
   session holds no credential (the strongest committee objection): it
   breaks 0033's fire-and-forget kick shape (a synchronous wait plus a
@@ -187,6 +203,12 @@ Rejected / deferred:
 - Issue #102; discussion #100.
 - Re-enters [0046](0046-draft-first-pr-lifecycle.md)'s deferral;
   amends nothing.
+- Conforms to [0056](0056-reviewer-verdict-status-check.md) (landed
+  mid-flight, contract-first): the brief carries the
+  `pr-review-verdict:` line and `synchronize` on ready PRs re-kicks the
+  reviewer. The 0056 gate itself is terraform opt-in
+  (`pr_review_gate_repos`, default off) - activation is a human step
+  once this reviewer is live.
 - Builds on [0033](0033-issue-triggered-agent-kicks.md) (kick path),
   [0041](0041-discussion-elaboration-persona-roster.md) /
   [0042](0042-multi-role-plan-review.md) (persona roster + plan

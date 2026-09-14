@@ -13,7 +13,7 @@ kick distills
 the thread into issues (plan / happy path / criteria of success), then
 closes it as resolved (ADR 0050). A PR kick audits the final diff against
 the linked issue's acceptance criteria and posted plan, then posts
-exactly one comment-only `gh pr review` (issue #102 / ADR 0054). Used by
+exactly one comment-only `gh pr review` (issue #102 / ADR 0062). Used by
 .github/workflows/agent-trigger.yml on the self-hosted runners, and by hand
 from an operator machine:
 
@@ -168,7 +168,7 @@ def done_reason(repo: str, number: str, token: str) -> str | None:
 
 def review_reason(repo: str, number: str, token: str) -> str | None:
     """Why this PR should NOT be reviewed, or None (the done-guard's PR
-    analog, issue #102 / ADR 0054). A PR is reviewable exactly when open
+    analog, issue #102 / ADR 0062). A PR is reviewable exactly when open
     and non-draft: closed/merged means the review would audit dead work;
     a draft is deliberately unfinished (the issue mode's no-synchronize
     rationale applies to a manual /review too: per-push reviews of
@@ -189,7 +189,7 @@ def review_reason(repo: str, number: str, token: str) -> str | None:
     if head_repo is not None and head_repo != repo:
         return (f"PR {pr.get('html_url')} is from fork {head_repo} - "
                 "reviewing untrusted external trees with the pod's write "
-                "credentials is refused (ADR 0054); land the branch "
+                "credentials is refused (ADR 0062); land the branch "
                 "in-repo first")
     return None
 
@@ -689,13 +689,19 @@ re-entry). You judge with a different model than the PR's author on purpose
    your credentials in the environment.
 4. Post exactly once:
      gh pr review {number} --comment --body "<the brief>"
-   NEVER --approve, NEVER --request-changes (ADR 0054): the bot's approval
+   The brief MUST end with its one machine-readable verdict line
+   (`pr-review-verdict: pass` or `pr-review-verdict: fail`, ADR 0056) -
+   the `pr-review-agent` gate reads it: a `fail` verdict turns that check
+   red on this head until a human act (fix commits - a push re-kicks you
+   on a ready PR - or an explicit override) clears it, so never post a
+   verdict the brief's findings do not support.
+   NEVER --approve, NEVER --request-changes (ADR 0062): the bot's approval
    satisfies no review requirement (ADR 0007) and an approval-shaped
    artifact invites merge-rights creep; a changes-requested review from
    the bot is a blocking-looking artifact the human gate never asked for.
-    Double-post guard: if the prior-reviews read (step 2) already found a
-    review by this bot whose first line stamps a PREFIX of the CURRENT
-    head sha, the review for this head has landed - post nothing and stop.
+     Double-post guard: if the prior-reviews read (step 2) already found a
+     review by this bot whose first line stamps a PREFIX of the CURRENT
+     head sha, the review for this head has landed - post nothing and stop.
 
 Rules of engagement:
 - NEVER start a GitHub comment or review body you post with `/opencode`,
@@ -722,7 +728,7 @@ Rules of engagement:
 def build_review_prompt(repo: str, number: str, title: str, body: str,
                         url: str, comment: str = "",
                         comment_author: str = "") -> str:
-    """Pure: the PR-review kick prompt (issue #102 / ADR 0054). Same shape
+    """Pure: the PR-review kick prompt (issue #102 / ADR 0062). Same shape
     as build_prompt - same body budget, and the triggering /review comment
     rides along."""
     body = (body or "").strip()[:BODY_LIMIT] or "(no description)"
@@ -983,7 +989,7 @@ def main() -> int:
 
 
 def main_pr(number: str) -> int:
-    """PR-review mode (issue #102 / ADR 0054): a ready_for_review
+    """PR-review mode (issue #102 / ADR 0062): a ready_for_review
     transition or a trusted /review PR comment kicks one comment-only
     review session. No done-guard - re-readying after rework and
     re-commenting /review are deliberate acts (the 0038 discussion

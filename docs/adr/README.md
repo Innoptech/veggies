@@ -83,6 +83,7 @@ hand-maintained.
 | [0059](0059-kick-time-tool-pin-gate.md) | Kick-time tool-pin gate: the image attests its toolchain pins, stale images are refused | accepted (renumbered from 0053 - main landed its own 0053..0058 mid-flight) |
 | [0060](0060-per-repo-harness-overlay.md) | Per-repo harness overlay: one veggies.yml key, built from the pinned base at up-time | accepted |
 | [0061](0061-comment-helper-joins-kick-delivery-set.md) | Comment helper joins the agent-kick delivery set | accepted (renumbered from 0054 - main landed its own 0054..0060 mid-flight) |
+| [0062](0062-pr-review-agent-comment-only.md) | Comment-only PR-review agent on the ready transition | accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight) |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)

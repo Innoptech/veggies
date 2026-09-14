@@ -13,12 +13,14 @@ name: agent-trigger
 # ADR 0041: a trusted /elaborate comment on a discussion kicks a session
 # that posts five persona POV comments (domain expert, infra/architecture,
 # marketer, seller, CTO) back on the discussion.
-# ADR 0054 (issue #102): a PR flipping ready_for_review, or a trusted
-# /review PR comment, kicks one comment-only review session - a different
-# model audits the final diff against the issue's acceptance criteria and
-# the posted plan, then posts a risk-ranked `gh pr review --comment`
-# brief. Comment-only, never an approval; the merge gate stays human
-# (ADR 0007).
+# ADR 0062 (issue #102): a PR flipping ready_for_review, a push to an
+# already-ready PR (ADR 0056: the new head needs a fresh verdict), or a
+# trusted /review PR comment, kicks one comment-only review session - a
+# different model audits the final diff against the issue's acceptance
+# criteria and the posted plan, then posts a risk-ranked
+# `gh pr review --comment` brief carrying the machine-readable
+# `pr-review-verdict:` line (ADR 0056). Comment-only, never an approval;
+# the merge gate stays human (ADR 0007).
 #
 # Outbound-only on our side: the self-hosted runner polls GitHub, then
 # calls the stack's opencode API on the VPS host gateway
@@ -33,12 +35,15 @@ on:
   discussion_comment:
     types: [created]
   pull_request_target:
-    # ready_for_review ONLY (ADR 0054): draft-first pushes early and often
-    # (ADR 0046), so `synchronize` would burn review sessions on
-    # known-unfinished work and flood the 0051 spend log. The _target form
-    # is the security boundary: the workflow definition and the checkout
-    # below come from the trusted default branch, never from the PR head.
-    types: [ready_for_review]
+    # ready_for_review + synchronize (ADR 0062/0056): a READY PR that
+    # moves needs a fresh verdict on the new head (the 0056 gate pends
+    # otherwise). Draft pushes stay unreviewed - the job-if's draft check
+    # below owns that (draft-first pushes early and often, ADR 0046;
+    # per-push reviews of known-unfinished work would burn sessions and
+    # flood the 0051 spend log). The _target form is the security
+    # boundary: the workflow definition and the checkout below come from
+    # the trusted default branch, never from the PR head.
+    types: [ready_for_review, synchronize]
 
 # The PR review itself is posted by the kicked session (pod bot PAT, ADR
 # 0030), never by this workflow - the job token needs no write on PRs.
@@ -54,12 +59,15 @@ permissions:
 
 jobs:
   kick:
-    # Trigger gates (ADR 0040, amended by 0043/0054): /opencode (issues),
+    # Trigger gates (ADR 0040, amended by 0043/0062): /opencode (issues),
     # /distill and /elaborate (discussions), and /review (PRs) are
     # COMMANDS - they must start the comment; a prose mention never fires.
-    # ready_for_review auto-kicks only for same-repo agent/issue-* heads:
-    # the fork check keeps secrets away from fork PRs, the prefix keeps
-    # human PRs on the manual /review path. INTERIM (ADR 0043): while the
+    # ready_for_review / synchronize auto-kick only for same-repo,
+    # non-draft agent/issue-* heads: the fork check keeps secrets away
+    # from fork PRs, the prefix keeps human PRs on the manual /review
+    # path, and the draft check keeps per-push reviews off unfinished
+    # work (a synchronize on a draft never kicks). INTERIM (ADR 0043):
+    # while the
     # agent shares the operator's olgam4 identity there is NO login
     # exclusion - olgam4 may trigger. The self-kick loop is bounded by
     # command anchoring, the in-flight guard (all modes, stack_kick.py),
@@ -83,6 +91,7 @@ jobs:
          startsWith(github.event.comment.body, '/elaborate')) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_target' &&
+        github.event.pull_request.draft == false &&
         github.event.pull_request.head.repo.full_name == github.repository &&
         startsWith(github.event.pull_request.head.ref, 'agent/issue-'))
     runs-on: [self-hosted, linux, x64, veggies]
@@ -103,7 +112,7 @@ jobs:
           # pull_request_target already checks out the default branch; pin
           # it for every event so scripts/stack_kick.py and the no-ask
           # scan always run trusted default-branch code, never PR-head
-          # content (ADR 0054).
+          # content (ADR 0062).
           ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-python@v7.0.0
         with:
@@ -117,7 +126,7 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
-          # PR-review mode (ADR 0054): the pull_request slot carries
+          # PR-review mode (ADR 0062): the pull_request slot carries
           # ready_for_review; the issue slot carries a /review comment's PR
           PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) }}
           PR_TITLE: ${{ github.event.pull_request.title || (github.event.issue.pull_request && github.event.issue.title) }}
@@ -152,7 +161,7 @@ jobs:
       # not involved. The password is never posted, only how to read it. The
       # session comment is the user-facing value, so it runs BEFORE the
       # best-effort label housekeeping below (verified 2026-09-11: a failed
-      # DELETE swallowed the success comment). Issues and PRs (ADR 0054)
+      # DELETE swallowed the success comment). Issues and PRs (ADR 0062)
       # get the session link; a discussion kick gets the minimal ack below
       # instead - the session link lives on the issues the agent creates
       # (ADR 0039).
@@ -179,7 +188,7 @@ jobs:
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           issue_n="${{ github.event.issue.number }}"
           if [ -n "$PR_NUMBER" ]; then
-            body="**veggies PR reviewer kicked** - session \`${sid}\` is auditing this PR on stack \`veggie\` (ADR 0054):"
+            body="**veggies PR reviewer kicked** - session \`${sid}\` is auditing this PR on stack \`veggie\` (ADR 0062):"
             body="$body"$' a different model than the author\'s reviews the final diff against the linked'
             body="$body"$' issue\'s acceptance criteria and the posted plan, then posts ONE comment-only'
             body="$body"$' review brief - risk rank first, threat-model hunks flagged. The review never'
@@ -278,7 +287,7 @@ jobs:
             body="$body [Workflow log](${run_url})."
           elif [ -n "$PR_NUMBER" ]; then
             if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-              body="$body"$' (auto-kicked on the ready transition - no action needed; a /review comment re-requests.)'
+              body="$body"$' (auto-kicked on the ready transition or a ready-PR push - no action needed; a /review comment re-requests.)'
             else
               body="$body"$' Comment /review again if it truly needs another review.'
             fi

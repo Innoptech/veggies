@@ -1309,7 +1309,7 @@ def test_discussion_mode_is_not_pin_gated(monkeypatch, calls, tmp_path):
 
     monkeypatch.setattr(stack_kick, "tool_pin_gate", gated)
     assert stack_kick.main() == 0
-# --- PR-review mode (issue #102 / ADR 0054): a ready_for_review
+# --- PR-review mode (issue #102 / ADR 0062): a ready_for_review
 # transition or a trusted /review PR comment kicks one comment-only
 # review session ----------------------------------------------------------
 
@@ -1341,6 +1341,9 @@ def test_build_review_prompt_carries_pr_mission_and_guards():
     assert "post nothing and stop" in p
     # the deliverable excludes code changes
     assert "do not branch, commit, push" in p
+    # the brief carries the machine-readable verdict line the
+    # `pr-review-agent` gate reads (ADR 0056 conformance)
+    assert "pr-review-verdict:" in p
 
 
 def test_build_review_prompt_defaults_truncates_and_carries_comment():
@@ -1504,7 +1507,7 @@ def test_review_reason_refuses_fork_prs(monkeypatch):
     """A trusted /review comment can name a FORK PR (the auto-kick's
     same-repo job-if does not cover that path): checking out an external
     tree into a pod holding the ambient write PAT is a self-escalation
-    hole, so fork PRs are refused outright (ADR 0054)."""
+    hole, so fork PRs are refused outright (ADR 0062)."""
     monkeypatch.setattr(stack_kick, "gh_api", lambda tok, path: {
         "state": "open", "draft": False, "html_url": "https://x/pr/9",
         "head": {"repo": {"full_name": "evil/r"}}})
@@ -1556,7 +1559,7 @@ def test_main_refuses_a_nondigit_issue_number(monkeypatch, calls, capsys):
     assert calls == []  # no session created
 
 
-# --- PR-reviewer persona (issue #102 / ADR 0054): the post-ready auditor
+# --- PR-reviewer persona (issue #102 / ADR 0062): the post-ready auditor
 # is a rostered read-only subagent on a third model -----------------------
 
 
@@ -1585,13 +1588,18 @@ def test_pr_reviewer_persona_shape():
     assert "LOW|MEDIUM|HIGH" in body
     assert "## Not checked" in body
     assert "## Threat-model surface" in body
-    # never an approval-shaped artifact (ADR 0007/0054)
+    # never an approval-shaped artifact (ADR 0007/0062)
     assert "never an approval" in body or "comment-only" in body
+    # the verdict contract (ADR 0056): exactly one machine-readable line,
+    # both values named, and the fail semantics spelled out
+    assert "pr-review-verdict: pass" in body
+    assert "pr-review-verdict: fail" in body
+    assert "exactly one" in body
 
 
-# --- The workflow's PR gate (issue #102 / ADR 0054): the fork gate, the
-# ready_for_review-only trigger, and the trusted-code checkout pin are
-# security boundaries - a simplified-away check must fail loudly here,
+# --- The workflow's PR gate (issue #102 / ADR 0062): the fork gate, the
+# draft filter on the two auto triggers, and the trusted-code checkout pin
+# are security boundaries - a simplified-away check must fail loudly here,
 # not quietly in production -----------------------------------------------
 
 WORKFLOW_YML = (Path(__file__).parent.parent
@@ -1601,13 +1609,15 @@ WORKFLOW_YML = (Path(__file__).parent.parent
 def test_agent_trigger_pr_gate_shape():
     wf = yaml.safe_load(WORKFLOW_YML.read_text())
     on = wf.get("on", wf.get(True))  # yaml 1.1 parses a bare `on:` as True
-    # ready_for_review, never synchronize (ADR 0054: draft-first pushes
-    # early and often; per-push reviews burn sessions on unfinished work)
+    # ready_for_review + synchronize (ADR 0056: a READY PR that moves
+    # needs a fresh verdict on the new head) - and nothing else
     prt = on["pull_request_target"]
-    assert prt["types"] == ["ready_for_review"]
-    assert "pull_request" not in on or "synchronize" not in str(
-        on.get("pull_request"))
+    assert prt["types"] == ["ready_for_review", "synchronize"]
     gate = wf["jobs"]["kick"]["if"]
+    # ...but a synchronize on a DRAFT never kicks: draft-first pushes
+    # early and often (ADR 0046), and per-push reviews of unfinished work
+    # burn sessions and flood the 0051 spend log (issue #102)
+    assert "github.event.pull_request.draft == false" in gate
     # auto-kick serves same-repo agent branches only: a fork PR never
     # reaches the kick (secrets stay home), a human branch waits for the
     # manual /review command
@@ -1616,7 +1626,7 @@ def test_agent_trigger_pr_gate_shape():
     # /review is the only PR comment that kicks - the whole conjunction
     # (PR subject + command-anchored verb + trusted association) is pinned
     # as ONE clause so the trusted-association half can never silently rot
-    # (ADR 0040/0043/0054). The `if: >-` block folds: the parsed value
+    # (ADR 0040/0043/0062). The `if: >-` block folds: the parsed value
     # carries the workflow's more-indented continuation lines as
     # "\n  <text>" (base indentation is stripped by the YAML parser).
     assert ("github.event.issue.pull_request &&\n"

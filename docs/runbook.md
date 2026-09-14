@@ -516,10 +516,10 @@ veggies costs veggie --pr 16             # PR -> agent/issue-M via gh, then --is
   per-title subtotals - plus a per-model breakdown.
 - `--pr N` resolves `agent/issue-M` via operator-side `gh pr view`
   (needs gh auth), then behaves as `--issue M` - authoring spend only;
-  review spend rolls up under the separate `PR#N:` row (ADR 0054's
+  review spend rolls up under the separate `PR#N:` row (ADR 0062's
   deliberate split).
 - Attribution rides the title conventions (`#N:`, `D#N`, `PR#N:` - ADR
-  0034/0038/0041/0054); anything off-convention lands in the
+  0034/0038/0041/0062); anything off-convention lands in the
   always-printed `(unattributed)` bucket.
 
 Honesty clause: spend history lives only in that file - `veggies down
@@ -730,7 +730,7 @@ reconciles the branch and continues the same draft. A ready PR that fell
 behind main is done-guarded (ready = handled) - convert it back with
 `gh pr ready --undo`, then re-kick the issue; the session rebases and
 re-runs the ready-gate. PR comments now kick in exactly one case: a
-trusted comment starting with `/review` (ADR 0054) - and a PR flipping
+trusted comment starting with `/review` (ADR 0062) - and a PR flipping
 `ready_for_review` auto-kicks the reviewer for same-repo `agent/issue-*`
 heads (human PRs take the manual `/review` path; both below).
 A failed kick keeps the label. Discussions have no done-guard: every
@@ -749,14 +749,20 @@ per persona back on the discussion - no branch, no PR. No done-guard:
 re-comment `/elaborate` to re-run. Personas register at stack boot (ADR
 0019): run `veggies up veggie` after this merges before `/elaborate` works.
 
-**PR-review kicks (ADR 0054).** A same-repo `agent/issue-*` PR flipping
-`ready_for_review` - or a trusted comment starting with `/review` on any
+**PR-review kicks (ADR 0062).** A same-repo `agent/issue-*` PR flipping
+`ready_for_review`, a push to an already-ready (non-draft) such PR (ADR
+0056: the new head needs a fresh verdict - a draft's pushes never kick),
+or a trusted comment starting with `/review` on any
 same-repo PR - kicks one comment-only review session titled `PR#N: <title>`: the
 read-only `pr-reviewer` persona (a third model) audits the final diff
 against the issue's acceptance criteria and the posted plan, and the
 session posts exactly one `gh pr review --comment` brief - risk rank on
 the first line, threat-model hunks flagged, a mandatory not-checked
-list; never an approval, the merge gate stays human (ADR 0007). The
+list, and one machine-readable last line `pr-review-verdict: pass|fail`
+(the ADR 0056 contract: the opt-in `pr-review-agent` gate reads it - a
+`fail` verdict reds the check on that head until a human fix or an
+explicit `/gate-override <sha>` clears it); never an approval, the merge
+gate stays human (ADR 0007). The
 first line also stamps the audited head sha - compare it to the PR's
 current head before trusting the rank; a stale stamp means the PR moved
 since the audit. The review-guard skips closed/merged PRs (the audit
