@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0053. Backups stay gated off: re-entry pinned as an operator procedure
+# 0054. Backups stay gated off: re-entry pinned as an operator procedure
 
 ## Context and problem statement
 
@@ -95,7 +95,7 @@ the human can execute it in minutes. Two more facts sharpen the cost:
     calls - comfortable but finite, hence the tripwire.
   - Local-workstation stacks have no backup under ANY gate state;
     re-entry fixes the VPS only.
-  - This is the second consecutive keep-off (0024, now 0053). The
+  - This is the second consecutive keep-off (0024, now 0054). The
     tripwire + the section-1 checklist box are the forcing function; if
     both fail, the gate is de-facto permanent and should be re-decided
     honestly.

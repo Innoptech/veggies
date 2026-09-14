@@ -70,12 +70,12 @@ Converge + verify:
 - [ ] Deny test: in a runner, `curl https://example.com` fails and
       `journalctl -k -g infra-egress-deny` shows the drop (ADR 0006).
 - [ ] Backups enabled: run section 6's "Enabling backups for the first
-      time" (ADR 0053) - bucket, vault keys, `backup_repo`,
-      `backup_enabled: true`, converge, smoke. (gated - ADR 0053)
+      time" (ADR 0054) - bucket, vault keys, `backup_repo`,
+      `backup_enabled: true`, converge, smoke. (gated - ADR 0054)
 - [ ] `systemctl list-timers 'backup*'` shows the timers; a manual
       `systemctl start backup` succeeds (needs real restic creds).
-      (gated - ADR 0053)
-- [ ] Restore drill on a scratch dir: section 6. (gated - ADR 0053)
+      (gated - ADR 0054)
+- [ ] Restore drill on a scratch dir: section 6. (gated - ADR 0054)
 
 Tear down the test VPS when done; record deltas as PRs.
 
@@ -178,7 +178,7 @@ mask vault-view secrets/infra.yml   # source the restic vars from it
 # then: restic -r <repo>:terraform backup terraform/*.tfstate*
 ```
 
-### Enabling backups for the first time (ADR 0053)
+### Enabling backups for the first time (ADR 0054)
 
 Re-entry of the ADR 0024 backup gate; about 15 minutes of operator time.
 Every step runs from the operator workstation unless noted.
@@ -231,11 +231,11 @@ Every step runs from the operator workstation unless noted.
 8. Close-out PR: flip the gated-state prose to "backups live" in the
    LIVING docs - the "Backup status" paragraph and the honesty clause in
    the cost section below, the State/Backups rows in
-   `docs/architecture.md`, section 1's `(gated - ADR 0053)` annotations,
+   `docs/architecture.md`, section 1's `(gated - ADR 0054)` annotations,
    and the deviation-ledger row in `docs/adr/README.md`. ADR files stay
    append-only: do NOT edit ADR 0022's "`backup_enabled` is `false`
-   today" line (or 0053's body) - record the un-gate as a NEW ADR and
-   mark 0053's index row "amended by NNNN"; the new ADR supersedes the
+   today" line (or 0054's body) - record the un-gate as a NEW ADR and
+   mark 0054's index row "amended by NNNN"; the new ADR supersedes the
    dated claims. Small PR, one purpose.
 
 ## 7. Add a model provider key
@@ -449,7 +449,7 @@ veggies costs veggie --pr 16             # PR -> agent/issue-M via gh, then --is
 Honesty clause: spend history lives only in that file - `veggies down
 <name> --purge` deletes it with the state root, and local-workstation
 stacks have no backup at all; restic picks it up only once backups
-un-gate (ADR 0024; un-gate procedure: section 6, ADR 0053). The number
+un-gate (ADR 0024; un-gate procedure: section 6, ADR 0054). The number
 is operational, not an audit trail.
 
 ### Open PRs from a stack (github: true)
@@ -903,10 +903,10 @@ Semantics an operator must know:
 
 Backup status: `spend.jsonl` sits inside the backup role's
 `backup_paths` (`/home/stacks/.local/state/veggies` - pinned by
-`tests/test_backup.py`), but restic stays gated off per ADR 0024/0053
+`tests/test_backup.py`), but restic stays gated off per ADR 0024/0054
 (`backup_enabled: false`), so durability today = one disk; local stacks
 have no backup at all. Un-gating is the operator procedure in section 6
-("Enabling backups for the first time", ADR 0053); its tripwire is the
+("Enabling backups for the first time", ADR 0054); its tripwire is the
 day a `spend.jsonl.5` segment exists (cap full; the next rollover
 deletes the oldest segment). Until then, a manual pull moves
 the ledger (and the rest of the small stack state, minus the bulky

@@ -1,9 +1,9 @@
 """Drift guard: the spend log's host directory stays inside the backup
-role's backup_paths (ADR 0051/0052/0053, issue #80).
+role's backup_paths (ADR 0051/0052/0054, issue #80).
 
 spend.jsonl* is durable paid history. On remote stacks it lives at
 REMOTE_STATE_ROOT/<stack>/; the backup role's backup_paths decides what
-restic covers once the ADR 0024 gate un-gates (procedure: ADR 0053). If
+restic covers once the ADR 0024 gate un-gates (procedure: ADR 0054). If
 the two sides drift apart, the spend log silently leaves the backup set.
 """
 
