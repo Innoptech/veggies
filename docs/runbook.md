@@ -578,13 +578,21 @@ opencode-home volume shadows /root) - stacks on the slim base carry no
 ansible glue. In-container checks are a CLONE-stack story (the VPS
 stack's clone has no `.venv`); in a mount-mode stack the mounted `.venv`
 is the host's and shadows the image's tools on the maskfile's PATH -
-run host-side there instead. On merging hook/binary changes, rebuild the
-image (`veggies prepare`/`up`, or `mask demo-stack`'s prepare step)
-before the next `agent-task` label: kicks branch off `origin/main`, so
-the hooks take effect at merge while the binaries arrive with the
-rebuild. Hosts re-run `mask setup` after pulling - it installs the same
-pinned binaries into `~/.local/bin`. Smoke-test a rebuilt overlay image:
-`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version'`;
+run host-side there instead. On merging hook/binary changes the kick gate
+(ADR 0059) enforces the rebuild ordering: the overlay attests its pinned
+toolchain in `/etc/veggies/tool-pins` at build time, the container start
+publishes it to `/workspace/.veggies/image-tool-pins`, and
+`scripts/stack_kick.py` compares it against the checkout's pins before
+spending a session - a mismatch (or a pre-manifest image) skips the kick
+(exit 3) with a comment naming every skewed pin expected-vs-found. The
+remedy: rebuild on the stack host from a PULLED infra checkout (`veggies
+sync <stack>`, or `veggies prepare` + `up`), then re-add the `agent-task`
+label. The gate covers only checkouts carrying
+`deploy/images/opencode.Containerfile` (this repo); adopted repos' kicks
+proceed with a note in the workflow log. Hosts re-run `mask setup` after
+pulling - it installs the same pinned binaries into `~/.local/bin`.
+Smoke-test a rebuilt overlay image:
+`podman run --rm --entrypoint sh localhost/veggies-opencode:<ver> -c 'python3 --version && mask --version && ansible-vault --version && gitleaks version && actionlint --version && cat /etc/veggies/tool-pins'`;
 and check the base stayed slim:
 `podman run --rm --entrypoint sh localhost/veggies-opencode-base:<ver> -c '! command -v tofu mask ansible'`.
 The in-pod counterpart is a fresh kicked session on the rebuilt image: `command -v` for the rebuilt tools (gitleaks/actionlint today) must resolve to `/usr/local/bin/...` under the gate's own PATH - `PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH" command -v gitleaks actionlint` - because `$HOME` is a writable in-pod volume and a shadow in `~/.local/bin` would pass a plain `command -v` while the hooks run the shadow.
