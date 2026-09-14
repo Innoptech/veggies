@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+import hashlib
 import importlib.util
 import json
 import re
@@ -822,6 +823,107 @@ def test_parse_repo_config_github():
     # PASS validation; the rejection path needs a genuine non-bool
     with pytest.raises(ValueError, match="'github' must be a bool"):
         veggies_stack.parse_repo_config('github: "yes"\n')
+
+
+def test_parse_repo_config_harness_containerfile():
+    cfg, warnings = veggies_stack.parse_repo_config(
+        "harness_containerfile: .veggies/harness.Containerfile\n")
+    assert cfg["harness_containerfile"] == ".veggies/harness.Containerfile"
+    assert warnings == []  # a known key: no unknown-key warning
+
+
+def test_parse_repo_config_harness_containerfile_rejects_bad_values():
+    with pytest.raises(ValueError, match="'harness_containerfile' must be a string"):
+        veggies_stack.parse_repo_config("harness_containerfile: [x]\n")
+    for bad in ("/etc/x", "../x", "a/../../x", '""'):
+        with pytest.raises(ValueError, match="harness_containerfile"):
+            veggies_stack.parse_repo_config(f"harness_containerfile: {bad}\n")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "FROM {base}\n",
+        "from {base}\n",
+        "# harness overlay\n# syntax=dockerfile-inline\n\n  FROM   {base}  \n",
+        # a RUN continuation whose next physical line starts with the word
+        # COPY must not read as a COPY instruction (logical lines join first)
+        "FROM {base}\nRUN curl -fsSL -o /tmp/x https://example.com/x \\\n"
+        "    COPY is just an argument here\n",
+        # imagebuilder strips a leading UTF-8 BOM; a BOM'd overlay is valid
+        "\ufeffFROM {base}\nRUN true\n",
+        # parity (issue #69 adversarial review): buildah joins continuations
+        # by DIRECT concatenation, so `FRO\`+`M <base>` builds as exactly
+        # FROM <base> - accept precisely what buildah would build
+        "FRO\\\nM {base}\nRUN true\n",
+    ],
+)
+def test_validate_overlay_containerfile_ok(text):
+    veggies_stack.validate_overlay_containerfile(
+        text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "RUN echo the token FROM here is only an argument\n",  # no FROM
+        "FROM alpine:3\n",
+        "FROM {base}\nFROM {base}\n",
+        "FROM {base} AS build\n",
+        "FROM --platform=linux/amd64 {base}\n",
+        "FROM {base}\nCOPY tools/ /opt/\n",
+        "FROM {base}\nADD https://x /y\n",
+        # keyword-split smuggle (issue #69 adversarial review): buildah's
+        # direct concatenation makes `FRO\`+`M x` a real second FROM ...
+        "FROM {base}\nFRO\\\nM docker.io/library/alpine:latest\nRUN true\n",
+        # ... and `CO\`+`PY x /y` a real COPY - both must trip here too
+        "FROM {base}\nCO\\\nPY x /y\n",
+        # imagebuilder strips comment lines BEFORE continuation joining:
+        # the trailing backslash on a comment must not hide the COPY
+        "FROM {base}\n# note \\\nCOPY x /y\n",
+    ],
+)
+def test_validate_overlay_containerfile_rejects(text):
+    with pytest.raises(ValueError):
+        veggies_stack.validate_overlay_containerfile(
+            text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+def test_validate_overlay_containerfile_copy_error_teaches():
+    text = f"FROM {veggies_stack.HARNESS_BASE_IMAGE}\nCOPY tools/ /opt/\n"
+    with pytest.raises(ValueError, match="no repo files"):
+        veggies_stack.validate_overlay_containerfile(text)
+    with pytest.raises(ValueError, match="pinned"):
+        veggies_stack.validate_overlay_containerfile(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# escape=`\nFROM {base}\nRUN true\n",
+        "FROM {base}\n# escape=`\nRUN true\n",
+        "FROM {base}\nRUN true\n\t#  ESCAPE = ` \n",
+    ],
+)
+def test_validate_overlay_containerfile_rejects_escape_directive(text):
+    # Parser directives change tokenization itself; v1 overlays support the
+    # default `\` escape only, so the directive is rejected outright rather
+    # than ported (issue #69 adversarial review).
+    with pytest.raises(ValueError, match="escape"):
+        veggies_stack.validate_overlay_containerfile(
+            text.format(base=veggies_stack.HARNESS_BASE_IMAGE))
+
+
+def test_overlay_image_name():
+    text = "FROM x\nRUN a\n"
+    name = veggies_stack.overlay_image_name(text)
+    assert name == veggies_stack.overlay_image_name("FROM x\nRUN a\n")  # deterministic
+    assert name != veggies_stack.overlay_image_name("FROM x\nRUN b\n")  # content-addressed
+    assert re.fullmatch(r"localhost/veggies-harness-overlay:[0-9a-f]{16}", name)
+    # the tag IS sha256(content)[:16] - the unconditional-rebuild invariant
+    # (ADR 0060 rule 3) hangs on this exact derivation
+    assert name == ("localhost/veggies-harness-overlay:"
+                    + hashlib.sha256(text.encode()).hexdigest()[:16])
 
 
 def test_stack_components_includes_mcps():
