@@ -81,6 +81,7 @@ hand-maintained.
 | [0057](0057-harness-base-image-and-repo-overlay.md) | Harness base image split from the repo toolchain overlay | accepted (renumbered from 0053 - main landed its own 0053..0056 mid-flight) |
 | [0058](0058-build-time-egress-legible-denials.md) | Build-time egress: no separate lane; the CLI surfaces proxy denials by domain | accepted (renumbered from 0054 - main landed 0053..0057 mid-flight) |
 | [0059](0059-kick-time-tool-pin-gate.md) | Kick-time tool-pin gate: the image attests its toolchain pins, stale images are refused | accepted (renumbered from 0053 - main landed its own 0053..0058 mid-flight) |
+| [0060](0060-per-repo-harness-overlay.md) | Per-repo harness overlay: one veggies.yml key, built from the pinned base at up-time | accepted |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)
