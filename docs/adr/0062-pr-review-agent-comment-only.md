@@ -199,6 +199,13 @@ Rejected / deferred:
   the verdict. Guarded producer-side (the persona contract: exactly one
   verdict line, the last line, no verdict-shaped quotations); a
   gate-side findall/last-wins rule belongs to 0056's next amendment.
+- Accepted residual, named: the freshness rule narrows, not eliminates,
+  the pin race - a push landing between the final head re-resolution and
+  the post (seconds) still pins a stale-stamped verdict to the current
+  head, which the gate accepts (`commit_id` is its only pin). The
+  brief's stamped sha reveals the mismatch to a human reader (the
+  runbook says to compare); closing the window belongs gate-side (0056:
+  parse and prefix-match the stamp), next amendment.
 - Accepted, named (from this PR's own adversarial review): the
   double-post guard matches the brief's short-sha stamp as a prefix of
   the current head - a PR author could grind a head sha with a colliding

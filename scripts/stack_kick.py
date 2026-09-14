@@ -713,7 +713,8 @@ re-entry). You judge with a different model than the PR's author on purpose
    brief's verdict would pin to a head it never read - do NOT post it.
    Re-audit ONCE for the new head (redo steps 1-3: move the worktree,
    regenerate the diff, re-dispatch the persona, re-stamp the brief) and
-   post that. If the head moved AGAIN during the re-audit, post nothing
+   post that - re-resolving the head again before THAT post too. If the
+   head moved again during the re-audit, post nothing
    and stop: the gate stays pending (the safe state) and the next push
    or a human `/review` re-requests.
 
