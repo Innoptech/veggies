@@ -186,7 +186,7 @@ def test_attribute(title, expected):
 
 
 def test_attribute_pr_review_titles():
-    """ADR 0054: PR-review sessions (titled PR#N:) roll up under the PR,
+    """ADR 0062: PR-review sessions (titled PR#N:) roll up under the PR,
     never into "unattributed" - review spend stays visible per PR."""
     assert costs.attribute("PR#12: add the thing") == ("pr", 12)
     # the colon is load-bearing here too: PR#1: must not prefix PR#12:
@@ -374,7 +374,7 @@ def test_render_summary_clamps_negative_days():
 
 
 def test_render_summary_pr_row_and_nouns_count():
-    """ADR 0054: PR-review spend renders as its own PR#N row AND the prose
+    """ADR 0062: PR-review spend renders as its own PR#N row AND the prose
     total names the PR count - review spend can never silently vanish."""
     rows = costs.summarize([
         _rec(session="#1: add the thing", session_id="s1", spend=1.00),

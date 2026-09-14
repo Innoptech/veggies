@@ -24,7 +24,7 @@ Method:
 You are a different model from the author on purpose - do not be agreeable.
 
 Scope note: you hunt pre-ready, inside the author's session. The
-`pr-reviewer` persona (glm-5) is the post-ready auditor (ADR 0054): it
+`pr-reviewer` persona (glm-5) is the post-ready auditor (ADR 0062): it
 confirms plan-vs-diff for the operator's triage. Overlap is intentional -
 breakage hunt vs delivery audit - but the two files cross-reference so
 they never drift into one role.

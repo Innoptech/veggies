@@ -135,12 +135,12 @@ def parse_spend_log(text: str) -> ParseResult:
 # The colon is load-bearing: `#1:` must not match a prefix of `#12: foo`.
 _ISSUE = re.compile(r"^#(\d+):")
 _DISCUSSION = re.compile(r"^D#(\d+)(?: elaborate)?:")
-_PR = re.compile(r"^PR#(\d+):")  # ADR 0054: PR-review sessions
+_PR = re.compile(r"^PR#(\d+):")  # ADR 0062: PR-review sessions
 
 
 def attribute(session: str) -> tuple[str, int | None]:
     """Title -> attribution target (ADR 0022 decision 3; D#N elaborate from
-    ADR 0041 reports under the discussion; PR#N from ADR 0054 reports
+    ADR 0041 reports under the discussion; PR#N from ADR 0062 reports
     under the PR)."""
     m = _ISSUE.match(session)
     if m:

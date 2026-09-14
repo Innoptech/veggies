@@ -3,7 +3,7 @@
 
 Polls the stack's opencode API on pod loopback; every time a KICKED
 session (titled `#N: <issue>`, ADR 0034, or `PR#N: <pr>` for review
-sessions, ADR 0054) goes idle with an unjudged assistant finish, the
+sessions, ADR 0062) goes idle with an unjudged assistant finish, the
 transcript is judged by a DIFFERENT model via the in-pod router and a
 refinement is posted when below threshold. This is the ADR 0028 critic
 loop, self-driving: `veggies supervise` stays the operator-driven
@@ -40,7 +40,7 @@ from pathlib import Path
 sys.path.insert(0, os.environ.get("STACK_CONFIG_DIR", "/stack-config"))
 import supervisor  # noqa: E402 - the pure critic logic, shipped alongside
 
-KICKED_TITLE = re.compile(r"^(?:PR)?#\d+:")  # ADR 0034/0054: kicked sessions are titled
+KICKED_TITLE = re.compile(r"^(?:PR)?#\d+:")  # ADR 0034/0062: kicked sessions are titled
 
 HEARTBEAT = Path("/tmp/supervise.heartbeat")  # the liveness probe reads this
 
