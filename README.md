@@ -14,7 +14,7 @@ ready only when it is green and merges cleanly against main (ADR 0046).
 Approved PRs then merge through GitHub's native merge queue (ADR 0053) - the
 agents out-produce their reviewer, so the queue, not the operator, owns the
 update-branch ritual. The queue owns ordering, the `pr-review-agent` gate
-owns attention (ADR 0055), and the human owns judgment.
+owns attention (ADR 0056), and the human owns judgment.
 
 ## Quickstart
 

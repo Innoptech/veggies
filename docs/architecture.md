@@ -95,7 +95,7 @@ shared clone checkout (and the `veggies.yml` read at up time) only advances
 on `veggies sync <name>` - pull plus re-up, the one-command
 "merged-to-main -> live on the stack" path.
 
-Merge path (ADR 0055): on opted-in repos (`pr_review_gate_repos`) the
+Merge path (ADR 0056): on opted-in repos (`pr_review_gate_repos`) the
 ruleset additionally requires the `pr-review-agent` check, written solely
 by `.github/workflows/pr-review-gate.yml` running default-branch code on
 every event: `scripts/pr_review_gate.py` recomputes the verdict on every

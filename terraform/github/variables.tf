@@ -103,7 +103,7 @@ variable "merge_queue_repos" {
 
 variable "pr_review_gate_repos" {
   type        = list(string)
-  description = "Repos whose default-branch ruleset also requires the pr-review-agent check (ADR 0055). Opt-in per repo, and only once .github/workflows/pr-review-gate.yml exists there AND the #102 reviewer is live: a required context that never reports wedges every merge - this ruleset has no bypass actors."
+  description = "Repos whose default-branch ruleset also requires the pr-review-agent check (ADR 0056). Opt-in per repo, and only once .github/workflows/pr-review-gate.yml exists there AND the #102 reviewer is live: a required context that never reports wedges every merge - this ruleset has no bypass actors."
   default     = []
 
   validation {

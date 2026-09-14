@@ -25,7 +25,7 @@ must set: `repos`, `admin_login`, `required_checks` (must match the check
 names the project repos' CI actually reports). `merge_queue_repos` opts a repo
 into the merge queue (default empty - see the last "Be careful" bullet).
 `pr_review_gate_repos` opts a repo into the required `pr-review-agent` verdict
-check (ADR 0055; default empty - see "Be careful").
+check (ADR 0056; default empty - see "Be careful").
 
 ## Install agent kicks on a repo (ADR 0048)
 
@@ -65,7 +65,7 @@ note: [the runbook](../../docs/runbook.md#install-agent-kicks-on-a-repo-adr-0048
   path-filtered workflow that doesn't run leaves a required check pending
   forever and blocks every merge. This is why the labeller is not a required
   check.
-- The `pr-review-agent` gate check (`pr_review_gate_repos`, ADR 0055) only
+- The `pr-review-agent` gate check (`pr_review_gate_repos`, ADR 0056) only
   ever reports on repos whose default branch carries
   `.github/workflows/pr-review-gate.yml` - opt-in is conditioned on that file
   existing there and on the #102 reviewer being live; when the repo also uses

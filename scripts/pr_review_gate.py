@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The pr-review-agent gate (issue #103, ADR 0055): the single writer of the
+"""The pr-review-agent gate (issue #103, ADR 0056): the single writer of the
 `pr-review-agent` check run.
 
 Reads a PR's changed files, reviews, and issue comments; computes a
@@ -14,7 +14,7 @@ This script does NOT write the decision log: the self-hosted runner
 container is ephemeral and mounts only its `_work` dir, so a workflow-side
 append would vanish silently. The GitHub review history is the system of
 record; scripts/pr_review_verdicts.py harvests it into
-pr-review-verdicts.jsonl (ADR 0055 decision 7). decision_record/append_log
+pr-review-verdicts.jsonl (ADR 0056 decision 7). decision_record/append_log
 stay here because the harvester imports them.
 
 Stdlib-only (like scripts/stack_kick.py). Env-driven; exits 2 with a message
@@ -55,7 +55,7 @@ CONTEXT = "pr-review-agent"
 VERDICT_RE = re.compile(r"^\s*pr-review-verdict:\s*(pass|fail)\s*$",
                         re.IGNORECASE | re.MULTILINE)
 # Declared-scope roots: a changed path matching any of these voids the agent
-# verdict (ADR 0055). Match = path equals the entry, starts with an entry
+# verdict (ADR 0056). Match = path equals the entry, starts with an entry
 # ending in "/", or basename == "CODEOWNERS".
 SCOPE_ROOTS = (
     "secrets/",
@@ -236,7 +236,7 @@ def decide(draft: bool, scope: list[str],
             listing = "\n".join(f"- {p}" for p in scope)
             parts.append(
                 "A reviewer agent may not clear this PR: it touches the "
-                "declared human-review scope (ADR 0055).\n\n"
+                "declared human-review scope (ADR 0056).\n\n"
                 f"Changed paths in declared scope:\n{listing}\n\n"
                 f"Matched scope roots: {roots}")
         if "verdict-fail" in reds:
@@ -271,7 +271,7 @@ def decision_record(repo: str, pr: int | None, head_sha: str,
                     resolution: str | None = None,
                     review_id: int | None = None,
                     ts: float | None = None) -> dict:
-    """One ADR 0055 decision-log record (12 keys, pinned by pytest).
+    """One ADR 0056 decision-log record (12 keys, pinned by pytest).
     Written only by the harvester (scripts/pr_review_verdicts.py): state is
     'verdict', event 'harvest', reasons ['verdict-pass'|'verdict-fail'],
     review_id the GitHub review id the record was harvested from (the

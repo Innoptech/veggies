@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Harvest pr-review verdict reviews into the decision log (issue #103,
-ADR 0055 decision 7).
+ADR 0056 decision 7).
 
 The GitHub review history is the system of record. This pull-based
 harvester materializes it into pr-review-verdicts.jsonl next to the spend

@@ -77,6 +77,7 @@ hand-maintained.
 | [0053](0053-repository-rulesets-and-the-merge-queue.md) | Repository rulesets and the merge queue | accepted |
 | [0054](0054-backups-stay-gated-off-re-entry-pinned.md) | Backups stay gated off: re-entry pinned as an operator procedure | accepted |
 | [0055](0055-generated-adr-index.md) | Generate the ADR index; status and title are living metadata | accepted |
+| [0056](0056-reviewer-verdict-status-check.md) | The reviewer verdict gates; it never merges | accepted (renumbered from 0055 - main landed its own 0054/0055 mid-flight) |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)

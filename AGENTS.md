@@ -90,7 +90,7 @@ reviews PRs; agents implement. These rules are not negotiable:
    (ADR 0035): the workflow clears it on kick/skip, and the done-guard
    never re-kicks an issue that is closed or has a merged or ready
    `agent/issue-N` PR - an open draft no longer blocks re-kicks
-   (ADR 0046). The pr-review-agent gate (ADR 0055) hard-fails
+   (ADR 0046). The pr-review-agent gate (ADR 0056) hard-fails
    trust-surface diffs (`secrets/`, `.github/workflows/`, `terraform/`,
    `agent-config/`, `scripts/`, `CODEOWNERS`, `AGENTS.md`/`CLAUDE.md`,
    `veggies.yml`, `cli/permission_envelope.py`, `ansible/roles/egress/`)

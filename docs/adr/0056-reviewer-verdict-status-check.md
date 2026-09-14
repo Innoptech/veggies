@@ -1,9 +1,9 @@
 ---
-status: accepted
+status: accepted (renumbered from 0055 - main landed its own 0054/0055 mid-flight)
 date: 2026-09-12
 ---
 
-# 0055. The reviewer verdict gates; it never merges
+# 0056. The reviewer verdict gates; it never merges
 
 ## Context and problem statement
 

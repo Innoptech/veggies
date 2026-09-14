@@ -1038,7 +1038,7 @@ to terraform/terraform.tfvars, then the zero-gap two-phase apply -
 `mask tofu-apply` (removes the classic resource). Applying without the tfvars
 line migrates the policy to the ruleset but leaves the queue off.
 
-## 11. The reviewer verdict gate: pr-review-agent (ADR 0055)
+## 11. The reviewer verdict gate: pr-review-agent (ADR 0056)
 
 On opted-in repos the ruleset additionally requires the `pr-review-agent`
 check on every PR head. One workflow -
@@ -1118,7 +1118,7 @@ Incident valve (no apply): set the repo Actions variable
 `PR_REVIEW_GATE=disabled` - the gate reports success immediately and skips
 all reads.
 
-Re-entry evidence (ADR 0055 decision 9): the disagreement rate the trigger
+Re-entry evidence (ADR 0056 decision 9): the disagreement rate the trigger
 reads is the share of harvested fail verdicts a human later overrode, from
 the stack state dir:
 
@@ -1134,5 +1134,5 @@ jq -rs '{fail: ([.[] | select(.state=="verdict" and .verdict=="fail")] | length)
 `/gate-override` is the escape hatch, priced honestly: under ADR 0043's
 shared identity an agent can forge the comment itself, so on this
 checks-only repo the gate is advisory until #56 - the sha-binding stops a
-genuine override laundering LATER heads, not impersonation. See ADR 0055
+genuine override laundering LATER heads, not impersonation. See ADR 0056
 decision 5.

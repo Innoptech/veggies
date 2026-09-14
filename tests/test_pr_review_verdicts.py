@@ -1,6 +1,6 @@
 """Tests for scripts/pr_review_verdicts.py - the pull-based harvester that
 materializes the GitHub review history (the system of record) into
-pr-review-verdicts.jsonl next to the spend log (issue #103, ADR 0055
+pr-review-verdicts.jsonl next to the spend log (issue #103, ADR 0056
 decision 7). Idempotent by review_id; the gate workflow never writes the
 log (the runner container is ephemeral)."""
 
@@ -26,7 +26,7 @@ T1 = "2026-09-12T10:00:00Z"
 T2 = "2026-09-12T11:00:00Z"
 E1 = datetime(2026, 9, 12, 10, 0, 0, tzinfo=timezone.utc).timestamp()
 
-# The pinned ADR 0055 schema: the 11 original keys plus review_id.
+# The pinned ADR 0056 schema: the 11 original keys plus review_id.
 LOG_KEYS = {"ts", "repo", "pr", "head_sha", "event", "state", "reasons",
             "verdict", "verdict_review_url", "human_actor", "resolution",
             "review_id"}

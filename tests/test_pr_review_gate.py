@@ -1,9 +1,9 @@
 """Tests for scripts/pr_review_gate.py - the deterministic core of the
-pr-review-agent required check (issue #103, ADR 0055): declared-scope
+pr-review-agent required check (issue #103, ADR 0056): declared-scope
 hard-fail plus reviewer-verdict state machine, check-run writer, and
 fail-closed error reporting. The gate does NOT write the decision log -
 the runner container is ephemeral; scripts/pr_review_verdicts.py harvests
-it (ADR 0055 decision 7, tested in tests/test_pr_review_verdicts.py)."""
+it (ADR 0056 decision 7, tested in tests/test_pr_review_verdicts.py)."""
 
 import ast
 import importlib.util
@@ -22,7 +22,7 @@ gate = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gate)
 
 
-# --- scope_hits: the declared-scope guard (ADR 0055) ---------------------
+# --- scope_hits: the declared-scope guard (ADR 0056) ---------------------
 
 def test_scope_hits_matches_every_declared_root():
     """Every SCOPE_ROOTS entry must actually bite: a file under each
@@ -167,7 +167,7 @@ def test_latest_verdict_same_timestamp_higher_review_id_wins():
 
 # --- human_acts: every qualifying human act on THIS head -----------------
 #
-# Two kinds (ADR 0055 decision 5, as amended):
+# Two kinds (ADR 0056 decision 5, as amended):
 # - an APPROVED review pinned to head_sha, OWNER/MEMBER, non-author, that
 #   does NOT itself carry a verdict marker (a verdict never clears itself);
 # - an issue comment starting with `/gate-override <full-head-sha>` from an
@@ -425,7 +425,7 @@ def test_decide_override_posted_early_clears_the_same_head_later():
     assert title == "pr-review-agent: human override"
 
 
-# --- decision_record + append_log: the ADR 0055 audit-trail schema -------
+# --- decision_record + append_log: the ADR 0056 audit-trail schema -------
 #
 # The gate itself never appends (the runner container is ephemeral); the
 # harvester (scripts/pr_review_verdicts.py) is the writer. The schema is
@@ -883,7 +883,7 @@ def test_main_merge_group_requires_head_sha(monkeypatch, tmp_path, capsys):
 # --- workflow contract: .github/workflows/pr-review-gate.yml -------------
 #
 # The workflow is the ONLY writer of the pr-review-agent check; these tests
-# pin its safety invariants (ADR 0055). YAML 1.1 parses bare `on:` as True,
+# pin its safety invariants (ADR 0056). YAML 1.1 parses bare `on:` as True,
 # hence the .get("on", .get(True)) pattern (same as tests/test_infra_ci.py).
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1002,7 +1002,7 @@ def test_context_literal_matches_branch_protection():
     assert gate.CONTEXT == "pr-review-agent"
 
 
-# --- terraform contract: the pr_review_gate_repos opt-in (ADR 0055) --------
+# --- terraform contract: the pr_review_gate_repos opt-in (ADR 0056) --------
 #
 # The ruleset in terraform/github/repos.tf is what turns the pr-review-agent
 # context into a REQUIRED check per repo; these tests pin the contract between
