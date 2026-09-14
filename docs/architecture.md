@@ -104,7 +104,11 @@ mandates the bootstrap; `veggies up` excludes `.veggies/` via the clone's
 kicked sessions fetch and branch off `origin/main` per kick, while the
 shared clone checkout (and the `veggies.yml` read at up time) only advances
 on `veggies sync <name>` - pull plus re-up, the one-command
-"merged-to-main -> live on the stack" path.
+"merged-to-main -> live on the stack" path. Kick feedback (session link,
+discussion ack, skip/failure comments) posts through
+scripts/gh_comment.py, which owns the ADR 0039 mutation split and
+verifies the comment landed before retrying - GitHub can execute a
+comment mutation and then 500 the response (issue #101).
 
 Merge path (ADR 0056): on opted-in repos (`pr_review_gate_repos`) the
 ruleset additionally requires the `pr-review-agent` check, written solely
@@ -150,7 +154,7 @@ cli/             the veggies CLI: veggies.py, veggies_stack.py,
                  supervisor, mcp_toolbox)
 deploy/          Containerfiles + component payloads (MCP toolbox server,
                  supervisor daemon)
-scripts/         tfvars_from_vault.py, vault_get.py, stack_kick.py
+scripts/         tfvars_from_vault.py, vault_get.py, stack_kick.py, gh_comment.py
 tests/           pytest suite + machine-generated golden pod.yaml
 docs/            architecture.md, runbook.md, threat-model.md, adr/
 .github/workflows/  infra-ci.yml, agent-trigger.yml
