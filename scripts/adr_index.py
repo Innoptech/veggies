@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the docs/adr/README.md index table from the ADR files.
 
-Issue #72 / ADR 0054: the table between the <!-- adr-index:start --> and
+Issue #72 / ADR 0055: the table between the <!-- adr-index:start --> and
 <!-- adr-index:end --> markers is a generated artifact - never edit it by
 hand. The source of truth is the ADR files themselves: the number comes
 from the filename (NNNN-<slug>.md), the title from the first H1

@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0054. Generate the ADR index; status and title are living metadata
+# 0055. Generate the ADR index; status and title are living metadata
 
 ## Context and problem statement
 
@@ -57,9 +57,10 @@ garbles ordering.
 **The duplicate-number race is detected, not prevented**: two parallel PRs
 can both claim the next number; the second one's rebase fails the
 validator; fix = rename one file, re-run the script. The race fired on
-this very PR: main took 0053 (rulesets) while this ADR was in flight, the
-validator failed the rebase with the duplicate, and this ADR was renamed
-to 0054 per the recipe. No allocation
+this very PR: main took 0053 (rulesets) and then 0054 (backups) while
+this ADR was in flight; each rebase failed the validator on the duplicate,
+and this ADR was renamed
+to 0055 per the recipe. No allocation
 service - that is perpetual machinery to solve a formatting problem.
 
 **The `status:` frontmatter line and the H1 title are living metadata, not
@@ -68,9 +69,10 @@ PR that supersedes or amends an ADR updates that ADR's `status:` line in
 the same PR - MADR's own lifecycle (`superseded by ADR-XXXX` is template
 vocabulary). The H1 is the index's title source - this PR corrected the
 pre-rename `garden` titles of 0013/0014 (the rename record is 0015). This
-PR synced 17 stale status lines (0001 included - this ADR amends its
-blanket "never edit" with the metadata exception; 0007/0046 carried the
-index's "amended by 0053" claims into the frontmatter). The 0004/0009 rows
+PR synced 18 stale status lines (0001 included - this ADR amends its
+blanket "never edit" with the metadata exception; 0007/0046/0024 carried
+the index's "amended by 0053"/"amended by 0054" claims into the
+frontmatter). The 0004/0009 rows
 were dropped by the first regeneration as phantoms, then restored by #92's
 landed records - the index now renders them from the files like any other
 ADR.

@@ -3,7 +3,7 @@
 New decisions: copy `0000-madr-template.md`, next free number, one topic per
 file. ADRs are append-only history: decision text is immutable; the
 `status:` frontmatter line and the H1 title are living metadata (ADR
-0054) - a PR that supersedes or amends an ADR updates that ADR's
+0055) - a PR that supersedes or amends an ADR updates that ADR's
 `status:` line in the same PR. ADRs record *why* a decision was taken. The system as it is today lives
 in [../architecture.md](../architecture.md); operational procedures in
 [../runbook.md](../runbook.md). Keep both current as reality changes.
@@ -22,7 +22,7 @@ hand-maintained.
 <!-- adr-index:start -->
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | accepted (amended by 0054) |
+| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | accepted (amended by 0055) |
 | [0002](0002-public-cloud-over-vps.md) | OVH Public Cloud over the VPS product line | accepted (target architecture; implementation deferred - see ADR 0008) |
 | [0003](0003-tailscale-only-access.md) | Tailscale-only network access | accepted |
 | [0004](0004-secrets-in-git-via-ansible-vault.md) | Secrets in git via ansible-vault (supersedes the brief's sops+age) | accepted |
@@ -45,7 +45,7 @@ hand-maintained.
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed |
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | accepted |
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: the stack depends on contracts, not tools | accepted |
-| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted |
+| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted (amended by 0054) |
 | [0025](0025-stack-control-plane.md) | Stack control plane: supervision UI and automations | superseded by ADR-0028 |
 | [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 | [0027](0027-second-harness-in-canvas.md) | Second harness: OpenHands-native conversations in the canvas component | superseded by ADR-0028 |
@@ -75,7 +75,8 @@ hand-maintained.
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 | [0052](0052-spend-log-writer.md) | Spend-log writer: litellm custom callback and title stamping | accepted |
 | [0053](0053-repository-rulesets-and-the-merge-queue.md) | Repository rulesets and the merge queue | accepted |
-| [0054](0054-generated-adr-index.md) | Generate the ADR index; status and title are living metadata | accepted |
+| [0054](0054-backups-stay-gated-off-re-entry-pinned.md) | Backups stay gated off: re-entry pinned as an operator procedure | accepted |
+| [0055](0055-generated-adr-index.md) | Generate the ADR index; status and title are living metadata | accepted |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)
