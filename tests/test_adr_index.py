@@ -1,5 +1,5 @@
 """Tests for scripts/adr_index.py - the generated docs/adr/README.md
-index table (issue #72, ADR 0053)."""
+index table (issue #72, ADR 0054)."""
 
 import pytest
 

@@ -3,7 +3,7 @@
 New decisions: copy `0000-madr-template.md`, next free number, one topic per
 file. ADRs are append-only history: decision text is immutable; the
 `status:` frontmatter line and the H1 title are living metadata (ADR
-0053) - a PR that supersedes or amends an ADR updates that ADR's
+0054) - a PR that supersedes or amends an ADR updates that ADR's
 `status:` line in the same PR. ADRs record *why* a decision was taken. The system as it is today lives
 in [../architecture.md](../architecture.md); operational procedures in
 [../runbook.md](../runbook.md). Keep both current as reality changes.
@@ -22,13 +22,15 @@ hand-maintained.
 <!-- adr-index:start -->
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | accepted (amended by 0053) |
+| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | accepted (amended by 0054) |
 | [0002](0002-public-cloud-over-vps.md) | OVH Public Cloud over the VPS product line | accepted (target architecture; implementation deferred - see ADR 0008) |
 | [0003](0003-tailscale-only-access.md) | Tailscale-only network access | accepted |
+| [0004](0004-secrets-in-git-via-ansible-vault.md) | Secrets in git via ansible-vault (supersedes the brief's sops+age) | accepted |
 | [0005](0005-ephemeral-containerised-runners.md) | Ephemeral containerised runners | accepted |
 | [0006](0006-egress-allowlist.md) | Egress allowlist for agent workloads | accepted |
-| [0007](0007-github-policy-as-code.md) | GitHub policy as code | accepted |
+| [0007](0007-github-policy-as-code.md) | GitHub policy as code | accepted (amended by 0053) |
 | [0008](0008-interim-platform-vps-fedora-local-state.md) | Interim platform: manually-rented VPS, Fedora 44, local state | accepted |
+| [0009](0009-rootless-podman-quadlet-instead-of-docker.md) | Rootless Podman + Quadlet instead of Docker | accepted |
 | [0010](0010-crowdsec-auditd-no-fail2ban.md) | CrowdSec + auditd instead of fail2ban | accepted |
 | [0011](0011-litellm-gateway-model-routing.md) | LiteLLM gateway as the model router | accepted |
 | [0012](0012-agent-config-baseline-superpowers.md) | Vendored agent-config baseline; Superpowers as a pinned opencode plugin | accepted |
@@ -72,7 +74,8 @@ hand-maintained.
 | [0050](0050-discussion-distill-command-and-close.md) | Discussion distill command renamed to /distill; distill closes the discussion as resolved | accepted |
 | [0051](0051-spend-log-record-contract.md) | Spend log record contract | accepted (amends 0022 sequencing; renumbered from 0044 - main landed its own 0044..0050 mid-flight) |
 | [0052](0052-spend-log-writer.md) | Spend-log writer: litellm custom callback and title stamping | accepted |
-| [0053](0053-generated-adr-index.md) | Generate the ADR index; status and title are living metadata | accepted |
+| [0053](0053-repository-rulesets-and-the-merge-queue.md) | Repository rulesets and the merge queue | accepted |
+| [0054](0054-generated-adr-index.md) | Generate the ADR index; status and title are living metadata | accepted |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)

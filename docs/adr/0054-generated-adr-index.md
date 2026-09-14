@@ -3,14 +3,15 @@ status: accepted
 date: 2026-09-11
 ---
 
-# 0053. Generate the ADR index; status and title are living metadata
+# 0054. Generate the ADR index; status and title are living metadata
 
 ## Context and problem statement
 
 Every ADR-adding PR hand-appended a row to the same table in
 `docs/adr/README.md`, so two parallel ADR PRs (the norm with kicked agent
 sessions, ADR 0033/0037) guaranteed an adjacent-line merge conflict. The
-index also drifted: it listed 0004/0009, which have no files, claimed
+index also drifted: it listed 0004/0009, which had no files (retroactive
+records landed via #92 while this work was in flight), claimed
 statuses the frontmatter contradicted (0017/0025/0027 said `accepted` while
 the index said superseded), and reworded eight titles. The infra review of
 issue #72 named a second race: two in-flight PRs both claiming the next
@@ -43,17 +44,22 @@ verify gate and CI.) Duplicate numbers, bad filenames,
 missing/invalid frontmatter, unknown statuses, and H1/filename mismatches
 are hard validator errors.
 
-(b) is rejected: it needs a branch-protection bypass for bot pushes to main
-(ADR 0007/0024), moves frontmatter validation from PR time to
+(b) is rejected: it needs a ruleset bypass for bot pushes to main
+(ADR 0007/0053 - the main-branch ruleset has no bypass actors), moves
+frontmatter validation from PR time to
 post-merge-red-main, and catches duplicate numbers no earlier than (a),
-which catches them at the second PR's rebase (branch protection requires
-up-to-date branches). The conflict-bot spends tokens forever on the same
+which catches them at the second PR's rebase (the ruleset's strict status
+policy requires up-to-date branches). The conflict-bot spends tokens
+forever on the same
 toil and is a trust risk the day it resolves wrong; `merge=union` silently
 garbles ordering.
 
 **The duplicate-number race is detected, not prevented**: two parallel PRs
 can both claim the next number; the second one's rebase fails the
-validator; fix = rename one file, re-run the script. No allocation
+validator; fix = rename one file, re-run the script. The race fired on
+this very PR: main took 0053 (rulesets) while this ADR was in flight, the
+validator failed the rebase with the duplicate, and this ADR was renamed
+to 0054 per the recipe. No allocation
 service - that is perpetual machinery to solve a formatting problem.
 
 **The `status:` frontmatter line and the H1 title are living metadata, not
@@ -62,9 +68,12 @@ PR that supersedes or amends an ADR updates that ADR's `status:` line in
 the same PR - MADR's own lifecycle (`superseded by ADR-XXXX` is template
 vocabulary). The H1 is the index's title source - this PR corrected the
 pre-rename `garden` titles of 0013/0014 (the rename record is 0015). This
-PR synced 15 stale status lines (0001 included - this ADR amends its
-blanket "never edit" with the metadata exception); the 0004/0009 rows
-dropped (records never landed; follow-up #92).
+PR synced 17 stale status lines (0001 included - this ADR amends its
+blanket "never edit" with the metadata exception; 0007/0046 carried the
+index's "amended by 0053" claims into the frontmatter). The 0004/0009 rows
+were dropped by the first regeneration as phantoms, then restored by #92's
+landed records - the index now renders them from the files like any other
+ADR.
 
 ## Consequences
 
@@ -79,5 +88,6 @@ dropped (records never landed; follow-up #92).
 
 ## Links
 
-- Issue #72; discussion #66; follow-up #92 (retroactive 0004/0009 records).
+- Issue #72; discussion #66; #92 (retroactive 0004/0009 records - landed
+  while this PR was in flight).
 - `scripts/adr_index.py`; `tests/test_adr_index.py`; ADR 0001, 0045, 0047.
