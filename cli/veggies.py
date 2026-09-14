@@ -761,7 +761,9 @@ def read_repo_text(host: str | None, repo_path: str, rel: str) -> str:
     ValueError naming the veggies.yml key that asked for it."""
     if host is None:
         try:
-            return Path(repo_path, rel).read_text()
+            # Explicit utf-8: the overlay text feeds the content-hash tag,
+            # so the decode must be byte-stable regardless of operator locale.
+            return Path(repo_path, rel).read_text(encoding="utf-8")
         except OSError as e:
             raise ValueError(f"harness_containerfile: cannot read {rel} in "
                              f"{repo_path}: {e}") from e
