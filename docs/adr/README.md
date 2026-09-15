@@ -85,6 +85,12 @@ hand-maintained.
 | [0061](0061-comment-helper-joins-kick-delivery-set.md) | Comment helper joins the agent-kick delivery set | accepted (renumbered from 0054 - main landed its own 0054..0060 mid-flight) |
 | [0062](0062-pr-review-agent-comment-only.md) | Comment-only PR-review agent on the ready transition | accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight; the ambient-PAT residual (#56) is closed by 0063) |
 | [0063](0063-github-app-identity.md) | GitHub App identity: rotating installation tokens replace the bot PAT everywhere | accepted |
+| [0064](0064-innoptech-tailnet-headscale-dex-github-oidc.md) | Innoptech tailnet: self-hosted headscale with Dex-brokered GitHub OIDC | proposed |
+| [0065](0065-cloud-substrate-gcp-compute-engine.md) | Cloud substrate: GCP Compute Engine in a dedicated project (`terraform/gcp/`) | proposed |
+| [0066](0066-isolation-unit-one-vm-per-user.md) | Isolation unit is one VM per user; the stack contract stays single-tenant per node | proposed |
+| [0067](0067-control-plane-veggies-core-web-app.md) | Control plane "veggies core": a thin web app that drives nodes through the CLI | proposed |
+| [0068](0068-kick-routing-central-runners-kick-owner-attribution.md) | Kick routing across nodes: central runner pool, per-repo kick owner, requester attribution | proposed |
+| [0069](0069-backups-live-restic-to-gcs-per-node.md) | Backups live: restic to GCS per node; stack volumes exported; the 0054 gate closes | proposed |
 <!-- adr-index:end -->
 
 ## Deviation ledger (vs the original brief)
