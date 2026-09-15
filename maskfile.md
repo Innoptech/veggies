@@ -10,7 +10,10 @@ tflint, actionlint) live in `~/.local/bin`.
 
 ```bash
 set -euo pipefail
-if [ -e .venv ] && ! .venv/bin/python --version >/dev/null 2>&1; then
+# Probe an entrypoint, not `python`: the python symlink survives a checkout
+# rename but every script's shebang still points at the old path (hit
+# 2026-09-15 after veggie/ -> veggies/).
+if [ -e .venv ] && ! .venv/bin/pip --version >/dev/null 2>&1; then
   echo ".venv exists but its interpreter is gone (checkout moved? venvs are not relocatable) - recreating"
   rm -rf .venv
 fi
