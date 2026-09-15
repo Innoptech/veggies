@@ -56,12 +56,14 @@ def identity_gitconfig(login: str, user_id: int) -> str:
             f"\temail = {user_id}+{login}@users.noreply.github.com\n")
 
 
-def discover_identity(app_jwt: str, get) -> tuple[str, int]:
-    """(login, id) of the App's bot user. Installation tokens cannot call
-    /user; the App JWT can call /app, and /users/<slug>[bot] is public."""
+def discover_identity(app_jwt: str, installation_token: str, get) -> tuple[str, int]:
+    """(login, id) of the App's bot user. The App JWT is valid on /app only
+    (the slug); the bot user's id comes from /users/<slug>[bot] with the
+    installation token - a JWT there is 401 (verified 2026-09-15), and
+    installation tokens cannot call /user at all."""
     slug = get(app_jwt, "/app")["slug"]
     login = f"{slug}[bot]"
-    user = get(app_jwt, "/users/" + urllib.parse.quote(login, safe=""))
+    user = get(installation_token, "/users/" + urllib.parse.quote(login, safe=""))
     return login, int(user["id"])
 
 
@@ -79,13 +81,13 @@ def repo_names(github_repo: str) -> list[str] | None:
 
 def ensure_identity(state: dict, discover, log=log) -> dict:
     """Discover and publish the bot identity once; retried every pass until
-    it lands (the pod's squid may not be up on the first pass - seen live
-    2026-09-15: a startup-only attempt timed out and commits fell back to
-    git defaults for the pod's whole life)."""
-    if state.get("login"):
+    it lands (seen live 2026-09-15: a startup-only attempt timed out on the
+    pod squid's first-connect stall and commits fell back to git defaults
+    for the pod's whole life). Needs a minted token in state."""
+    if state.get("login") or not state.get("token"):
         return state
     try:
-        login, user_id = discover()
+        login, user_id = discover(state["token"])
     except Exception as exc:  # noqa: BLE001 - cosmetic until it lands; tokens are not
         log(f"identity discovery failed, will retry: {exc}")
         return state
@@ -101,16 +103,22 @@ def tick(state: dict, now: float, mint, *, github_repo: str,
     when due. `state` carries expires_at_epoch (+ login/id once known);
     `mint()` returns {"token", "expires_at"}."""
     HEARTBEAT.touch()
+    if needs_refresh(state.get("expires_at_epoch"), now):
+        state = _refresh(state, mint, github_repo=github_repo,
+                         permissions=permissions, log=log)
     if discover is not None:
         state = ensure_identity(state, discover, log=log)
-    if not needs_refresh(state.get("expires_at_epoch"), now):
-        return state
+    return state
+
+
+def _refresh(state: dict, mint, *, github_repo: str, permissions: dict, log) -> dict:
     try:
         minted = mint(repositories=repo_names(github_repo), permissions=permissions)
     except Exception as exc:  # noqa: BLE001 - keep the old token, say why
         log(f"mint failed, keeping the current token: {exc}")
         return state
     write_atomic(AUTH_DIR / "token", minted["token"])
+    state["token"] = minted["token"]  # in-memory only: identity lookups reuse it
     state["expires_at_epoch"] = github_app_token.expires_at_epoch(minted["expires_at"])
     write_atomic(AUTH_DIR / "status.json", json.dumps({
         "login": state.get("login"), "id": state.get("id"),
@@ -134,9 +142,9 @@ def main() -> int:
     def mint(**kw):
         return github_app_token.mint(app_id, installation_id, pem, **kw)
 
-    def discover():
+    def discover(installation_token):
         return discover_identity(github_app_token.app_jwt(app_id, pem),
-                                 github_app_token.app_get)
+                                 installation_token, github_app_token.app_get)
 
     while True:
         state = tick(state, time.time(), mint, github_repo=github_repo,

@@ -39,6 +39,10 @@ USER_AGENT = "veggies-github-app"
 # GitHub caps App JWTs at 10 minutes; leave headroom and absorb clock skew.
 JWT_TTL_SECONDS = 9 * 60
 CLOCK_SKEW_SECONDS = 60
+# Per-request timeout. Measured 2026-09-15: the pod squid's FIRST CONNECT to
+# api.github.com takes 35-40s (chained-proxy DNS stall); a 30s timeout made
+# every first attempt fail while the second succeeded.
+REQUEST_TIMEOUT_S = 90
 
 
 class GitHubAppError(RuntimeError):
@@ -66,7 +70,7 @@ def app_jwt(app_id: str | int, private_key_pem: str, now: float | None = None) -
 
 
 def _request(method: str, path: str, bearer: str, body: dict | None,
-             urlopen=urllib.request.urlopen, timeout: float = 30) -> dict:
+             urlopen=urllib.request.urlopen, timeout: float = REQUEST_TIMEOUT_S) -> dict:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(
         f"{API_BASE}{path}",
@@ -91,9 +95,11 @@ def _request(method: str, path: str, bearer: str, body: dict | None,
         raise GitHubAppError(exc.code, message or exc.reason or "", path) from None
 
 
-def app_get(token_jwt: str, path: str, urlopen=urllib.request.urlopen) -> dict:
-    """GET as the App itself (JWT auth) - e.g. `/app` for the slug."""
-    return _request("GET", path, token_jwt, None, urlopen=urlopen)
+def app_get(bearer: str, path: str, urlopen=urllib.request.urlopen) -> dict:
+    """GET with a bearer: the App JWT for `/app*` (e.g. `/app` for the slug),
+    an installation token for everything else - a JWT on `/users/...` is
+    401 "Bad credentials" (verified 2026-09-15)."""
+    return _request("GET", path, bearer, None, urlopen=urlopen)
 
 
 def installation_token(token_jwt: str, installation_id: str | int, *,

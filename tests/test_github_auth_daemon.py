@@ -31,16 +31,17 @@ def test_identity_gitconfig_is_the_bot_noreply_identity(daemon):
     assert "email = 329273836+veggies-harness[bot]@users.noreply.github.com" in text
 
 
-def test_discover_identity_uses_app_then_bot_user(daemon):
+def test_discover_identity_uses_jwt_for_app_and_token_for_the_bot_user(daemon):
     calls = []
 
-    def get(jwt, path):
-        calls.append((jwt, path))
+    def get(bearer, path):
+        calls.append((bearer, path))
         return {"slug": "veggies-harness"} if path == "/app" else {"id": 329273836}
 
-    assert daemon.discover_identity("JWT", get) == ("veggies-harness[bot]", 329273836)
-    # brackets are percent-encoded in the path; both calls ride the App JWT
-    assert calls == [("JWT", "/app"), ("JWT", "/users/veggies-harness%5Bbot%5D")]
+    assert daemon.discover_identity("JWT", "ghs_tok", get) == ("veggies-harness[bot]", 329273836)
+    # /app takes the App JWT; /users/... takes the installation token (a JWT
+    # there is 401, verified live); brackets are percent-encoded
+    assert calls == [("JWT", "/app"), ("ghs_tok", "/users/veggies-harness%5Bbot%5D")]
 
 
 def test_needs_refresh_window(daemon):
@@ -100,10 +101,11 @@ def test_installation_wide_when_no_repo(daemon):
 def test_identity_retries_until_it_lands_then_stops(daemon):
     attempts = []
 
-    def discover():
+    def discover(token):
+        assert token == "t"  # the freshly minted installation token
         attempts.append(1)
         if len(attempts) < 3:
-            raise TimeoutError("squid not up yet")
+            raise TimeoutError("first-connect stall")
         return "veggies-harness[bot]", 329273836
 
     mint = mock.Mock(return_value={"token": "t", "expires_at": "1970-01-01T01:00:00Z"})
@@ -118,5 +120,15 @@ def test_identity_retries_until_it_lands_then_stops(daemon):
     assert state["login"] == "veggies-harness[bot]" and state["id"] == 329273836
     assert "329273836+veggies-harness[bot]@users.noreply.github.com" in \
         (daemon.AUTH_DIR / "identity.gitconfig").read_text()
-    # the token was minted on the very first pass regardless of identity
+    # the token was minted on the very first pass, before any identity call
     assert mint.call_count == 1
+    assert (daemon.AUTH_DIR / "token").read_text() == "t"
+
+
+def test_identity_waits_for_a_token(daemon):
+    discover = mock.Mock()
+    mint = mock.Mock(side_effect=RuntimeError("down"))
+    state = daemon.tick({}, now=0.0, mint=mint, github_repo="", permissions={},
+                        log=lambda m: None, discover=discover)
+    discover.assert_not_called()  # no token yet -> nothing to look the bot up with
+    assert "login" not in state
