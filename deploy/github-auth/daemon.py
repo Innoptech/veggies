@@ -93,8 +93,16 @@ def ensure_identity(state: dict, discover, log=log) -> dict:
         return state
     write_atomic(AUTH_DIR / "identity.gitconfig", identity_gitconfig(login, user_id))
     state.update(login=login, id=user_id)
+    write_status(state)  # `veggies status` shows the login once known
     log(f"identity: {login} {user_id}")
     return state
+
+
+def write_status(state: dict) -> None:
+    write_atomic(AUTH_DIR / "status.json", json.dumps({
+        "login": state.get("login"), "id": state.get("id"),
+        "repo": state.get("repo"), "expires_at": state.get("expires_at"),
+        "expires_at_epoch": state.get("expires_at_epoch")}))
 
 
 def tick(state: dict, now: float, mint, *, github_repo: str,
@@ -119,11 +127,10 @@ def _refresh(state: dict, mint, *, github_repo: str, permissions: dict, log) -> 
         return state
     write_atomic(AUTH_DIR / "token", minted["token"])
     state["token"] = minted["token"]  # in-memory only: identity lookups reuse it
+    state["repo"] = github_repo
+    state["expires_at"] = minted["expires_at"]
     state["expires_at_epoch"] = github_app_token.expires_at_epoch(minted["expires_at"])
-    write_atomic(AUTH_DIR / "status.json", json.dumps({
-        "login": state.get("login"), "id": state.get("id"),
-        "repo": github_repo, "expires_at": minted["expires_at"],
-        "expires_at_epoch": state["expires_at_epoch"]}))
+    write_status(state)
     log(f"minted, expires_at={minted['expires_at']} repo={github_repo or '<installation>'}")
     return state
 

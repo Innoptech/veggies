@@ -120,6 +120,9 @@ def test_identity_retries_until_it_lands_then_stops(daemon):
     assert state["login"] == "veggies-harness[bot]" and state["id"] == 329273836
     assert "329273836+veggies-harness[bot]@users.noreply.github.com" in \
         (daemon.AUTH_DIR / "identity.gitconfig").read_text()
+    # status.json catches up with the identity (it was written null at mint time)
+    status = json.loads((daemon.AUTH_DIR / "status.json").read_text())
+    assert status["login"] == "veggies-harness[bot]" and status["expires_at_epoch"] == 3600.0
     # the token was minted on the very first pass, before any identity call
     assert mint.call_count == 1
     assert (daemon.AUTH_DIR / "token").read_text() == "t"
