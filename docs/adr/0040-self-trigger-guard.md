@@ -1,5 +1,5 @@
 ---
-status: accepted (amended by 0043)
+status: accepted (amended by 0043; bot exclusion restored by 0063 as a type check)
 date: 2026-09-11
 ---
 
