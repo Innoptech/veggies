@@ -60,11 +60,54 @@ def test_write_env_permissions(tmp_path):
 
 def test_load_env_file(tmp_path, monkeypatch):
     env_file = tmp_path / "api.env"
-    env_file.write_text("# comment\n\nGH_RUNNER_ADMIN_TOKEN=tok\nGITHUB_OWNER=me\nBAD LINE\n")
+    env_file.write_text("# comment\n\nGITHUB_APP_ID=123\nGITHUB_OWNER=me\nBAD LINE\n")
     monkeypatch.setenv("GITHUB_OWNER", "preexisting")
     frt.load_env_file(str(env_file))
     import os
 
-    assert os.environ["GH_RUNNER_ADMIN_TOKEN"] == "tok"
+    assert os.environ["GITHUB_APP_ID"] == "123"
     assert os.environ["GITHUB_OWNER"] == "preexisting"  # never overrides
     assert "BAD LINE" not in os.environ
+
+
+def test_admin_permissions_are_the_narrowest_per_scope():
+    assert frt.admin_permissions("repo") == {"administration": "write"}
+    assert frt.admin_permissions("org") == {"organization_self_hosted_runners": "write"}
+
+
+def test_main_mints_a_narrowed_app_token_then_registers(tmp_path, monkeypatch):
+    # ADR 0063: hop 1 = installation token scoped to this repo + runner
+    # administration only (never the App's full grant); hop 2 = the
+    # registration token with that bearer. The PEM comes from a file, never
+    # from the KEY=value env file.
+    pem = tmp_path / "app.pem"
+    pem.write_text("-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----\n")
+    env_file = tmp_path / "api.env"
+    env_file.write_text(
+        f"GITHUB_APP_ID=4945586\nGITHUB_APP_INSTALLATION_ID=77\nGITHUB_APP_PEM_PATH={pem}\n"
+        "GITHUB_OWNER=Innoptech\nGITHUB_RUNNER_SCOPE=repo\nGITHUB_RUNNER_LABELS=a,b\n"
+    )
+    for name in ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PEM_PATH",
+                 "GITHUB_OWNER", "GITHUB_RUNNER_SCOPE", "GITHUB_RUNNER_LABELS"):
+        monkeypatch.delenv(name, raising=False)
+    out = tmp_path / "veggies-1.env"
+    mint = mock.Mock(return_value={"token": "ghs_app", "expires_at": "2026-01-01T00:00:00Z"})
+    monkeypatch.setattr(frt.github_app_token, "mint", mint)
+    monkeypatch.setattr("sys.argv", ["fetch_runner_token", "--instance", "veggies-1",
+                                     "--out", str(out), "--env-file", str(env_file)])
+    with mock.patch.object(frt.urllib.request, "urlopen", return_value=_mock_response({"token": "REG"})) as u:
+        assert frt.main() == 0
+    assert mint.call_args.args == ("4945586", "77", pem.read_text())
+    assert mint.call_args.kwargs == {"repositories": ["veggies"], "permissions": {"administration": "write"}}
+    req = u.call_args[0][0]
+    assert req.headers["Authorization"] == "Bearer ghs_app"
+    assert req.full_url == "https://api.github.com/repos/Innoptech/veggies/actions/runners/registration-token"
+    assert "RUNNER_TOKEN=REG\n" in out.read_text() and "RUNNER_LABELS=a,b\n" in out.read_text()
+
+
+def test_main_names_missing_env(tmp_path, monkeypatch, capsys):
+    for name in ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PEM_PATH", "GITHUB_OWNER"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("sys.argv", ["fetch_runner_token", "--instance", "x-1", "--out", str(tmp_path / "o")])
+    assert frt.main() == 2
+    assert "GITHUB_APP_PEM_PATH" in capsys.readouterr().err

@@ -1,6 +1,7 @@
 ---
-# Master switch (ADR 0024): false while the org-approved fine-grained PAT is
-# pending - registration needs the GitHub API.
+# Master switch: registration needs the GitHub API as the veggies-harness
+# App (ADR 0063: vault keys github_app_*; the fetcher mints a token narrowed
+# to runner administration before every start).
 github_runner_enabled: true
 
 # Runner identity and shape (sized for 6 vCPU / 12 GB).

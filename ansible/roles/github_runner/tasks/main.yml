@@ -63,6 +63,24 @@
     group: "{{ github_runner_user }}"
     mode: "0750"
 
+# ADR 0063: the fetcher mints a GitHub App installation token before asking
+# for the registration token; the minter is the repo's one implementation
+# (files/github_app_token.py is a git symlink to scripts/github_app_token.py).
+- name: Install the token minter's dependencies
+  ansible.builtin.dnf:
+    name:
+      - python3-jwt
+      - python3-cryptography
+    state: present
+
+- name: Install the App token minter beside the fetcher
+  ansible.builtin.copy:
+    src: github_app_token.py
+    dest: "/home/{{ github_runner_user }}/.local/bin/github_app_token.py"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0750"
+
 - name: Install the token fetcher
   ansible.builtin.copy:
     src: fetch_runner_token.py
@@ -88,14 +106,24 @@
     mode: "0600"
     force: false # never clobber an operator's hand edits
 
-- name: Install the API env file (from the vault)
+- name: Install the App private key (from the vault)
+  ansible.builtin.copy:
+    # `trim` normalizes the vault's block scalar; PEM needs its final newline.
+    content: "{{ github_app_private_key | trim }}\n"
+    dest: "/home/{{ github_runner_user }}/.config/gh-runner/app.pem"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0600"
+  no_log: true # the App private key
+  when: github_runner_register
+
+- name: Install the API env file (App coordinates; the key stays in app.pem)
   ansible.builtin.template:
     src: api.env.j2
     dest: "/home/{{ github_runner_user }}/.config/gh-runner/api.env"
     owner: "{{ github_runner_user }}"
     group: "{{ github_runner_user }}"
     mode: "0600"
-  no_log: true # contains the admin token
   when: github_runner_register
 
 - name: Install the quadlet template

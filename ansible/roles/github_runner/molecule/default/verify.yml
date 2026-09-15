@@ -17,11 +17,34 @@
         cmd: /home/gh-runner/.local/bin/fetch_runner_token --help
       changed_when: false
 
+    - name: App token minter installed beside the fetcher (ADR 0063)
+      ansible.builtin.stat:
+        path: /home/gh-runner/.local/bin/github_app_token.py
+      register: github_runner_minter
+      failed_when: >
+        not github_runner_minter.stat.exists
+        or github_runner_minter.stat.mode != "0750"
+
+    - name: Minter dependencies import as the runner user
+      ansible.builtin.command:
+        cmd: /usr/bin/python3 -c "import jwt, cryptography, github_app_token"
+      changed_when: false
+      become: true
+      become_user: gh-runner
+      environment:
+        PYTHONPATH: /home/gh-runner/.local/bin
+
     - name: No API env file when registration is disabled
       ansible.builtin.stat:
         path: /home/gh-runner/.config/gh-runner/api.env
       register: github_runner_api_env
       failed_when: github_runner_api_env.stat.exists
+
+    - name: No App private key when registration is disabled
+      ansible.builtin.stat:
+        path: /home/gh-runner/.config/gh-runner/app.pem
+      register: github_runner_app_pem
+      failed_when: github_runner_app_pem.stat.exists
 
     - name: Quadlet template exists
       ansible.builtin.slurp:
