@@ -8,3 +8,4 @@ molecule-plugins[podman]==26.7.15 # provides the podman driver
 pre-commit==4.6.2
 yamllint==1.38.0
 pytest==9.1.1
+PyJWT==2.10.1 # GitHub App installation-token minter (scripts/github_app_token.py, ADR 0063); cryptography rides in via ansible-core
