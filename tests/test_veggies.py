@@ -1675,7 +1675,8 @@ def test_cmd_ui_reuses_live_tunnel_and_stop_kills(monkeypatch, tmp_path):
 
 def test_prepare_uses_local_repo_config_and_streams(monkeypatch, tmp_path,
                                                     capsys):
-    (tmp_path / "veggies.yml").write_text("mcps: [toolbox]\n")
+    (tmp_path / "veggies.yml").write_text(
+        "mcps: [toolbox]\ngithub: true\nsupervision: supervisor\n")
     calls = []
 
     def fake_ensure(host, repo, spec, verbose=False, overlay=None):
@@ -1690,6 +1691,10 @@ def test_prepare_uses_local_repo_config_and_streams(monkeypatch, tmp_path,
     assert overlay is None  # no harness_containerfile in this veggies.yml
     assert "toolbox" in comps  # mcps from the local veggies.yml honored
     assert comps[:3] == ["opencode", "litellm", "squid"]
+    # the WHOLE declared set warms, not just the core three: the capability
+    # selection (supervisor) and the sidecar implied by github: true (ADR
+    # 0063) - a first `up` used to rebuild these after prepare said "ready"
+    assert "supervisor" in comps and "github-auth" in comps
     out = capsys.readouterr().out
     assert "veggies up" in out and "--host veggies" in out and "--clone" in out
 

@@ -903,9 +903,15 @@ def cmd_prepare(args: argparse.Namespace) -> int:
                              "mcps are only visible in a local --repo)"]
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
+    # The whole component set the repo declares - capability selections,
+    # MCPs and the github-auth sidecar implied by `github: true` (ADR 0063)
+    # - so a first `up` finds every image warm, not just the core three.
     spec = StackSpec(name=name, repo=str(local if local.is_dir() else args.repo),
                      mode="mount", port=0, host=host,
-                     mcps=tuple(cfg.get("mcps") or ()))
+                     components=cfg.get("components"),
+                     selections=cfg.get("selections"),
+                     mcps=tuple(cfg.get("mcps") or ()),
+                     github=cfg.get("github", False))
     overlay = None
     if local.is_dir():
         overlay = resolve_harness_overlay(None, str(local), cfg)
