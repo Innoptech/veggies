@@ -116,7 +116,7 @@ Three domain files, all committed **encrypted** (pre-commit + CI enforce):
 | File | Holds | Consumed by |
 |------|-------|-------------|
 | `secrets/model.yml` | Fireworks key, litellm master key | injected per stack by `veggies` (podman secrets) |
-| `secrets/github.yml` | GitHub App creds or bot PAT | tofu github module, runner registration, `GH_TOKEN` in github-enabled stacks (ADR 0030) |
+| `secrets/github.yml` | GitHub App creds (`github_app_id`, `github_app_installation_id`, `github_app_private_key` - a `\|` block scalar, never `>`), `veggies_stack_password` | tofu github module (`app_auth`), runner registration, the `github-auth` sidecar in github-enabled stacks (ADR 0063) |
 | `secrets/infra.yml` | tailscale auth key, restic password + S3 creds | tailscale/backup roles |
 
 Structure templates: `secrets/*.yml.example`. Rules: never decrypt to disk;
@@ -135,7 +135,7 @@ Rotation matrix (do these in one PR each):
 |--------|-----------|
 | fireworks_api_key | new key in Fireworks console -> vault-edit model.yml -> `veggies down <name>` + `veggies up` per stack -> revoke old |
 | per-stack litellm keys | random per stack; rotate with `veggies down <name> --purge` + `veggies up` |
-| github_token / App key | new credential -> vault-edit github.yml -> `mask tofu-apply` + converge -> `veggies up` per github-enabled stack |
+| github_app_private_key | App settings -> "Generate a private key" -> vault-edit github.yml (`\|` block scalar) -> `mask converge` (runner PEM) -> `veggies up` per github-enabled stack -> revoke the OLD key in the App settings. Tokens minted from it expire within the hour |
 | tailscale_auth_key | new pre-auth key (tagged) -> vault-edit infra.yml -> converge (no-op while Running; only used at join) |
 | restic_password | vault-edit infra.yml -> converge; old snapshots need the OLD password - keep it until you prune or re-key the repo |
 | converge_ssh_private_key | new keypair -> pubkey into admin_ssh_public_keys (group_vars) -> converge -> vault-edit infra.yml |
@@ -927,13 +927,13 @@ block, one apply, one merge.
 0. Prerequisites:
    - the repo's stack is serving - `veggies ls` shows it and its port
      (that port is the block's `stack_port`);
-   - the tofu identity (bot PAT or App) holds Actions `Secrets: write` +
-     `Variables: write` + `Contents: write` ON THE NEW REPO (the 0033
-     adoption 403; `Contents: write` covers the delivery-branch push and
-     file commits). TODO(verify): pushing `.github/workflows/*` may need
-     more per token type - classic PAT: the `workflow` scope; GitHub App:
-     the Workflows repository permission; fine-grained PAT behavior
-     unverified - the first apply surfaces it loudly;
+   - the `veggies-harness` App is INSTALLED on the new repo (GitHub UI:
+     org settings -> GitHub Apps -> veggies-harness -> Configure -> add the
+     repository; ADR 0063 - the installation list is a browser step, the
+     provider cannot manage it under App auth). The App already holds
+     Actions `Secrets: write` + `Variables: write` + `Contents: write`
+     (delivery-branch push and file commits) + `Workflows: write` (the
+     delivery pushes `.github/workflows/*`);
    - if the repo already has the `agent-task` label or `VEGGIES_STACK_*`
      secret/variables from the manual 0033 adoption, the apply collides:
      the label create 422s and the variable creates 409 (the secret PUT is

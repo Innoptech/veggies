@@ -15,7 +15,7 @@ module "agent_kick_veggies" {
   source = "./modules/agent-kick"
 
   repo           = "veggies"
-  stack_port     = 0 # TODO(you): the live port (`veggies ls`) - must match before apply
+  stack_port     = 4098 # the live port (`veggies ls`) - must match before apply
   stack_password = var.veggies_stack_password
 
   # This repo holds the master copies by definition - tofu must not own

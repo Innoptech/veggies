@@ -62,7 +62,7 @@ jobs:
           eval "$(python scripts/tfvars_from_vault.py \
             --password-file "$RUNNER_TEMP/vault/password" \
             secrets/github.yml secrets/model.yml secrets/infra.yml)"
-          export GITHUB_TOKEN="$TF_VAR_github_token"
+          unset GITHUB_TOKEN # app_auth from TF_VAR_github_app_* (ADR 0063)
           cd terraform
           tofu init -input=false
           tofu apply -input=false -auto-approve

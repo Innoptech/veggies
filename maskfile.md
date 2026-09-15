@@ -107,13 +107,13 @@ tofu validate
 
 ## tofu-plan
 
-> Read-only plan. Exports TF_VAR_* from the vault to the process env (never to disk).
+> Read-only plan. Exports TF_VAR_* from the vault to the process env (never to disk); the github provider authenticates as the App (ADR 0063).
 
 ```bash
 set -euo pipefail
 export PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"
 eval "$(python scripts/tfvars_from_vault.py secrets/github.yml secrets/model.yml secrets/infra.yml)"
-export GITHUB_TOKEN="${TF_VAR_github_token:-}" # the github provider's auth
+unset GITHUB_TOKEN # the provider authenticates as the App (app_auth, ADR 0063); a set token would silently win
 cd terraform && tofu plan
 ```
 
@@ -130,7 +130,7 @@ read -r answer
 [ "$answer" = "apply" ] || { echo "Aborted."; exit 1; }
 export PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"
 eval "$(python scripts/tfvars_from_vault.py secrets/github.yml secrets/model.yml secrets/infra.yml)"
-export GITHUB_TOKEN="${TF_VAR_github_token:-}" # the github provider's auth
+unset GITHUB_TOKEN # the provider authenticates as the App (app_auth, ADR 0063); a set token would silently win
 cd terraform && tofu apply
 ```
 
