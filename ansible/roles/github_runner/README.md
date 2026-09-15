@@ -8,9 +8,13 @@ Ephemeral, rootless, quadlet-based GitHub Actions runners (ADRs 0005, 0009).
    (`gh-runner@<repo>-<n>.container` or `gh-runner@<n>.container` for
    `github_runner_scope: org`) live in `~gh-runner/.config/containers/systemd/`.
 2. On every (re)start, systemd's `ExecStartPre` runs `fetch_runner_token`,
-   which POSTs the GitHub API (PAT from `secrets/github.yml`, mode 0600 env
-   file) for a **short-lived registration token** and writes the instance env
-   file. No long-lived runner token exists anywhere.
+   which first mints a one-hour GitHub App installation token narrowed to
+   runner administration on that repo (App id/installation from `api.env`,
+   private key from `app.pem`, both 0600, from `secrets/github.yml` - ADR
+   0063; the minter is `github_app_token.py`, a copy of the repo's
+   `scripts/` original), then POSTs for a **short-lived registration
+   token** and writes the instance env file. No long-lived token exists
+   anywhere; the key can only ever mint what the App is allowed.
 3. The container registers with `--ephemeral --unattended --disableupdate`,
    runs exactly one job, exits; systemd restarts the unit with a fresh token.
 
@@ -22,7 +26,9 @@ Ephemeral, rootless, quadlet-based GitHub Actions runners (ADRs 0005, 0009).
   Containerfile (Ubuntu 24.04, tarball pinned by version + sha256).
 - Per-unit cgroup limits: `MemoryMax=4G`, `CPUQuota=250%` (defaults for
   6 vCPU / 12 GB; override via variables).
-- `~gh-runner/.config/gh-runner/api.env` (0600, from the vault).
+- `~gh-runner/.config/gh-runner/api.env` (0600, App coordinates) and
+  `app.pem` (0600, the App private key, from the vault).
+- `python3-jwt` + `python3-cryptography` (dnf) for the minter.
 
 ## Variables
 
