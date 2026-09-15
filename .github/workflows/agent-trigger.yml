@@ -59,34 +59,40 @@ permissions:
 
 jobs:
   kick:
-    # Trigger gates (ADR 0040, amended by 0043/0062): /opencode (issues),
+    # Trigger gates (ADR 0040, amended by 0062; 0043 superseded by 0063):
+    # /opencode (issues),
     # /distill and /elaborate (discussions), and /review (PRs) are
     # COMMANDS - they must start the comment; a prose mention never fires.
     # ready_for_review / synchronize auto-kick only for same-repo,
     # non-draft agent/issue-* heads: the fork check keeps secrets away
     # from fork PRs, the prefix keeps human PRs on the manual /review
     # path, and the draft check keeps per-push reviews off unfinished
-    # work (a synchronize on a draft never kicks). INTERIM (ADR 0043):
-    # while the
-    # agent shares the operator's olgam4 identity there is NO login
-    # exclusion - olgam4 may trigger. The self-kick loop is bounded by
-    # command anchoring, the in-flight guard (all modes, stack_kick.py),
-    # the issue done-guard, and the four-verb hygiene line every kick
+    # work (a synchronize on a draft never kicks). Hard bot exclusion
+    # (ADR 0063, restoring 0040's intent): the agent acts as the
+    # veggies-harness GitHub App, so its comments and label events carry
+    # `user.type == 'Bot'` / `sender.type == 'Bot'` and never fire a kick -
+    # a prompt-injected session cannot re-kick itself, whatever it posts.
+    # The ready path below is deliberately NOT bot-excluded: the agent
+    # flips `gh pr ready` as the App by design (ADR 0062). The other
+    # bounds stand: command anchoring, the in-flight guard (all modes,
+    # stack_kick.py), the issue done-guard, and the hygiene line every kick
     # prompt carries (`gh pr review` fires pull_request_review, which this
-    # workflow never subscribes to - the reviewer's own review cannot
-    # re-kick). The hard bot exclusion returns with the GitHub App
-    # identity.
+    # workflow never subscribes to).
     if: >-
-      (github.event_name == 'issues' && github.event.label.name == 'agent-task') ||
+      (github.event_name == 'issues' && github.event.label.name == 'agent-task' &&
+        github.event.sender.type != 'Bot') ||
       (github.event_name == 'issue_comment' &&
+        github.event.comment.user.type != 'Bot' &&
         !github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/opencode') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'issue_comment' &&
+        github.event.comment.user.type != 'Bot' &&
         github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/review') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'discussion_comment' &&
+        github.event.comment.user.type != 'Bot' &&
         (startsWith(github.event.comment.body, '/distill') ||
          startsWith(github.event.comment.body, '/elaborate')) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||

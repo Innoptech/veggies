@@ -1,5 +1,5 @@
 ---
-status: accepted (interim - sunsets at the GitHub App agent identity; extended by 0050)
+status: superseded by ADR-0063 (the App identity restored the hard bot exclusion; extended by 0050 while interim)
 date: 2026-09-11
 ---
 
