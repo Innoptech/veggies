@@ -38,6 +38,7 @@ from capabilities import (  # noqa: E402  (re-exported for cli/veggies.py)
     state_dir,
 )
 from components import litellm, mcp_toolbox, opencode, squid  # noqa: E402
+from components import github_auth as github_auth_component  # noqa: E402
 from components import supervisor as supervisor_component  # noqa: E402
 from permission_envelope import (  # noqa: E402
     ask_violations_in_config,
@@ -69,6 +70,9 @@ REGISTRY: dict[str, dict[str, Component]] = {
     # are unchanged; selected via the `supervision:` capability key or the
     # v0 `components:` list.
     "supervision": {"supervisor": supervisor_component.COMPONENT},
+    # Implied by `github: true`, never selected by key (ADR 0063): the
+    # sidecar that holds the App credentials and rotates the pod's token.
+    "github-auth": {"github-auth": github_auth_component.COMPONENT},
 }
 # Iteration order of DEFAULT_SELECTION pins the container order (golden-stable).
 DEFAULT_SELECTION = {"harness": "opencode", "model-router": "litellm", "egress": "squid"}
@@ -97,8 +101,12 @@ def resolve_mcps(names: tuple[str, ...] | list[str] | None) -> list[Component]:
 
 
 def stack_components(spec: StackSpec) -> list[Component]:
-    """The full component list for a stack: capability selection + MCPs."""
-    return resolve_components(spec.components, spec.selections) + resolve_mcps(spec.mcps)
+    """The full component list for a stack: capability selection + MCPs +
+    the github-auth sidecar when the stack opted into GitHub (ADR 0063)."""
+    selected = resolve_components(spec.components, spec.selections) + resolve_mcps(spec.mcps)
+    if spec.github and not any(c.provides == "github-auth" for c in selected):
+        selected.append(REGISTRY["github-auth"]["github-auth"])
+    return selected
 
 
 def resolve_components(

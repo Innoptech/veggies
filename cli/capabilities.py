@@ -32,6 +32,9 @@ REMOTE_PROXY = "http://127.0.0.1:3128"
 EGRESS_PROXY_USER = "egress-proxy"
 EGRESS_PROXY_CONTAINER = "squid"
 REMOTE_STATE_ROOT = f"/home/{REMOTE_USER}/.local/state/veggies"
+# Shared emptyDir where the github-auth sidecar publishes the rotating App
+# token and the bot identity for the harness (ADR 0063).
+GITHUB_AUTH_DIR = "/github-auth"
 
 # Shared securityContext for every component unless it opts out with cause.
 HARDENED = {
@@ -55,7 +58,12 @@ class StackSpec:
     components: list[str] | None = None  # component names (v0); None = defaults
     selections: dict[str, str] | None = None  # capability -> impl (v1)
     mcps: tuple[str, ...] = ()  # opt-in MCP sidecars (ADR 0018)
-    github: bool = False  # opt-in: GH_TOKEN + git identity for push/PR (ADR 0030)
+    # opt-in: GitHub write access as the veggies-harness App via the
+    # github-auth sidecar (ADR 0063; replaces the ADR 0030 static token)
+    github: bool = False
+    # owner/name the sidecar scopes its tokens to; resolved at up-time from
+    # the clone URL or the mounted repo's origin. None = installation-wide.
+    github_repo: str | None = None
     # Resolved per-repo harness overlay image ref (issue #69, ADR 0060):
     # set by the up-time IO layer when veggies.yml carries
     # `harness_containerfile:`; None renders this repo's derived toolchain

@@ -35,7 +35,7 @@ hand-maintained.
 | [0011](0011-litellm-gateway-model-routing.md) | LiteLLM gateway as the model router | accepted |
 | [0012](0012-agent-config-baseline-superpowers.md) | Vendored agent-config baseline; Superpowers as a pinned opencode plugin | accepted |
 | [0013](0013-repo-scoped-agent-stacks.md) | Repo-scoped agent stacks, summoned by the `veggies` CLI (renamed from garden, 0015) | accepted |
-| [0014](0014-remote-stacks-over-ssh.md) | Remote stacks over ssh; CLI owns stacks, Ansible owns the host | accepted |
+| [0014](0014-remote-stacks-over-ssh.md) | Remote stacks over ssh; CLI owns stacks, Ansible owns the host | accepted (clone auth amended by 0063: a one-hour App token replaces the vault PAT) |
 | [0015](0015-rename-garden-to-veggies.md) | Project identity renamed: garden -> veggies | accepted |
 | [0016](0016-substrate-vs-stack-boundary.md) | Ansible is the substrate; the CLI is the stack | accepted |
 | [0017](0017-agent-orchestrator-and-workflows.md) | Agent orchestrator and adaptive pipelines | superseded by ADR-0026 |
@@ -45,13 +45,13 @@ hand-maintained.
 | [0021](0021-stack-data-backup-and-restore.md) | Stack data backup and restore | proposed |
 | [0022](0022-cost-metering-and-model-routing.md) | Cost metering and model routing | accepted |
 | [0023](0023-capability-model-dependency-reversal.md) | Capability model: the stack depends on contracts, not tools | accepted |
-| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted (amended by 0054) |
+| [0024](0024-interim-access-and-identity-constraints.md) | Interim access and identity constraints (public SSH, backups off, relaxed self-review) | accepted (amended by 0054; the PAT-on-operator identity is lifted by 0063 - Apps still cannot be CODEOWNERS, so §3 stands) |
 | [0025](0025-stack-control-plane.md) | Stack control plane: supervision UI and automations | superseded by ADR-0028 |
 | [0026](0026-retire-the-orchestrator.md) | Retire the orchestrator; supervision and automations move to the control plane | accepted |
 | [0027](0027-second-harness-in-canvas.md) | Second harness: OpenHands-native conversations in the canvas component | superseded by ADR-0028 |
 | [0028](0028-retire-canvas-own-the-critic-loop.md) | Retire the canvas control plane; own the critic loop | accepted (amended by 0036) |
 | [0029](0029-deny-over-ask-permission-envelope.md) | Deny-over-ask permission envelope for unattended sessions | accepted (amended by 0031) |
-| [0030](0030-opt-in-github-write-credentials-in-stacks.md) | Opt-in GitHub write credentials in agent stacks | accepted |
+| [0030](0030-opt-in-github-write-credentials-in-stacks.md) | Opt-in GitHub write credentials in agent stacks | superseded by ADR-0063 |
 | [0031](0031-no-ask-anywhere.md) | No ask anywhere: agent frontmatter joins the permission envelope | accepted (amended by 0049) |
 | [0032](0032-dev-toolchain-in-harness-image.md) | Dev toolchain baked into the harness image | accepted (amended by 0047, 0057) |
 | [0033](0033-issue-triggered-agent-kicks.md) | Issue-triggered agent kicks via GitHub Actions on the self-hosted runners | accepted (amended by 0048) |
@@ -83,7 +83,7 @@ hand-maintained.
 | [0059](0059-kick-time-tool-pin-gate.md) | Kick-time tool-pin gate: the image attests its toolchain pins, stale images are refused | accepted (renumbered from 0053 - main landed its own 0053..0058 mid-flight) |
 | [0060](0060-per-repo-harness-overlay.md) | Per-repo harness overlay: one veggies.yml key, built from the pinned base at up-time | accepted |
 | [0061](0061-comment-helper-joins-kick-delivery-set.md) | Comment helper joins the agent-kick delivery set | accepted (renumbered from 0054 - main landed its own 0054..0060 mid-flight) |
-| [0062](0062-pr-review-agent-comment-only.md) | Comment-only PR-review agent on the ready transition | accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight) |
+| [0062](0062-pr-review-agent-comment-only.md) | Comment-only PR-review agent on the ready transition | accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight; the ambient-PAT residual (#56) is closed by 0063) |
 | [0063](0063-github-app-identity.md) | GitHub App identity: rotating installation tokens replace the bot PAT everywhere | accepted |
 <!-- adr-index:end -->
 

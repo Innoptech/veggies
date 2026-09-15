@@ -53,7 +53,7 @@ model: kimi-k3            # litellm alias; becomes the stack's default model
 harness: opencode         # which implementation provides each capability
 model_router: litellm
 egress: squid
-# github: true            # opt-in: GH_TOKEN + gh in the pod for pushes/PRs (ADR 0030)
+# github: true            # opt-in: push/PR as the veggies-harness GitHub App (ADR 0063)
 ```
 
 A repo keeps its own conventions: CLAUDE.md/AGENTS.md and

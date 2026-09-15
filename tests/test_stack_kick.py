@@ -644,7 +644,7 @@ def test_build_elaborate_prompt_carries_thread_personas_and_posting():
     # elaborate NEVER closes the discussion (issue #67: distill-only)
     assert "closeDiscussion" not in p
     # degradation posture, same as 0038
-    assert "missing token permission" in p
+    assert "missing App permission" in p  # ADR 0063: gh acts as the App
 
 
 def test_build_elaborate_prompt_never_branches_or_creates_issues():

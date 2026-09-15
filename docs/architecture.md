@@ -44,9 +44,14 @@ tier carries `ask`, and refuses (same exit-3 skip machinery) an issue
 kick whose live stack image's attested gate-tool pins disagree with the
 checkout's overlay Containerfile pins - the build-vs-deploy skew window
 (ADR 0059). Stacks may opt
-into GitHub write access (`github: true` in veggies.yml): the pod carries
-the bot PAT as `GH_TOKEN` + `gh` (ADR 0030) and takes its serve password
-from the vault (ADR 0033). Harness images split base/overlay (ADR 0057):
+into GitHub write access (`github: true` in veggies.yml): a `github-auth`
+sidecar holds the `veggies-harness` App credentials, mints a one-hour
+installation token scoped to the stack's repository, refreshes it in place
+and publishes it as a file the harness's git credential helper and `gh`
+wrapper read per call (ADR 0063 - no static token anywhere, the private
+key never enters the agent container; commits are authored
+`veggies-harness[bot]`); the stack takes its serve password from the vault
+(ADR 0033). Harness images split base/overlay (ADR 0057):
 the base (`veggies-opencode-base` - the official image plus git/gh,
 pinned tag+digest) is every stack's harness; this repo's overlay
 (`veggies-opencode`) carries the dev toolchain

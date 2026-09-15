@@ -1,5 +1,5 @@
 ---
-status: accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight)
+status: accepted (renumbered from 0054 - main landed its own 0054..0061 mid-flight; the ambient-PAT residual (#56) is closed by 0063)
 date: 2026-09-12
 ---
 

@@ -25,8 +25,10 @@ nftables rules still apply. SELinux stays Enforcing.
 - Read the repo it runs on and its own work dir.
 - Reach the squid allowlist (github, registries, mirrors, fireworks) -
   responses logged.
-- In github-enabled stacks (ADR 0030): push branches and open PRs as the
-  bot - the review gate is the branch ruleset (tofu, ADR 0007/0053), not the pod.
+- In github-enabled stacks (ADR 0063): push branches and open PRs as the
+  `veggies-harness` App, on the stack's own repository only, with a
+  one-hour token - the review gate is the branch ruleset (tofu, ADR
+  0007/0053), not the pod.
 
 ## A prompt-injected job cannot (by design)
 
@@ -47,7 +49,8 @@ nftables rules still apply. SELinux stays Enforcing.
 | Fireworks API key | per-stack litellm podman secret (vault-sourced) | Full model spend until rotated - `veggies down <name> --purge` + `veggies up` re-injects per stack |
 | per-stack litellm master key | state.json (0600) + podman secret | Random per stack; useless outside that stack's pod |
 | GitHub App private key (runner copy) | gh-runner `app.pem` (0600; ADR 0063) | Can mint installation tokens with the App's full permission set on every installed repo until the key is revoked in the App settings; never enters containers. The fetcher itself only ever asks for `administration:write` on one repo |
-| GitHub bot PAT (opt-in stacks) | per-stack podman secret + GH_TOKEN env in the opencode container (ADR 0030) | Push/PR as the bot on repos the PAT can reach until revoked; cannot merge (branch ruleset, ADR 0007/0053) - rotate via vault-edit + stack recreate |
+| GitHub App private key (stack copy) | per-stack podman secret, env of the `github-auth` sidecar only (ADR 0063) | Mint installation tokens with the App's full grant on every installed repo until the key is revoked in the App settings; never in the agent container - rotate: new key -> vault-edit -> converge + `veggies up` -> revoke old |
+| Installation token file `/github-auth/token` | emptyDir, readable in the agent container (ADR 0063) | Write on the stack's own repository for at most one hour; cannot merge (branch ruleset, ADR 0007/0053); expires on its own |
 | Tailscale auth key | tailscale role (no_log) | Adds nodes with `tag:agent-host` until revoked in the tailnet console |
 | restic password + S3 creds | backup role env | Can decrypt/delete the backup bucket; cannot reach the host |
 | Vault password | `~/.config/infra/vault-password` (operator machine) | Everything above - protect accordingly (ADR 0004) |
@@ -69,16 +72,15 @@ nftables rules still apply. SELinux stays Enforcing.
 - veggies stacks (ADR 0013/0014): each stack's litellm holds a copy of the
   Fireworks key (podman secret, per-stack random master key). A stack escape
   exposes that copy - revoke by `veggies down --purge` + rotating in the vault.
-- Remote clone of a private repo passes the vault's github_token as a git
-  http.extraHeader. Before 2026-09-10 the `-c` pair trailed `clone`, and
-  git-clone's own `--config` persisted the header into the clone's
-  `.git/config` - pod-readable at /workspace (verified with git 2.54). As of
-  this branch the `-c` pair leads the command - command-scoped, never
-  persisted; the token rides the VPS process list for the clone's duration
-  only (readable to root/stacks on veggies). Accepted. Pre-fix clones may
-  still carry the header: `git config --unset http.extraheader` in the
-  clone, and rotate the PAT if one was exposed (runbook §3). TODO(verify):
-  move to a credential helper or deploy keys later.
+- Remote clone/pull of a private repo passes a git http.extraHeader
+  carrying a one-hour, `contents:read`, single-repository App token minted
+  on the operator machine (ADR 0063). The `-c` pair leads the command -
+  command-scoped, never persisted (a trailing `-c` on clone is git-clone's
+  own `--config` and would land in `.git/config`; verified 2026-09-10, git
+  2.54); the token rides the VPS process list for the clone's duration only
+  (readable to root/stacks on veggies) and is useless within the hour.
+  Accepted. Clones from before 2026-09-10 may still carry a header:
+  `git config --unset http.extraheader` in the clone.
 - Local stacks' egress is env-var enforced only (no nftables on a workstation)
   - the hard per-UID boundary exists on veggies (ADR 0006). A local agent that
   unsets HTTPS_PROXY bypasses the proxy; treat local stacks as guardrails,

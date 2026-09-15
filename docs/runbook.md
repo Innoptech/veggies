@@ -530,18 +530,28 @@ is operational, not an audit trail.
 
 ### Open PRs from a stack (github: true)
 
-Opt-in per repo (ADR 0030): `github: true` in veggies.yml, or `--github`
-at `up`. A github-enabled stack's opencode container gets the vault's
-`github_token` (secrets/github.yml) as `GH_TOKEN` via a per-stack podman
-secret, a git credential helper that expands `$GH_TOKEN` at use time (the
-token is never written to `.git/config`), the `gh` CLI, and bot commit
-identity (`veggies-agent`); `git@github.com:` remotes are normalized to
-HTTPS. Sessions in the stack can push branches and open PRs as the bot.
+Opt-in per repo (ADR 0063): `github: true` in veggies.yml, or `--github`
+at `up`. A github-enabled stack gains a `github-auth` sidecar holding the
+`veggies-harness` App credentials (vault `github_app_*`, a per-stack podman
+secret). It mints a one-hour installation token scoped to the stack's
+repository (`owner/name` from the clone URL or the mounted checkout's
+origin) with the fixed permission set in `cli/components/github_auth.py`,
+refreshes it twenty minutes before expiry, and publishes it at
+`/github-auth/token` on an emptyDir the opencode container mounts
+read-only. The git credential helper reads that file per call, a `gh`
+wrapper at `/root/.local/bin/gh` does the same, and commits are authored
+`veggies-harness[bot]` via an `include.path` gitconfig the sidecar writes;
+`git@github.com:` remotes are normalized to HTTPS. Sessions can push
+branches and open PRs as the App. The private key never enters the
+opencode container.
 
-- PAT scopes: Contents read/write + Pull requests read/write on the target
-  repos - the same `github_token` in secrets/github.yml that clone uses.
+- The requested permissions must be a subset of the App's grant (ADR 0063
+  lists it); a 422 in the sidecar log names the offender. The App must be
+  INSTALLED on the target repo (GitHub UI).
 - Applies at recreate: `veggies up`. The up output shows
-  `github:  GH_TOKEN + gh push/PR access enabled (ADR 0030)` when enabled.
+  `github:  veggies-harness App tokens via the github-auth sidecar (ADR 0063; repo owner/name)`;
+  `veggies status` shows the bot login and the token's remaining minutes;
+  `veggies logs <name> github-auth` shows identity discovery and mints.
 - On github-enabled stacks the serve password is the vault key
   `veggies_stack_password` (not per-stack random) so the repo's
   `VEGGIES_STACK_PASSWORD` Actions secret stays valid across re-ups
@@ -811,15 +821,12 @@ at `http://host.containers.internal:<port>` (NO_PROXY bypass, no inbound
 ports on the VPS; allowed by `egress_extra_local_dports` in the egress
 role).
 
-TODO(you): the bot PAT (account `olgam4`, fine-grained) is missing
-`Discussions: write` on Innoptech/veggies: the distilling agent's closing
-comment on the source discussion, its close-as-resolved call
-(`closeDiscussion`, ADR 0050), and the `/elaborate` persona POV
-comments (ADR 0041) all degrade to a named-permission final
-message until granted (the created issues still link the discussion, so
-the back-reference appears regardless). The four permissions verified
-missing on 2026-09-10 (`Contents`/`Pull requests`/`Secrets`/`Variables`
-write) were granted on 2026-09-11.
+The App holds `Discussions: write` (ADR 0063), so the distilling agent's
+closing comment, its close-as-resolved call (`closeDiscussion`, ADR 0050)
+and the `/elaborate` persona POV comments (ADR 0041) post as
+`veggies-harness[bot]`. Should a permission ever be missing, the agent
+degrades to a named-permission final message (the created issues still
+link the discussion, so the back-reference appears regardless).
 
 Watch a kicked run (the demo path):
 
