@@ -1331,11 +1331,12 @@ of record; harvest it into the queryable rollup with
 idempotent by `review_id`, so re-runs append only new verdicts and a fresh
 log simply backfills). On the stack host, from the stack's repo clone, as
 the stacks user (the state dir's owner), with any read token exported -
-the vault's `github_token` (section 3) works:
+your own `gh auth token` works (there is no long-lived bot token any
+more, ADR 0063):
 
 ```bash
 ssh veggies
-export GITHUB_TOKEN=<token with repo read>
+export GITHUB_TOKEN=<token with repo read, e.g. from `gh auth token` on your machine>
 sudo -u stacks -E bash -c 'cd /home/stacks/.local/state/veggies/clones/veggie &&
   python3 scripts/pr_review_verdicts.py'
 ```
