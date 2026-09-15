@@ -1,5 +1,5 @@
 ---
-status: accepted (amended by 0054)
+status: accepted (amended by 0054; the PAT-on-operator identity is lifted by 0063 - Apps still cannot be CODEOWNERS, so §3 stands)
 date: 2026-09-08
 ---
 

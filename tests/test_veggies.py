@@ -1264,12 +1264,45 @@ def test_stackspec_github_flag_and_secret_name():
     assert spec.secret_github == "veggies-t-github"
 
 
-def test_github_optin_adds_secret_env_and_gitconfig():
+def test_github_optin_implies_the_github_auth_sidecar():
+    # ADR 0063: `github: true` adds the sidecar that holds the App
+    # credentials; it is never selected by a veggies.yml key.
+    import components.github_auth as github_auth
+    spec = veggies.StackSpec(name="demo", repo="/tmp/r", port=4096, github=True,
+                             github_repo="Innoptech/demo")
+    comps = veggies_stack.stack_components(spec)
+    assert comps[-1] is github_auth.COMPONENT
+    assert "github-auth" not in veggies_stack.DEFAULT_SELECTION
+    assert "github-auth" not in veggies_stack.CAPABILITY_KEYS.values()
+    secs = {s.name_suffix: s for s in github_auth.COMPONENT.secrets(spec)}
+    assert secs["github"].keys == {
+        "app_id": capabilities.VaultKey("github_app_id", "secrets/github.yml"),
+        "installation_id": capabilities.VaultKey("github_app_installation_id", "secrets/github.yml"),
+        "private_key": capabilities.VaultKey("github_app_private_key", "secrets/github.yml"),
+    }
+    ctx = veggies_stack.build_context(spec, INFRA_REPO)
+    cont = github_auth.COMPONENT.render(ctx)
+    env = {e["name"]: e for e in cont["env"]}
+    # the private key is env of the sidecar ONLY (podman secret), never the harness
+    assert env["GITHUB_APP_PRIVATE_KEY"]["valueFrom"]["secretKeyRef"] == {
+        "name": "veggies-demo-github", "key": "private_key"}
+    assert env["GITHUB_REPO"]["value"] == "Innoptech/demo"
+    assert "contents" in env["GITHUB_TOKEN_PERMISSIONS"]["value"]
+    assert env["HTTPS_PROXY"]["value"].startswith("http://127.0.0.1:")  # api.github.com via squid
+    mounts = {m["name"]: m for m in cont["volumeMounts"]}
+    assert mounts["github-auth"]["mountPath"] == "/github-auth"
+    assert "readOnly" not in mounts["github-auth"]  # the writer
+    assert cont["securityContext"] == capabilities.HARDENED
+    files = github_auth.COMPONENT.config_files(ctx)
+    assert {"github_app_token.py", "github-auth-daemon.py", "gh-wrapper.sh"} <= files.keys()
+    assert files["github_app_token.py"] == (ROOT / "scripts/github_app_token.py").read_text()
+
+
+def test_github_optin_harness_reads_the_token_file_per_call():
     import components.opencode as opencode
     spec = veggies.StackSpec(name="demo", repo="/tmp/r", port=4096, github=True)
     secs = {s.name_suffix: s for s in opencode.COMPONENT.secrets(spec)}
-    assert secs["github"].keys["token"] == capabilities.VaultKey(
-        "github_token", "secrets/github.yml")
+    assert "github" not in secs  # the harness holds no GitHub secret of its own
     # ADR 0033: the serve password comes from the vault on github stacks so
     # the repo's Actions secret (same vault key via tofu) never goes stale.
     assert secs["opencode"].keys["password"] == capabilities.VaultKey(
@@ -1277,15 +1310,34 @@ def test_github_optin_adds_secret_env_and_gitconfig():
     ctx = veggies_stack.build_context(spec, INFRA_REPO)
     cont = opencode.COMPONENT.render(ctx)
     env = {e["name"]: e for e in cont["env"] if "name" in e}
-    assert env["GH_TOKEN"]["valueFrom"]["secretKeyRef"] == {
-        "name": "veggies-demo-github", "key": "token"}
+    assert "GH_TOKEN" not in env  # no static token anywhere (ADR 0063)
+    assert env["GH_TOKEN_FILE"]["value"] == "/github-auth/token"
     args = cont["args"][0]
-    # single-quoting is the security property: $GH_TOKEN must stay literal in
-    # the git config and expand only when git invokes the helper - a
-    # double-quoted helper would bake the PAT into /root/.gitconfig.
-    assert "credential.helper '!f() {" in args and "$GH_TOKEN" in args
+    # single-quoting is the security property: `$(cat "$GH_TOKEN_FILE")`
+    # must stay literal in /root/.gitconfig and run only when git invokes
+    # the helper - so rotation is invisible and nothing but a path persists.
+    assert "credential.helper '!f() {" in args
+    assert 'password=$(cat \"$GH_TOKEN_FILE\")' in args
     assert "url.https://github.com/.insteadOf" in args
-    assert 'user.name "veggies-agent"' in args
+    assert "include.path /github-auth/identity.gitconfig" in args
+    assert "user.name" not in args  # identity comes from the sidecar's file
+    # the gh wrapper shadows /usr/bin/gh for every child process
+    assert "cp /stack-config/gh-wrapper.sh /root/.local/bin/gh" in args
+    assert "export PATH=/root/.local/bin:$PATH" in args
+    mounts = {m["name"]: m for m in cont["volumeMounts"]}
+    assert mounts["github-auth"] == {"name": "github-auth", "mountPath": "/github-auth",
+                                     "readOnly": True}
+
+
+def test_github_pod_renders_both_containers_and_one_shared_volume():
+    spec = veggies.StackSpec(name="demo", repo="/tmp/r", port=4096, github=True)
+    pod = veggies_stack.render_pod(spec, INFRA_REPO)[-1]
+    names = [c["name"] for c in pod["spec"]["containers"]]
+    assert "github-auth" in names and "opencode" in names
+    vols = [v["name"] for v in pod["spec"]["volumes"]]
+    assert vols.count("github-auth") == 1  # merged by name, first declaration wins
+    assert sorted(veggies.secret_names(spec)) == [
+        "veggies-demo-github", "veggies-demo-litellm", "veggies-demo-opencode"]
 
 
 def test_github_default_off_leaves_render_untouched():
@@ -1298,6 +1350,8 @@ def test_github_default_off_leaves_render_untouched():
     cont = opencode.COMPONENT.render(veggies_stack.build_context(spec, INFRA_REPO))
     blob = str(cont)
     assert "GH_TOKEN" not in blob and "credential.helper" not in blob
+    assert "github-auth" not in blob
+    assert not any(c.provides == "github-auth" for c in veggies_stack.stack_components(spec))
 
 
 def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
@@ -1307,7 +1361,7 @@ def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
         name="stub", provides="stub", requires=(),
         render=lambda ctx: {}, volumes=lambda ctx: [],
         secrets=lambda s: [capabilities.SecretSpec("github", {
-            "token": capabilities.VaultKey("github_token", capabilities.VAULT_GITHUB),
+            "token": capabilities.VaultKey("github_app_id", capabilities.VAULT_GITHUB),
             "model_key": capabilities.VaultKey("fireworks_api_key"),
         })],
     )
@@ -1315,7 +1369,7 @@ def test_resolve_secret_values_routes_each_key_to_its_vault(monkeypatch, spec):
     monkeypatch.setattr(veggies, "vault_key",
                         lambda key, vault: calls.append((key, vault)) or "x")
     values = veggies.resolve_secret_values(spec, [stub])
-    assert calls == [("github_token", "secrets/github.yml"),
+    assert calls == [("github_app_id", "secrets/github.yml"),
                      ("fireworks_api_key", "secrets/model.yml")]
     assert values == {"token": "x", "model_key": "x"}
 
@@ -2077,8 +2131,13 @@ def test_remote_clone_private_repo_gets_token(monkeypatch):
         return subprocess.CompletedProcess(args, 1)  # anonymous probe fails
 
     monkeypatch.setattr(veggies, "host_run", fake_host_run)
-    monkeypatch.setattr(veggies, "vault_key", lambda *a, **k: "tok123")
+    minted = []
+    monkeypatch.setattr(veggies, "github_app_token_for",
+                        lambda repo, perms: minted.append((repo, perms)) or "tok123")
     cmd = veggies.remote_clone_cmd("veggies", "https://github.com/Innoptech/private.git", "/c/x")
+    # ADR 0063: a one-hour App token for THIS repo, read-only - never a PAT
+    assert minted == [("Innoptech/private", veggies.CLONE_TOKEN_PERMISSIONS)]
+    assert veggies.CLONE_TOKEN_PERMISSIONS == {"contents": "read", "metadata": "read"}
     header = "http.extraHeader=Authorization: Bearer tok123"
     # the extraHeader -c pair must come BEFORE "clone": a trailing -c is
     # git-clone's own --config and persists into the new repo's .git/config
@@ -2135,7 +2194,7 @@ def test_error_redaction_scrubs_vault_values(monkeypatch):
                         lambda *a, **k: subprocess.CompletedProcess(a, 1))
     monkeypatch.setattr(veggies.subprocess, "run", lambda *a, **k: type(
         "R", (), {"stdout": "tok123\n"})())
-    veggies.vault_key("github_token", "secrets/github.yml")
+    veggies.vault_key("github_app_installation_id", "secrets/github.yml")
     err = 'Command [\'git\', \'-c\', \'http.extraHeader=Authorization: Bearer tok123\'] failed'
     assert veggies.redact(err) == err.replace("tok123", "***")
     assert "tok123" in err  # sanity: the raw text did contain it
@@ -2245,3 +2304,51 @@ def test_render_matches_golden(monkeypatch):
     # harness's constant in-pod `mountPath: /workspace`.
     rendered = veggies.render_yaml(fixed, INFRA_REPO).replace(str(ROOT) + "/", "@ROOT@/")
     assert rendered == golden
+
+
+def test_github_repo_from_url_forms():
+    assert veggies.github_repo_from_url("https://github.com/Innoptech/veggies.git") == "Innoptech/veggies"
+    assert veggies.github_repo_from_url("https://github.com/Innoptech/veggies") == "Innoptech/veggies"
+    assert veggies.github_repo_from_url("git@github.com:Innoptech/veggies.git") == "Innoptech/veggies"
+    assert veggies.github_repo_from_url("https://gitlab.com/x/y.git") is None
+    assert veggies.github_repo_from_url("https://github.com/onlyowner") is None
+
+
+def test_github_app_token_for_mints_from_the_vault_and_redacts(monkeypatch):
+    reads = []
+    monkeypatch.setattr(veggies, "vault_key",
+                        lambda key, vault: reads.append((key, vault)) or f"<{key}>")
+    minted = {}
+
+    def fake_mint(app_id, installation_id, pem, *, repositories=None, permissions=None):
+        minted.update(app_id=app_id, installation_id=installation_id, pem=pem,
+                      repositories=repositories, permissions=permissions)
+        return {"token": "ghs_secret", "expires_at": "2026-01-01T00:00:00Z"}
+
+    import importlib.util as ilu
+    real_spec = ilu.spec_from_file_location
+    class _Mod:  # the lazily-loaded minter module, stubbed
+        mint = staticmethod(fake_mint)
+    monkeypatch.setattr(ilu, "module_from_spec", lambda s: _Mod())
+    monkeypatch.setattr(ilu, "spec_from_file_location",
+                        lambda name, path: type("S", (), {"loader": type("L", (), {"exec_module": staticmethod(lambda m: None)})()})())
+    token = veggies.github_app_token_for("Innoptech/veggies", {"contents": "read"})
+    assert token == "ghs_secret"
+    assert minted == {"app_id": "<github_app_id>", "installation_id": "<github_app_installation_id>",
+                      "pem": "<github_app_private_key>", "repositories": ["veggies"],
+                      "permissions": {"contents": "read"}}
+    assert reads == [("github_app_id", "secrets/github.yml"),
+                     ("github_app_installation_id", "secrets/github.yml"),
+                     ("github_app_private_key", "secrets/github.yml")]
+    assert veggies.redact("Bearer ghs_secret") == "Bearer ***"
+    veggies._SECRET_STRINGS.discard("ghs_secret")
+
+
+def test_detect_github_repo_clone_and_mount(monkeypatch):
+    assert veggies.detect_github_repo(None, "/x", "clone",
+                                      "git@github.com:Innoptech/veggies.git") == "Innoptech/veggies"
+    monkeypatch.setattr(veggies, "host_run", lambda host, argv, **k: subprocess.CompletedProcess(
+        argv, 0, stdout="https://github.com/Innoptech/other.git\n"))
+    assert veggies.detect_github_repo(None, "/x", "mount", "/x") == "Innoptech/other"
+    monkeypatch.setattr(veggies, "host_run", lambda host, argv, **k: subprocess.CompletedProcess(argv, 128))
+    assert veggies.detect_github_repo(None, "/x", "mount", "/x") is None

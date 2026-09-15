@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from capabilities import (
+    GITHUB_AUTH_DIR,
     HARDENED,
     VAULT_GITHUB,
     Component,
@@ -84,18 +85,31 @@ def _render(ctx: PodContext) -> dict:
     egress = ctx.service("egress")
     git_setup = ""
     gh_env: list[dict] = []
+    gh_mounts: list[dict] = []
     if spec.github:
-        # ADR 0030 opt-in: GH_TOKEN (podman secret env) + a credential helper that
-        # expands it at use time - never persisted into .git/config. insteadOf lets
-        # SSH-style remotes work; identity so commits attribute to the bot.
+        # ADR 0063 opt-in: the github-auth sidecar publishes a rotating App
+        # installation token at $GH_TOKEN_FILE on a shared emptyDir (mounted
+        # read-only here). The credential helper reads it per invocation -
+        # single quotes keep `$(cat ...)` literal in /root/.gitconfig so
+        # nothing but the file path is ever persisted; the gh wrapper hands
+        # the same file to gh per call (gh only reads a static GH_TOKEN).
+        # insteadOf lets SSH-style remotes work; the bot identity comes from
+        # the sidecar's identity.gitconfig via include.path (git ignores a
+        # missing include, so start ordering is a non-issue).
+        auth = ctx.service("github-auth")
         git_setup = (
+            "mkdir -p /root/.local/bin && "
+            "cp /stack-config/gh-wrapper.sh /root/.local/bin/gh && "
+            "chmod 755 /root/.local/bin/gh && "
+            "export PATH=/root/.local/bin:$PATH && "
             "git config --global credential.helper "
-            "'!f() { echo \"username=x-access-token\"; echo \"password=$GH_TOKEN\"; }; f' && "
+            "'!f() { echo \"username=x-access-token\"; "
+            "echo \"password=$(cat \"$GH_TOKEN_FILE\")\"; }; f' && "
             "git config --global \"url.https://github.com/.insteadOf\" \"git@github.com:\" && "
-            "git config --global user.name \"veggies-agent\" && "
-            "git config --global user.email \"veggies-agent@users.noreply.github.com\" && "
+            f"git config --global include.path {GITHUB_AUTH_DIR}/identity.gitconfig && "
         )
-        gh_env = [secret_env("GH_TOKEN", spec.secret_github, "token")]
+        gh_env = [{"name": k, "value": v} for k, v in sorted(auth.env.items())]
+        gh_mounts = [{"name": "github-auth", "mountPath": GITHUB_AUTH_DIR, "readOnly": True}]
     return {
         "name": "opencode",
         # Per-repo overlay (issue #69, ADR 0060): the IO layer resolves and
@@ -153,7 +167,7 @@ def _render(ctx: PodContext) -> dict:
             {"name": "stack-config", "mountPath": "/stack-config", "readOnly": True},
             {"name": "opencode-home", "mountPath": "/root"},
             {"name": "tmp", "mountPath": "/tmp"},
-        ],
+        ] + gh_mounts,
         "resources": {"limits": {"memory": "512Mi"}},
         "securityContext": HARDENED,
         # exec probe with the tool this image ships: busybox nc.
@@ -186,10 +200,9 @@ def _secrets(spec: StackSpec) -> list[SecretSpec]:
     # keep a per-stack random password.
     password = (VaultKey("veggies_stack_password", VAULT_GITHUB) if spec.github
                 else Generated(12))
-    out = [SecretSpec("opencode", {"password": password})]
-    if spec.github:
-        out.append(SecretSpec("github", {"token": VaultKey("github_token", VAULT_GITHUB)}))
-    return out
+    # The App credentials are the github-auth sidecar's declaration (ADR
+    # 0063); the harness holds no GitHub secret of its own.
+    return [SecretSpec("opencode", {"password": password})]
 
 
 def _config_files(ctx: PodContext) -> dict[str, str]:

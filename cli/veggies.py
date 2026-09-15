@@ -173,6 +173,46 @@ def resolve_secret_values(
     return values
 
 
+def github_repo_from_url(repo_url: str) -> str | None:
+    """Pure: https://github.com/owner/name[.git] -> "owner/name"; None for
+    anything that is not a github.com URL."""
+    url = github_https_url(repo_url)
+    prefix = "https://github.com/"
+    if not url.startswith(prefix):
+        return None
+    path = url[len(prefix):].strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    return f"{parts[0]}/{parts[1]}" if len(parts) >= 2 and all(parts[:2]) else None
+
+
+def github_app_token_for(repo: str | None, permissions: dict[str, str]) -> str:
+    """Mint a one-hour GitHub App installation token on THIS machine from the
+    vault's App credentials (ADR 0063), narrowed to `repo` ("owner/name";
+    None = installation-wide) and `permissions`. Used where the operator's
+    CLI talks to GitHub on the VPS's behalf (private clone/pull). The token
+    is registered for redaction like every vault value."""
+    import importlib.util
+    script = Path(__file__).parent.parent / "scripts/github_app_token.py"
+    module_spec = importlib.util.spec_from_file_location("github_app_token", script)
+    minter = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(minter)
+    token = minter.mint(
+        vault_key("github_app_id", VAULT_GITHUB),
+        vault_key("github_app_installation_id", VAULT_GITHUB),
+        vault_key("github_app_private_key", VAULT_GITHUB),
+        repositories=[repo.rsplit("/", 1)[-1]] if repo else None,
+        permissions=permissions,
+    )["token"]
+    _SECRET_STRINGS.add(token)
+    return token
+
+
+# The clone/pull header needs nothing but read access to one repository.
+CLONE_TOKEN_PERMISSIONS = {"contents": "read", "metadata": "read"}
+
+
 # --- Runtime (podman, images, health) -------------------------------------------
 
 
@@ -188,7 +228,7 @@ def github_https_url(repo_url: str) -> str:
     """Pure: git@github.com: -> https://github.com/. SSH from the VPS is dead
     by design (squid CONNECT allowlist is 443-only, no keys for the stacks
     user); the HTTPS form rides the substrate proxy and, in github-enabled
-    pods, the GH_TOKEN credential helper."""
+    pods, the github-auth credential helper (ADR 0063)."""
     if repo_url.startswith("git@github.com:"):
         return "https://github.com/" + repo_url[len("git@github.com:"):]
     return repo_url
@@ -207,16 +247,18 @@ def remote_repo_needs_token(host: str, repo_url: str) -> bool:
 def remote_git_prefix(host: str, repo_url: str) -> list[str]:
     """git argv prefix for network ops on the VPS: the substrate proxy (the
     stacks user is direct-egress-denied) plus, for private github.com repos,
-    the vault token via extraHeader. The -c pairs lead the subcommand on
-    purpose: a TRAILING -c on clone is git-clone's own --config and would
-    PERSIST the header into the new repo's .git/config (pod-readable at
-    /workspace; verified 2026-09-10, git 2.54), while a leading -c is
-    command-scoped and never written out. The token still rides the VPS
-    process list briefly - see docs/threat-model.md."""
+    a one-hour contents:read App token for THAT repo via extraHeader (ADR
+    0063). The -c pairs lead the subcommand on purpose: a TRAILING -c on
+    clone is git-clone's own --config and would PERSIST the header into the
+    new repo's .git/config (pod-readable at /workspace; verified 2026-09-10,
+    git 2.54), while a leading -c is command-scoped and never written out.
+    The token still rides the VPS process list briefly - see
+    docs/threat-model.md."""
     cmd = ["git", "-c", f"http.proxy={REMOTE_PROXY}"]
     if repo_url.startswith("https://github.com/") and \
             remote_repo_needs_token(host, repo_url):
-        token = vault_key("github_token", VAULT_GITHUB)
+        token = github_app_token_for(github_repo_from_url(repo_url),
+                                     CLONE_TOKEN_PERMISSIONS)
         cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
     return cmd
 
@@ -885,6 +927,20 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     return 0
 
 
+def detect_github_repo(host: str | None, repo_path: str, mode: str,
+                       repo_arg: str) -> str | None:
+    """owner/name the github-auth sidecar scopes its tokens to (ADR 0063):
+    the clone URL in clone mode, the mounted checkout's origin otherwise.
+    None (installation-wide token) when neither is a github.com URL."""
+    if mode == "clone":
+        return github_repo_from_url(repo_arg)
+    origin = host_run(host, ["git", "-C", repo_path, "remote", "get-url", "origin"],
+                      check=False, capture=True)
+    if origin.returncode != 0:
+        return None
+    return github_repo_from_url(origin.stdout.strip())
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     infra_repo = Path(__file__).parent.parent.resolve()
     state = State()
@@ -955,7 +1011,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     if spec.model:
         print(f"model:   litellm/{spec.model} (veggies.yml)")
     if spec.github:
-        print("github:  GH_TOKEN + gh push/PR access enabled (ADR 0030)")
+        spec.github_repo = detect_github_repo(host, repo_path, mode, args.repo)
+        print("github:  veggies-harness App tokens via the github-auth sidecar"
+              f" (ADR 0063; repo {spec.github_repo or '<installation-wide>'})")
 
     url = f"http://{host or '127.0.0.1'}:{port}"
     if sys.stdin.isatty() and not args.yes:
@@ -1130,7 +1188,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
         token = None
         if url.startswith("https://github.com/") and \
                 remote_repo_needs_token(host, url):
-            token = vault_key("github_token", VAULT_GITHUB)
+            token = github_app_token_for(github_repo_from_url(url),
+                                         CLONE_TOKEN_PERMISSIONS)
         pull = clone_pull_argv(clone_dir, proxy=REMOTE_PROXY, token=token)
     else:
         pull = clone_pull_argv(clone_dir)
@@ -1955,8 +2014,9 @@ def main(argv: list[str] | None = None) -> int:
                       default=os.environ.get("VEGGIES_CLONE") == "1",
                       help="repo is a URL; clone into the state dir")
     p_up.add_argument("--github", action="store_true",
-                      help="deliver the vault's github_token as GH_TOKEN + git "
-                      "credential config (push/PR; ADR 0030)")
+                      help="GitHub write access as the veggies-harness App: "
+                      "a github-auth sidecar rotates a repo-scoped token for "
+                      "git/gh (push/PR; ADR 0063)")
     p_up.add_argument("--no-attach", action="store_true",
                       default=os.environ.get("VEGGIES_NO_ATTACH") == "1")
     p_up.add_argument("--no-install", action="store_true",

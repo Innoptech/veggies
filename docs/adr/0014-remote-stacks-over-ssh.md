@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (clone auth amended by 0063: a one-hour App token replaces the vault PAT)
 date: 2026-09-04
 ---
 

@@ -484,7 +484,7 @@ For each distinct piece of work the discussion asks for:
 3. Do NOT add the `agent-task` label: a human reviews the new issues first
    and labels deliberately (the label kicks another agent, ADR 0035).
 4. When every issue exists, comment the created issue links back on the
-   discussion (best effort - the bot PAT may lack Discussions: write).
+   discussion (best effort - report a denied permission by name).
    Discussions reject addComment; use addDiscussionComment (ADR 0039):
    fetch the node id with
    `gh api repos/{repo}/discussions/{number} --jq .node_id`, then
@@ -507,9 +507,10 @@ Rules of engagement:
 - Read the repo's agent-instruction file first (AGENTS.md or CLAUDE.md, whichever the repo ships) and follow it.
 - No code changes: do not branch, commit, push, or open a PR - the
   deliverable is the set of issues plus the summary comment.
-- gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If issue
-  creation is denied, name the exact missing token permission in your
-  final message and stop (the operator grants it).
+- gh is authenticated as the veggies-harness GitHub App (a rotating
+  installation token, ADR 0063). If issue creation is denied, name the
+  exact missing App permission in your final message and stop (the
+  operator grants it).
 - Finish the task completely; never end your turn with a next step
   unexecuted.
 """
@@ -565,9 +566,10 @@ Rules of engagement:
 - No code changes, no tracking artifacts: do not branch, commit, push,
   open a PR, or create issues - the deliverable is exactly the five
   attributed POV comments on this discussion.
-- gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If a
-  posting call is denied, name the exact missing token permission in your
-  final message and stop (the operator grants it).
+- gh is authenticated as the veggies-harness GitHub App (a rotating
+  installation token, ADR 0063). If a posting call is denied, name the
+  exact missing App permission in your final message and stop (the
+  operator grants it).
 - Finish the task completely; never end your turn with a next step
   unexecuted.
 """
@@ -732,9 +734,10 @@ Rules of engagement:
   AGENTS.md/CLAUDE.md (or equivalent) the repo ships - and follow it.
 - No code changes: do not branch, commit, push, or open a PR - the
   deliverable is exactly one comment-only review.
-- gh is authenticated as the veggies bot (GH_TOKEN, ADR 0030). If the
-  review post is denied, name the exact missing token permission in your
-  final message and stop (the operator grants it).
+- gh is authenticated as the veggies-harness GitHub App (a rotating
+  installation token, ADR 0063). If the review post is denied, name the
+  exact missing App permission in your final message and stop (the
+  operator grants it).
 - Finish the task completely; never end your turn with a next step
   unexecuted.
 """
