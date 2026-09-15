@@ -77,11 +77,32 @@ def repo_names(github_repo: str) -> list[str] | None:
     return [github_repo.rsplit("/", 1)[-1]]
 
 
+def ensure_identity(state: dict, discover, log=log) -> dict:
+    """Discover and publish the bot identity once; retried every pass until
+    it lands (the pod's squid may not be up on the first pass - seen live
+    2026-09-15: a startup-only attempt timed out and commits fell back to
+    git defaults for the pod's whole life)."""
+    if state.get("login"):
+        return state
+    try:
+        login, user_id = discover()
+    except Exception as exc:  # noqa: BLE001 - cosmetic until it lands; tokens are not
+        log(f"identity discovery failed, will retry: {exc}")
+        return state
+    write_atomic(AUTH_DIR / "identity.gitconfig", identity_gitconfig(login, user_id))
+    state.update(login=login, id=user_id)
+    log(f"identity: {login} {user_id}")
+    return state
+
+
 def tick(state: dict, now: float, mint, *, github_repo: str,
-         permissions: dict, log=log) -> dict:
-    """One pass: refresh the token when due. `state` carries
-    expires_at_epoch; `mint()` returns {"token", "expires_at"}."""
+         permissions: dict, log=log, discover=None) -> dict:
+    """One pass: publish the identity if still missing, refresh the token
+    when due. `state` carries expires_at_epoch (+ login/id once known);
+    `mint()` returns {"token", "expires_at"}."""
     HEARTBEAT.touch()
+    if discover is not None:
+        state = ensure_identity(state, discover, log=log)
     if not needs_refresh(state.get("expires_at_epoch"), now):
         return state
     try:
@@ -109,21 +130,17 @@ def main() -> int:
     HEARTBEAT.touch()  # first beat before any IO: wait_healthy is not held
 
     state: dict = {}
-    try:
-        login, user_id = discover_identity(
-            github_app_token.app_jwt(app_id, pem), github_app_token.app_get)
-        write_atomic(AUTH_DIR / "identity.gitconfig", identity_gitconfig(login, user_id))
-        state.update(login=login, id=user_id)
-        log(f"identity: {login} {user_id}")
-    except Exception as exc:  # noqa: BLE001 - identity is cosmetic; tokens are not
-        log(f"identity discovery failed (commits fall back to git defaults): {exc}")
 
     def mint(**kw):
         return github_app_token.mint(app_id, installation_id, pem, **kw)
 
+    def discover():
+        return discover_identity(github_app_token.app_jwt(app_id, pem),
+                                 github_app_token.app_get)
+
     while True:
         state = tick(state, time.time(), mint, github_repo=github_repo,
-                     permissions=permissions)
+                     permissions=permissions, discover=discover)
         time.sleep(POLL_S)
 
 

@@ -95,3 +95,28 @@ def test_installation_wide_when_no_repo(daemon):
     daemon.tick({}, now=0.0, mint=mint, github_repo="", permissions={"contents": "read"},
                 log=lambda m: None)
     assert mint.call_args.kwargs["repositories"] is None
+
+
+def test_identity_retries_until_it_lands_then_stops(daemon):
+    attempts = []
+
+    def discover():
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise TimeoutError("squid not up yet")
+        return "veggies-harness[bot]", 329273836
+
+    mint = mock.Mock(return_value={"token": "t", "expires_at": "1970-01-01T01:00:00Z"})
+    logs = []
+    state = {}
+    for now in (0.0, 60.0, 120.0, 180.0):
+        state = daemon.tick(state, now=now, mint=mint, github_repo="", permissions={},
+                            log=logs.append, discover=discover)
+    # two failures logged and retried, success on the third pass, then no more calls
+    assert len(attempts) == 3
+    assert sum("will retry" in m for m in logs) == 2
+    assert state["login"] == "veggies-harness[bot]" and state["id"] == 329273836
+    assert "329273836+veggies-harness[bot]@users.noreply.github.com" in \
+        (daemon.AUTH_DIR / "identity.gitconfig").read_text()
+    # the token was minted on the very first pass regardless of identity
+    assert mint.call_count == 1

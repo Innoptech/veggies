@@ -548,6 +548,9 @@ opencode container.
 - The requested permissions must be a subset of the App's grant (ADR 0063
   lists it); a 422 in the sidecar log names the offender. The App must be
   INSTALLED on the target repo (GitHub UI).
+- The wrapper is first on PATH for the serve process and every tool shell
+  it spawns; a `podman exec` from the host starts with the image PATH, so
+  call it as `/root/.local/bin/gh` there.
 - Applies at recreate: `veggies up`. The up output shows
   `github:  veggies-harness App tokens via the github-auth sidecar (ADR 0063; repo owner/name)`;
   `veggies status` shows the bot login and the token's remaining minutes;
@@ -998,21 +1001,14 @@ and the delivery-branch copies), then merge a PR deleting
 otherwise the merged workflow keeps firing on `/opencode` comments into
 guaranteed auth failures.
 
-Veggies-repo migration (operator, one-time): BEFORE the first apply with
-`moves.tf`, set `stack_port` in `module.agent_kick_veggies` from
-`veggies ls` (the placeholder 0 would publish in place over the moved
-variable; a resource-level lifecycle precondition on the port variable
-resource fails the plan loudly on it - variable validations would fail
-`tofu validate` itself on the placeholder, verified on OpenTofu 1.12.6,
-so the guards live on the resources), and `mask vault-edit
-secrets/github.yml` to delete exactly
-`actions_secrets.veggies.VEGGIES_STACK_PASSWORD`,
-`actions_variables.veggies.VEGGIES_STACK_HOST` and
-`actions_variables.veggies.VEGGIES_STACK_PORT`. Then `mask tofu-plan`:
-expect exactly 4 moves and no destroy of the trio; the secret should show
-no change - if the plan shows it changing, the vault key and the old trio
-diverged; investigate before applying. After the green apply, delete
-`terraform/github/moves.tf` in a follow-up PR.
+Veggies-repo migration: done 2026-09-15 (the one-shot `moves.tf` moved the
+trio and the `agent-task` label into `module.agent_kick_veggies` in the
+same apply that replaced the classic branch protection with the ADR 0053
+ruleset; `moves.tf` was then deleted). Two lessons kept for the next
+adoption: the plan refuses a `moved` block while its source address is
+still declared, so the generic `actions_*` map entries must leave the
+vault BEFORE the plan; and `mask tofu-apply` asks twice (its own `apply`
+prompt, then tofu's `yes`).
 
 The serve password now lives in the local tofu state like the other
 Actions secrets (gitignored, restic-backed - ADR 0008; state handling per
