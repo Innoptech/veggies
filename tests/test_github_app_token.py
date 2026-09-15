@@ -83,6 +83,14 @@ def test_http_error_surfaces_status_and_message_without_credential():
     assert "/app/installations/1/access_tokens" in str(exc.value)
 
 
+def test_request_timeout_outlives_the_pod_squid_first_connect_stall():
+    # measured 35-40s on 2026-09-15; anything under that fails every first call
+    assert gat.REQUEST_TIMEOUT_S >= 60
+    urlopen = mock.Mock(return_value=_response({"slug": "x"}))
+    gat.app_get("JWT", "/app", urlopen=urlopen)
+    assert urlopen.call_args.kwargs["timeout"] == gat.REQUEST_TIMEOUT_S
+
+
 def test_app_get_uses_jwt_bearer():
     urlopen = mock.Mock(return_value=_response({"slug": "veggies-harness"}))
     assert gat.app_get("JWT", "/app", urlopen=urlopen)["slug"] == "veggies-harness"
