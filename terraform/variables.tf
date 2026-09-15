@@ -87,6 +87,28 @@ variable "manage_label_workflow" {
   default     = false
 }
 
+# GitHub App credentials for the github provider's app_auth block (ADR 0063).
+# Vault keys github_app_* in secrets/github.yml, exported as TF_VAR_github_app_*
+# by scripts/tfvars_from_vault.py at `mask tofu-plan/apply` - never in tfvars.
+variable "github_app_id" {
+  type        = string
+  description = "GitHub App ID (vault key github_app_id)."
+  default     = ""
+}
+
+variable "github_app_installation_id" {
+  type        = string
+  description = "Installation ID of the App on the owning org (vault key github_app_installation_id)."
+  default     = ""
+}
+
+variable "github_app_private_key" {
+  type        = string
+  sensitive   = true
+  description = "The App's private key, PEM contents (vault key github_app_private_key; multiline, `|` block scalar)."
+  default     = ""
+}
+
 variable "veggies_stack_password" {
   type        = string
   sensitive   = true

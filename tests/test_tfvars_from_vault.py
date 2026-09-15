@@ -21,3 +21,18 @@ def test_structured_values_become_json():
 
 def test_empty_mapping_produces_nothing():
     assert exports({}) == []
+
+
+def test_multiline_pem_round_trips_through_shell_quoting():
+    # The App private key is a `|` block scalar in the vault (ADR 0063):
+    # the eval'd export must hand the provider the PEM byte-exact, trailing
+    # newline included.
+    import shlex
+
+    pem = "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+    (line,) = exports({"github_app_private_key": pem})
+    export, assignment = shlex.split(line)
+    assert export == "export"
+    key, _, value = assignment.partition("=")
+    assert key == "TF_VAR_github_app_private_key"
+    assert value == pem

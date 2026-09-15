@@ -15,10 +15,17 @@ restic backups. `backend.tf` documents the OVH S3-compatible migration target.
 
 ## Secrets flow
 
-The github provider needs a token at plan/apply time. Tokens live ONLY in the
-ansible vault (`secrets/github.yml`); `mask tofu-plan` and `mask tofu-apply`
-decrypt to the process environment via `scripts/tfvars_from_vault.py` -
-plaintext never touches disk, tfvars, or CI logs.
+The github provider authenticates as the `veggies-harness` GitHub App
+(ADR 0063): `app_auth` in `providers.tf` reads `var.github_app_id`,
+`var.github_app_installation_id` and `var.github_app_private_key`. Those
+live ONLY in the ansible vault (`secrets/github.yml`, keys `github_app_*`);
+`mask tofu-plan` and `mask tofu-apply` decrypt them to the process
+environment as `TF_VAR_*` via `scripts/tfvars_from_vault.py` - plaintext
+never touches disk, tfvars, or CI logs. The mask tasks `unset GITHUB_TOKEN`
+first: a token in the environment silently wins over `app_auth`. The App's
+installation repository list is maintained in the GitHub UI - the
+provider's `github_app_installation_repository` resource is documented as
+incompatible with App authentication.
 
 ## Review commands
 

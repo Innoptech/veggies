@@ -47,12 +47,11 @@ module "agent_kick_data_pipelines" {
 }
 ```
 
-The recipe: the repo's stack serving + the tofu identity holding Actions
-`Secrets: write` / `Variables: write` / `Contents: write` ON THE NEW REPO
-(TODO(verify): pushing the workflow file may need more per token type -
-classic PAT: the `workflow` scope; GitHub App: the Workflows repository
-permission; fine-grained PAT behavior unverified - the first apply
-surfaces it loudly) -> the block plus a line per block in the
+The recipe: the repo's stack serving + the App installed on the new repo
+(GitHub UI, "Only select repositories" - ADR 0063; the App holds Actions
+`Secrets: write` / `Variables: write` / `Contents: write` / `Workflows:
+write`, the last one because the delivery pushes `.github/workflows/*`)
+-> the block plus a line per block in the
 `agent_kick_delivery_branches` output map in `outputs.tf` ->
 `mask tofu-plan` / `mask tofu-apply` -> merge the delivered
 `infra/agent-trigger` PR (and delete the delivery branch) -> label an
